@@ -302,7 +302,15 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
             if player_type == "強肩型": chance += 2
             if isinstance(arm, int | float): chance += 1 if arm >= 70 else -3 if arm < 55 else 0
         if kind == "red":
-            if name == "三振" and isinstance(meet, int | float) and meet < 50: chance += 2
+            if name == "三振" and isinstance(meet, int | float):
+                if meet < 45:
+                    chance += 2
+                elif meet < 55:
+                    chance += 1
+                elif meet >= 75:
+                    chance -= 5
+                elif meet >= 65:
+                    chance -= 3
             if name == "エラー" and ((isinstance(field, int | float) and field < 50) or (isinstance(catch, int | float) and catch < 50)): chance += 2
             chance -= 1
     else:
@@ -328,8 +336,18 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
             if position == "先発" or player_type == "スタミナ型": chance += 2
             if position == "抑え" and name in {"回またぎ○", "根性", "尻上がり"}: chance -= 3
         if name == "緊急登板○" and position in ("中継ぎ", "抑え"): chance += 1
+        if name == "荒れ球" and isinstance(control, int | float):
+            if control < 35:
+                chance += 5
+            elif control < 45:
+                chance += 4
+            elif control >= 70:
+                chance -= 12
+            elif control >= 60:
+                chance -= 8
         if kind == "red":
-            if name in {"四球", "荒れ球", "乱調", "ボール先行"} and isinstance(control, int | float): chance += 2 if control < 45 else -3 if control >= 70 else 0
+            if name in {"四球", "乱調", "ボール先行"} and isinstance(control, int | float):
+                chance += 2 if control < 45 else -3 if control >= 70 else 0
             if name == "スロースターター" and position == "先発" and isinstance(stamina, int | float) and stamina < 45: chance += 1
             chance -= 1
 
