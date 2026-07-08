@@ -32,7 +32,7 @@ SPECIAL_ROLE_FALLBACKS = {
 
 @dataclass
 class MasterData:
-    names: dict[str, list[str]]
+    names: dict[str, Any]
     places: dict[str, list[str]]
     abilities: list[dict[str, Any]]
 
@@ -44,13 +44,25 @@ def ensure_master_files() -> None:
     abilities_path = DATA_DIR / "special_abilities.csv"
     if not names_path.exists():
         names_path.write_text(json.dumps({
-            "日本": ["佐藤 蓮", "鈴木 大和", "高橋 翔", "田中 悠真", "伊藤 蒼", "山本 隼人", "中村 匠", "小林 海斗"],
-            "外国": ["ジョンソン", "ロドリゲス", "スミス", "ガルシア", "ブラウン", "ミラー", "マルティネス", "ウィルソン"]
+            "日本": {"姓": ["佐藤", "鈴木", "高橋", "田中"], "名": ["蓮", "大和", "翔", "悠真"]},
+            "アメリカ": {"姓": ["Smith", "Johnson"], "名": ["John", "Michael"]},
+            "ドミニカ共和国": {"姓": ["Rodriguez", "Martinez"], "名": ["Juan", "Carlos"]},
+            "ベネズエラ": {"姓": ["Gonzalez", "Garcia"], "名": ["Jose", "Luis"]},
+            "キューバ": {"姓": ["Gurriel", "Cespedes"], "名": ["Yulieski", "Yoenis"]},
+            "メキシコ": {"姓": ["Garcia", "Hernandez"], "名": ["Alejandro", "Javier"]},
+            "韓国": {"姓": ["キム", "李"], "名": ["ミンジュン", "ソジュン"]},
+            "台湾": {"姓": ["陳", "林"], "名": ["チェンウェイ", "ジアハオ"]}
         }, ensure_ascii=False, indent=2), encoding="utf-8")
     if not places_path.exists():
         places_path.write_text(json.dumps({
-            "日本": ["北海道", "宮城", "東京", "神奈川", "愛知", "大阪", "広島", "福岡", "沖縄"],
-            "外国": ["アメリカ", "ドミニカ共和国", "ベネズエラ", "キューバ", "メキシコ", "韓国", "台湾"]
+            "日本": ["北海道", "東京都", "大阪府", "福岡県"],
+            "アメリカ": ["カリフォルニア州", "テキサス州"],
+            "ドミニカ共和国": ["サントドミンゴ", "サンペドロ・デ・マコリス"],
+            "ベネズエラ": ["カラカス", "マラカイボ"],
+            "キューバ": ["ハバナ", "サンティアゴ・デ・クーバ"],
+            "メキシコ": ["メキシコシティ", "ソノラ州"],
+            "韓国": ["ソウル", "釜山"],
+            "台湾": ["台北", "台中"]
         }, ensure_ascii=False, indent=2), encoding="utf-8")
     if not abilities_path.exists():
         rows = [
@@ -74,8 +86,8 @@ def load_master_data() -> MasterData:
     if "target_role" not in abilities.columns:
         abilities["target_role"] = abilities["group"].apply(infer_special_target_role)
     return MasterData(
-        names=json.loads((DATA_DIR / "names.json").read_text(encoding="utf-8")),
-        places=json.loads((DATA_DIR / "places.json").read_text(encoding="utf-8")),
+        names=normalize_name_master(json.loads((DATA_DIR / "names.json").read_text(encoding="utf-8"))),
+        places=normalize_place_master(json.loads((DATA_DIR / "places.json").read_text(encoding="utf-8"))),
         abilities=abilities.to_dict("records"),
     )
 
@@ -250,13 +262,73 @@ def generate_breaking_balls(rng: random.Random, player_type: str) -> list[dict[s
     return [{"name": b, "level": rng.randint(1, 5) + (1 if player_type == "変化球派" and rng.random() < 0.4 else 0)} for b in balls]
 
 
+FOREIGN_NATIONS = ["アメリカ", "ドミニカ共和国", "ベネズエラ", "キューバ", "メキシコ", "韓国", "台湾"]
+
+
+def normalize_name_master(names: dict[str, Any]) -> dict[str, Any]:
+    if "外国" not in names:
+        return names
+    # 旧形式のマスターを読み込んだ場合も最低限動かせるようにする。
+    old_foreign_names = names.get("外国", [])
+    normalized = {key: value for key, value in names.items() if key != "外国"}
+    for nation in FOREIGN_NATIONS:
+        normalized.setdefault(nation, old_foreign_names)
+    return normalized
+
+
+def normalize_place_master(places: dict[str, Any]) -> dict[str, list[str]]:
+    if "外国" not in places:
+        return places
+    old_foreign_places = places.get("外国", [])
+    normalized = {key: value for key, value in places.items() if key != "外国"}
+    for nation in FOREIGN_NATIONS:
+        normalized.setdefault(nation, [nation] if nation in old_foreign_places else old_foreign_places)
+    return normalized
+
+
+def choose_nationality(rng: random.Random, category: str) -> str:
+    if category == "助っ人外国人用":
+        return weighted_choice(rng, [("アメリカ", 30), ("ドミニカ共和国", 24), ("ベネズエラ", 16), ("キューバ", 10), ("メキシコ", 8), ("韓国", 6), ("台湾", 6)])
+    if category == "ドラフト候補用":
+        # ドラフト候補は原則日本国籍。まれな外国籍候補は留学生・日系選手想定として国籍に合う名前と出身地を使う。
+        return weighted_choice(rng, [("日本", 98), ("韓国", 1), ("台湾", 1)])
+    return weighted_choice(rng, [("日本", 92), ("アメリカ", 3), ("ドミニカ共和国", 2), ("ベネズエラ", 1), ("キューバ", 1), ("韓国", 1)])
+
+
+def choose_name(rng: random.Random, names: dict[str, Any], nationality: str) -> str:
+    entry = names.get(nationality) or names["日本"]
+    if isinstance(entry, dict):
+        return f"{rng.choice(entry['姓'])} {rng.choice(entry['名'])}"
+    return rng.choice(entry)
+
+
+def choose_birthplace(rng: random.Random, places: dict[str, list[str]], nationality: str) -> str:
+    return rng.choice(places.get(nationality) or places["日本"])
+
+
+def classify_name_type(name: str, master: MasterData) -> str:
+    for nation, entry in master.names.items():
+        if isinstance(entry, dict):
+            surnames = entry.get("姓", [])
+            given_names = entry.get("名", [])
+            if any(name.startswith(f"{surname} ") for surname in surnames) and any(name.endswith(f" {given}") for given in given_names):
+                return nation
+        elif name in entry:
+            return nation
+    return "不明"
+
+
+def classify_birthplace_type(birthplace: str, master: MasterData) -> str:
+    for nation, places in master.places.items():
+        if birthplace in places:
+            return nation
+    return "不明"
+
 def generate_player(role: str, category: str, master: MasterData, seed: int | None = None) -> dict[str, Any]:
     seed = seed if seed is not None else random.SystemRandom().randrange(SEED_MAX)
     rng = random.Random(seed)
     age = age_for(rng, category)
-    foreign = category == "助っ人外国人用" or (category == "架空球団用" and rng.random() < 0.08)
-    nation_key = "外国" if foreign else "日本"
-    nationality = weighted_choice(rng, [("日本", 92), ("アメリカ", 3), ("ドミニカ共和国", 2), ("韓国", 1), ("台湾", 1), ("キューバ", 1)]) if not foreign else weighted_choice(rng, [("アメリカ", 32), ("ドミニカ共和国", 24), ("ベネズエラ", 16), ("キューバ", 10), ("メキシコ", 8), ("韓国", 5), ("台湾", 5)])
+    nationality = choose_nationality(rng, category)
     if role == "投手":
         position_weights = [("先発", 40), ("中継ぎ", 52), ("抑え", 8)] if category == "架空球団用" else [("先発", 38), ("中継ぎ", 42), ("抑え", 20)]
         position = weighted_choice(rng, position_weights)
@@ -269,8 +341,8 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     abilities = generate_pitcher_abilities(rng, age, position, player_type) if role == "投手" else generate_fielder_abilities(rng, age, position, player_type, category)
     batting_throwing = generate_batting_throwing(rng, role, position)
     return {
-        "seed": seed, "role": role, "category": category, "name": rng.choice(master.names[nation_key]), "age": age,
-        "nationality": nationality, "birthplace": rng.choice(master.places[nation_key]), "position": position, "player_type": player_type,
+        "seed": seed, "role": role, "category": category, "name": choose_name(rng, master.names, nationality), "age": age,
+        "nationality": nationality, "birthplace": choose_birthplace(rng, master.places, nationality), "position": position, "player_type": player_type,
         "handedness": handedness_from_batting_throwing(batting_throwing),
         "batting_throwing": batting_throwing,
         "height": rng.randint(168, 196) + (3 if role == "投手" else 0), "weight": rng.randint(68, 105),
@@ -404,6 +476,41 @@ def restricted_left_throwing_positions(df: pd.DataFrame) -> pd.DataFrame:
     return base.merge(counts, on="ポジション", how="left").fillna({"人数": 0}).astype({"人数": int})
 
 
+
+
+def name_matches_nationality(name: str, nationality: str, master: MasterData) -> bool:
+    entry = master.names.get(nationality)
+    if isinstance(entry, dict):
+        return any(name.startswith(f"{surname} ") for surname in entry.get("姓", [])) and any(name.endswith(f" {given}") for given in entry.get("名", []))
+    if isinstance(entry, list):
+        return name in entry
+    return False
+
+
+def birthplace_matches_nationality(birthplace: str, nationality: str, master: MasterData) -> bool:
+    return birthplace in master.places.get(nationality, [])
+
+def consistency_table(df: pd.DataFrame, master: MasterData, kind: str) -> pd.DataFrame:
+    work = df.copy()
+    type_column = "名前種別" if kind == "name" else "出身地種別"
+    if kind == "name":
+        work[type_column] = work["name"].apply(lambda value: classify_name_type(value, master))
+    else:
+        work[type_column] = work["birthplace"].apply(lambda value: classify_birthplace_type(value, master))
+    if kind == "name":
+        work["整合性"] = work.apply(lambda row: name_matches_nationality(row["name"], row["nationality"], master), axis=1)
+    else:
+        work["整合性"] = work.apply(lambda row: birthplace_matches_nationality(row["birthplace"], row["nationality"], master), axis=1)
+    return work.groupby(["nationality", type_column, "整合性"]).size().reset_index(name="人数").rename(columns={"nationality": "国籍"})
+
+
+def inconsistency_count(df: pd.DataFrame, master: MasterData, kind: str) -> int:
+    if kind == "name":
+        matches = df.apply(lambda row: name_matches_nationality(row["name"], row["nationality"], master), axis=1)
+    else:
+        matches = df.apply(lambda row: birthplace_matches_nationality(row["birthplace"], row["nationality"], master), axis=1)
+    return int((~matches).sum())
+
 def render_balance_check(master: MasterData) -> None:
     st.header("バランス確認")
     st.write("保存済み選手をSQLiteから読み込み、生成結果の偏りを確認します。")
@@ -443,6 +550,10 @@ def render_balance_check(master: MasterData) -> None:
     restricted_table = restricted_left_throwing_positions(df)
     restricted_left_count = int(restricted_table["人数"].sum())
     avg_special_count = round(df["special_abilities"].apply(len).mean(), 2)
+    unique_name_count = int(df["name"].nunique())
+    name_duplicate_rate = round((len(df) - unique_name_count) / len(df) * 100, 2)
+    name_inconsistency_count = inconsistency_count(df, master, "name")
+    birthplace_inconsistency_count = inconsistency_count(df, master, "birthplace")
     st.subheader("生成品質チェック")
     metric_cols = st.columns(7)
     metric_cols[0].metric("総件数", len(df))
@@ -452,6 +563,25 @@ def render_balance_check(master: MasterData) -> None:
     metric_cols[4].metric("不適切な特殊能力件数", invalid_special_count)
     metric_cols[5].metric("利き腕/投打 不一致件数", handedness_mismatch_count)
     metric_cols[6].metric("左投げの捕手/内野手", restricted_left_count)
+
+    st.subheader("名前・国籍・出身地チェック")
+    profile_cols = st.columns(5)
+    profile_cols[0].metric("ユニーク名前数", unique_name_count)
+    profile_cols[1].metric("名前重複率", f"{name_duplicate_rate}%")
+    profile_cols[2].metric("国籍数", int(df["nationality"].nunique()))
+    profile_cols[3].metric("国籍×名前 不整合", name_inconsistency_count)
+    profile_cols[4].metric("国籍×出身地 不整合", birthplace_inconsistency_count)
+
+    st.subheader("国籍別人数")
+    st.dataframe(df["nationality"].value_counts().rename_axis("国籍").reset_index(name="人数"), use_container_width=True, hide_index=True)
+
+    col_profile1, col_profile2 = st.columns(2)
+    with col_profile1:
+        st.subheader("国籍 × 名前種別の整合性")
+        st.dataframe(consistency_table(df, master, "name"), use_container_width=True, hide_index=True)
+    with col_profile2:
+        st.subheader("国籍 × 出身地種別の整合性")
+        st.dataframe(consistency_table(df, master, "birthplace"), use_container_width=True, hide_index=True)
 
     st.subheader("利き腕診断")
     st.dataframe(restricted_table, use_container_width=True, hide_index=True)
