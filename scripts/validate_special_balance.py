@@ -67,6 +67,22 @@ def condition_counts(players):
     return result
 
 
+
+def special_rate(players, label, predicate, special_name):
+    subset = [p for p in players if predicate(p)]
+    hits = sum(1 for p in subset if special_name in p["special_abilities"])
+    rate = hits / len(subset) * 100 if subset else 0.0
+    return {"label": label, "players": len(subset), "hits": hits, "rate": rate}
+
+
+def targeted_special_rates(players):
+    return [
+        special_rate(players, "ミート55未満", lambda p: p["role"] == "野手" and (ability_numeric_value(p["abilities"], "ミート") or 99) < 55, "三振"),
+        special_rate(players, "ミート65以上", lambda p: p["role"] == "野手" and (ability_numeric_value(p["abilities"], "ミート") or 0) >= 65, "三振"),
+        special_rate(players, "コントロール45未満", lambda p: p["role"] == "投手" and (ability_numeric_value(p["abilities"], "コントロール") or 99) < 45, "荒れ球"),
+        special_rate(players, "コントロール60以上", lambda p: p["role"] == "投手" and (ability_numeric_value(p["abilities"], "コントロール") or 0) >= 60, "荒れ球"),
+    ]
+
 def main():
     master = load_master_data()
     players = generate_samples(master)
@@ -89,6 +105,10 @@ def main():
     print(f"kind_counts={dict(kind_counts)}")
     print(f"top30={normal_counts.most_common(30)}")
     print(f"bottom30={normal_counts.most_common()[:-31:-1]}")
+    print(f"target_counts={{'三振': {normal_counts.get('三振', 0)}, '荒れ球': {normal_counts.get('荒れ球', 0)}}}")
+    print("target_rates=")
+    for values in targeted_special_rates(players):
+        print(f"  {values['label']}: {values['hits']}/{values['players']} ({values['rate']:.2f}%)")
     print(f"ranked_mix={ranked_mix}")
     print(f"role_mix={role_mix}")
     print(f"group_dup={group_dup}")
