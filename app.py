@@ -199,6 +199,112 @@ def load_history() -> pd.DataFrame:
         return pd.read_sql_query("SELECT id, created_at, seed, role, category, name, age, nationality, birthplace, position, player_type, abilities_json, special_abilities_json, breaking_balls_json FROM players ORDER BY id DESC", conn)
 
 
+
+def parse_json_column(value: Any, fallback: Any) -> Any:
+    if pd.isna(value):
+        return fallback
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return fallback
+
+
+def load_history_for_balance() -> pd.DataFrame:
+    history = load_history()
+    if history.empty:
+        return history
+    df = history.copy()
+    df["abilities"] = df["abilities_json"].apply(lambda value: parse_json_column(value, {}))
+    df["special_abilities"] = df["special_abilities_json"].apply(lambda value: parse_json_column(value, []))
+    return df
+
+
+def ability_numeric_value(abilities: dict[str, Any], key: str) -> int | float | None:
+    item = abilities.get(key)
+    if isinstance(item, dict):
+        return item.get("value")
+    if key == "球速" and isinstance(item, str):
+        return pd.to_numeric(item.replace(" km/h", ""), errors="coerce")
+    return item if isinstance(item, int | float) else None
+
+
+def ability_average_table(df: pd.DataFrame, role: str, keys: list[str]) -> pd.DataFrame:
+    target = df[df["role"] == role].copy()
+    if target.empty:
+        return pd.DataFrame(columns=["能力", "平均値"])
+    rows = []
+    for key in keys:
+        values = target["abilities"].apply(lambda abilities: ability_numeric_value(abilities, key))
+        numeric_values = pd.to_numeric(values, errors="coerce").dropna()
+        rows.append({"能力": key, "平均値": round(numeric_values.mean(), 1) if not numeric_values.empty else None})
+    return pd.DataFrame(rows)
+
+
+def special_ability_summary(df: pd.DataFrame, master: MasterData) -> tuple[pd.DataFrame, pd.DataFrame]:
+    ability_kinds = {row["name"]: row["kind"] for row in master.abilities}
+    exploded = df[["special_abilities"]].explode("special_abilities").dropna()
+    exploded = exploded[exploded["special_abilities"] != ""]
+    if exploded.empty:
+        counts = pd.DataFrame(columns=["特殊能力", "出現回数", "種別"])
+        kind_counts = pd.DataFrame({"種別": ["金特", "青特", "赤特"], "出現数": [0, 0, 0]})
+        return counts, kind_counts
+    counts = exploded["special_abilities"].value_counts().rename_axis("特殊能力").reset_index(name="出現回数")
+    counts["種別"] = counts["特殊能力"].map(ability_kinds).map({"gold": "金特", "blue": "青特", "red": "赤特"}).fillna("不明")
+    kind_counts = counts.groupby("種別", as_index=False)["出現回数"].sum().rename(columns={"出現回数": "出現数"})
+    kind_counts = pd.DataFrame({"種別": ["金特", "青特", "赤特"]}).merge(kind_counts, on="種別", how="left").fillna({"出現数": 0})
+    kind_counts["出現数"] = kind_counts["出現数"].astype(int)
+    return counts, kind_counts
+
+
+def render_balance_check(master: MasterData) -> None:
+    st.header("バランス確認")
+    st.write("保存済み選手をSQLiteから読み込み、生成結果の偏りを確認します。")
+    df = load_history_for_balance()
+    if df.empty:
+        st.info("保存済み選手がまだありません。選手を生成すると集計できます。")
+        return
+
+    st.subheader("投手/野手別人数")
+    st.dataframe(df["role"].value_counts().rename_axis("投手/野手").reset_index(name="人数"), use_container_width=True, hide_index=True)
+
+    st.subheader("カテゴリ別人数")
+    st.dataframe(df["category"].value_counts().rename_axis("カテゴリ").reset_index(name="人数"), use_container_width=True, hide_index=True)
+
+    st.subheader("投手/野手 × カテゴリ別人数")
+    role_category = pd.crosstab(df["role"], df["category"], margins=True, margins_name="合計")
+    st.dataframe(role_category, use_container_width=True)
+
+    st.subheader("年齢分布")
+    age_dist = df["age"].value_counts().sort_index().rename_axis("年齢").reset_index(name="人数")
+    st.dataframe(age_dist, use_container_width=True, hide_index=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("野手能力 平均値")
+        st.dataframe(ability_average_table(df, "野手", ["弾道", "ミート", "パワー", "走力", "肩力", "守備力", "捕球"]), use_container_width=True, hide_index=True)
+    with col2:
+        st.subheader("投手能力 平均値")
+        st.dataframe(ability_average_table(df, "投手", ["球速", "コントロール", "スタミナ"]), use_container_width=True, hide_index=True)
+
+    special_counts, kind_counts = special_ability_summary(df, master)
+    col3, col4 = st.columns(2)
+    with col3:
+        st.subheader("特殊能力 出現回数")
+        st.dataframe(special_counts, use_container_width=True, hide_index=True)
+    with col4:
+        st.subheader("金特・青特・赤特 出現数")
+        st.dataframe(kind_counts, use_container_width=True, hide_index=True)
+
+    col5, col6 = st.columns(2)
+    with col5:
+        st.subheader("野手ポジション別人数")
+        fielder_positions = df[df["role"] == "野手"]["position"].value_counts().rename_axis("ポジション").reset_index(name="人数")
+        st.dataframe(fielder_positions, use_container_width=True, hide_index=True)
+    with col6:
+        st.subheader("投手役割別人数")
+        pitcher_roles = df[df["role"] == "投手"]["position"].value_counts().rename_axis("役割").reset_index(name="人数")
+        st.dataframe(pitcher_roles, use_container_width=True, hide_index=True)
+
 def render_ability_item(label: str, item: Any) -> None:
     if isinstance(item, dict):
         st.markdown(f"<span style='background:{RANK_COLORS[item['rank']]};color:#111;border-radius:999px;padding:0.15rem 0.55rem;font-weight:700'>{item['rank']}</span> **{label}** {item['value']}", unsafe_allow_html=True)
@@ -231,11 +337,16 @@ def main() -> None:
     st.title("⚾ パワプロ風 架空選手生成ツール")
     st.write("投手/野手、カテゴリ、生成人数だけを選ぶMVPです。その他の項目は重み付きランダムで自動生成します。")
     with st.sidebar:
+        st.header("画面")
+        page = st.radio("表示する画面", ["選手生成", "バランス確認"], label_visibility="collapsed")
         st.header("生成条件")
         role = st.radio("投手 / 野手", ["投手", "野手"], horizontal=True)
         category = st.selectbox("カテゴリ", CATEGORIES)
         count = st.number_input("生成人数", min_value=1, max_value=30, value=3, step=1)
         generate = st.button("生成する", type="primary", use_container_width=True)
+    if page == "バランス確認":
+        render_balance_check(master)
+        return
     if generate:
         players = [generate_player(role, category, master) for _ in range(int(count))]
         save_players(players)
