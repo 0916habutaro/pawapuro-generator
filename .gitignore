@@ -8,6 +8,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.py[cod]
 
 # Streamlit
 .streamlit/secrets.toml
@@ -16,11 +17,14 @@ __pycache__/
 *.db
 *.sqlite
 *.sqlite3
+players.sqlite3
 
 # Exported files
 exports/*.csv
 exports/*.xlsx
 exports/*.json
+pawapuro_players.csv
+*.xlsx
 
 # Environment variables
 .env
