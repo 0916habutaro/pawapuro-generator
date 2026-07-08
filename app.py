@@ -28,6 +28,16 @@ SPECIAL_ROLE_FALLBACKS = {
     "野手": {"chance", "left", "hit_style", "direction", "run", "steal", "field"},
     "共通": {"injury"},
 }
+SPECIAL_KIND_LABELS = {
+    "gold": "金特",
+    "blue": "青特",
+    "red": "赤特",
+    "green": "緑特",
+    "mixed": "青赤特",
+    "neutral": "中間ランク",
+}
+SPECIAL_KIND_ORDER = ["金特", "青特", "赤特", "緑特", "青赤特", "中間ランク", "不明"]
+SPECIAL_ABILITY_COLUMNS = ["name", "kind", "group", "power", "weight", "target_role"]
 
 
 @dataclass
@@ -66,8 +76,9 @@ def ensure_master_files() -> None:
         }, ensure_ascii=False, indent=2), encoding="utf-8")
     if not abilities_path.exists():
         rows = [
-            ["name", "kind", "group", "power", "weight", "target_role"],
+            SPECIAL_ABILITY_COLUMNS,
             ["チャンス〇", "blue", "chance", "normal", 18, "野手"], ["チャンス◎", "blue", "chance", "strong", 4, "野手"], ["チャンス×", "red", "chance", "red", 7, "野手"],
+            ["チャンス△", "neutral", "chance", "neutral", 10, "野手"], ["ムード〇", "green", "mood", "green", 8, "共通"], ["対左投手△", "mixed", "left", "mixed", 6, "野手"],
             ["対左投手〇", "blue", "left", "normal", 14, "野手"], ["対左投手×", "red", "left", "red", 6, "野手"], ["アベレージヒッター", "blue", "hit_style", "strong", 4, "野手"],
             ["パワーヒッター", "blue", "hit_style", "strong", 4, "野手"], ["広角打法", "blue", "direction", "strong", 5, "野手"], ["走塁〇", "blue", "run", "normal", 12, "野手"],
             ["盗塁〇", "blue", "steal", "normal", 12, "野手"], ["盗塁×", "red", "steal", "red", 5, "野手"], ["守備職人", "blue", "field", "strong", 5, "野手"],
@@ -83,8 +94,18 @@ def ensure_master_files() -> None:
 def load_master_data() -> MasterData:
     ensure_master_files()
     abilities = pd.read_csv(DATA_DIR / "special_abilities.csv")
+    missing_columns = [column for column in SPECIAL_ABILITY_COLUMNS if column != "target_role" and column not in abilities.columns]
+    if missing_columns:
+        raise ValueError(f"特殊能力CSVに必要な列がありません: {', '.join(missing_columns)}")
     if "target_role" not in abilities.columns:
         abilities["target_role"] = abilities["group"].apply(infer_special_target_role)
+    abilities["target_role"] = abilities.apply(
+        lambda row: row["target_role"] if row["target_role"] in ("投手", "野手", "共通") else infer_special_target_role(str(row["group"])),
+        axis=1,
+    )
+    abilities["kind"] = abilities["kind"].fillna("unknown").astype(str)
+    abilities["power"] = abilities["power"].fillna("normal").astype(str)
+    abilities["weight"] = pd.to_numeric(abilities["weight"], errors="coerce").fillna(0).astype(int)
     return MasterData(
         names=normalize_name_master(json.loads((DATA_DIR / "names.json").read_text(encoding="utf-8"))),
         places=normalize_place_master(json.loads((DATA_DIR / "places.json").read_text(encoding="utf-8"))),
@@ -198,15 +219,17 @@ def generate_specials(rng: random.Random, master: MasterData, role: str, player_
     for row in candidates:
         if len(selected) >= count:
             break
-        if row["group"] in used_groups:
+        group = str(row.get("group", ""))
+        if group in used_groups:
             continue
-        chance = int(row["weight"])
-        if row["power"] == "gold": chance = 1
-        if row["power"] == "red": chance += 2
-        if player_type in ("長距離砲", "速球派") and row["power"] == "strong": chance += 2
+        power = str(row.get("power", "normal"))
+        chance = int(row.get("weight", 0) or 0)
+        if power == "gold": chance = 1
+        if power == "red": chance += 2
+        if player_type in ("長距離砲", "速球派") and power == "strong": chance += 2
         if rng.randint(1, 100) <= chance:
             selected.append(row["name"])
-            used_groups.add(row["group"])
+            used_groups.add(group)
     return selected
 
 
@@ -439,12 +462,12 @@ def special_ability_summary(df: pd.DataFrame, master: MasterData) -> tuple[pd.Da
     exploded = exploded[exploded["special_abilities"] != ""]
     if exploded.empty:
         counts = pd.DataFrame(columns=["特殊能力", "出現回数", "種別"])
-        kind_counts = pd.DataFrame({"種別": ["金特", "青特", "赤特"], "出現数": [0, 0, 0]})
+        kind_counts = pd.DataFrame({"種別": SPECIAL_KIND_ORDER, "出現数": [0] * len(SPECIAL_KIND_ORDER)})
         return counts, kind_counts
     counts = exploded["special_abilities"].value_counts().rename_axis("特殊能力").reset_index(name="出現回数")
-    counts["種別"] = counts["特殊能力"].map(ability_kinds).map({"gold": "金特", "blue": "青特", "red": "赤特"}).fillna("不明")
+    counts["種別"] = counts["特殊能力"].map(ability_kinds).map(SPECIAL_KIND_LABELS).fillna("不明")
     kind_counts = counts.groupby("種別", as_index=False)["出現回数"].sum().rename(columns={"出現回数": "出現数"})
-    kind_counts = pd.DataFrame({"種別": ["金特", "青特", "赤特"]}).merge(kind_counts, on="種別", how="left").fillna({"出現数": 0})
+    kind_counts = pd.DataFrame({"種別": SPECIAL_KIND_ORDER}).merge(kind_counts, on="種別", how="left").fillna({"出現数": 0})
     kind_counts["出現数"] = kind_counts["出現数"].astype(int)
     return counts, kind_counts
 
@@ -619,7 +642,7 @@ def render_balance_check(master: MasterData) -> None:
         st.subheader("特殊能力 出現回数")
         st.dataframe(special_counts, use_container_width=True, hide_index=True)
     with col4:
-        st.subheader("金特・青特・赤特 出現数")
+        st.subheader("特殊能力 種別別出現数")
         st.dataframe(kind_counts, use_container_width=True, hide_index=True)
         st.metric("1人あたり平均特殊能力数", avg_special_count)
 
