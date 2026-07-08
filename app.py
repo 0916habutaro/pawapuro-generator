@@ -264,26 +264,24 @@ def ranked_shift_for_group(rng: random.Random, group_name: str, role: str, posit
     if role == "投手":
         if player_type == "速球派" and group_name == "ノビ":
             shift += 1
-        if player_type == "技巧派" and group_name in ("クイック", "対ピンチ", "対左打者"):
+        if player_type == "技巧派" and group_name in ("対ピンチ", "対左打者"):
             shift += 1
         control = ability_numeric_value(abilities, "コントロール")
-        if isinstance(control, int | float) and control >= 70 and group_name in ("クイック", "対ピンチ"):
+        if isinstance(control, int | float) and control >= 70 and group_name == "対ピンチ":
             shift += 1
     else:
         if player_type == "長距離砲" and group_name == "チャンス" and rng.random() < 0.5:
             shift += rng.choice([-1, 1])
         if player_type == "俊足型" and group_name in ("盗塁", "走塁"):
             shift += 1
-        if player_type == "守備職人" and group_name in ("送球", "キャッチャー"):
+        if player_type == "守備職人" and group_name == "送球":
             shift += 1
         speed = ability_numeric_value(abilities, "走力")
         fielding = ability_numeric_value(abilities, "守備力")
         if isinstance(speed, int | float) and speed >= 70 and group_name in ("盗塁", "走塁"):
             shift += 1
-        if isinstance(fielding, int | float) and fielding >= 70 and group_name in ("送球", "キャッチャー"):
+        if isinstance(fielding, int | float) and fielding >= 70 and group_name == "送球":
             shift += 1
-    if position == "捕手" and group_name == "キャッチャー":
-        shift += 1
     return max(-2, min(2, shift))
 
 
@@ -292,7 +290,29 @@ def shifted_rank(rank_value: str, shift: int) -> str:
     return RANKED_SPECIAL_RANKS[max(0, min(len(RANKED_SPECIAL_RANKS) - 1, index - shift))]
 
 
-def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, position: str, player_type: str, abilities: dict[str, Any]) -> dict[str, str]:
+def ranked_weight_items_for_group(group_name: str, role: str, position: str, player_type: str, abilities: dict[str, Any], age: int | None = None) -> list[tuple[str, int]]:
+    weights = RANKED_SPECIAL_BASE_WEIGHTS.copy()
+    if role == "投手" and group_name == "クイック":
+        control = ability_numeric_value(abilities, "コントロール")
+        if player_type == "技巧派":
+            weights.update({"B": weights["B"] + 2, "C": weights["C"] + 4, "D": weights["D"] - 4, "E": weights["E"] - 2})
+        if isinstance(control, int | float) and control >= 70:
+            weights.update({"B": weights["B"] + 1, "C": weights["C"] + 3, "D": weights["D"] - 3, "E": weights["E"] - 1})
+    elif role == "野手" and group_name == "キャッチャー" and position == "捕手":
+        fielding = ability_numeric_value(abilities, "守備力")
+        catching = ability_numeric_value(abilities, "捕球")
+        if player_type == "守備職人":
+            weights.update({"B": weights["B"] + 1, "C": weights["C"] + 3, "D": weights["D"] - 3, "E": weights["E"] - 1})
+        if isinstance(age, int) and age >= 30:
+            weights.update({"B": weights["B"] + 1, "C": weights["C"] + 2, "D": weights["D"] - 2, "E": weights["E"] - 1})
+        if isinstance(fielding, int | float) and fielding >= 70:
+            weights.update({"B": weights["B"] + 1, "C": weights["C"] + 2, "D": weights["D"] - 2, "E": weights["E"] - 1})
+        if isinstance(catching, int | float) and catching >= 70:
+            weights.update({"B": weights["B"] + 1, "C": weights["C"] + 2, "D": weights["D"] - 2, "E": weights["E"] - 1})
+    return [(rank_name, max(1, weight)) for rank_name, weight in weights.items()]
+
+
+def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, position: str, player_type: str, abilities: dict[str, Any], age: int | None = None) -> dict[str, str]:
     ranked_rows = [row for row in master.abilities if special_target_role(row) in (role, "共通") and is_ranked_special(row)]
     rows_by_group: dict[str, list[dict[str, Any]]] = {}
     for row in ranked_rows:
@@ -305,7 +325,7 @@ def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, 
         group_name = ranked_special_base_name(names_by_rank["D"])
         if group_name == "キャッチャー" and position != "捕手":
             continue
-        rank_value = weighted_choice(rng, list(RANKED_SPECIAL_BASE_WEIGHTS.items()))
+        rank_value = weighted_choice(rng, ranked_weight_items_for_group(group_name, role, position, player_type, abilities, age))
         if group_name == "チャンス" and player_type == "長距離砲" and rng.random() < 0.35:
             rank_value = weighted_choice(rng, [("A", 4), ("B", 12), ("C", 20), ("D", 28), ("E", 20), ("F", 12), ("G", 4)])
         rank_value = shifted_rank(rank_value, ranked_shift_for_group(rng, group_name, role, position, player_type, abilities))
@@ -458,7 +478,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         "handedness": handedness_from_batting_throwing(batting_throwing),
         "batting_throwing": batting_throwing,
         "height": rng.randint(168, 196) + (3 if role == "投手" else 0), "weight": rng.randint(68, 105),
-        "abilities": {**abilities, "ranked_specials": generate_ranked_specials(rng, master, role, position, player_type, abilities)}, "special_abilities": generate_specials(rng, master, role, player_type),
+        "abilities": {**abilities, "ranked_specials": generate_ranked_specials(rng, master, role, position, player_type, abilities, age)}, "special_abilities": generate_specials(rng, master, role, player_type),
         "breaking_balls": generate_breaking_balls(rng, player_type) if role == "投手" else [],
     }
 
