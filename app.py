@@ -185,12 +185,30 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     }
 
 
-def save_players(players: list[dict[str, Any]]) -> None:
+def save_players(players: list[dict[str, Any]]) -> int:
     with sqlite3.connect(DB_PATH) as conn:
         for p in players:
             conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, nationality, birthplace, position, player_type, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, breaking_balls_json)
                           VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                          (p["seed"], p["role"], p["category"], p["name"], p["age"], p["nationality"], p["birthplace"], p["position"], p["player_type"], p["handedness"], p["batting_throwing"], p["height"], p["weight"], json.dumps(p["abilities"], ensure_ascii=False), json.dumps(p["special_abilities"], ensure_ascii=False), json.dumps(p["breaking_balls"], ensure_ascii=False)))
+        return len(players)
+
+
+def delete_all_players() -> int:
+    init_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        deleted_count = conn.execute("SELECT COUNT(*) FROM players").fetchone()[0]
+        conn.execute("DELETE FROM players")
+        return int(deleted_count)
+
+
+def apply_history_filters(df: pd.DataFrame, categories: list[str], roles: list[str]) -> pd.DataFrame:
+    filtered = df.copy()
+    if categories:
+        filtered = filtered[filtered["category"].isin(categories)]
+    if roles:
+        filtered = filtered[filtered["role"].isin(roles)]
+    return filtered
 
 
 def load_history() -> pd.DataFrame:
@@ -260,9 +278,32 @@ def render_balance_check(master: MasterData) -> None:
     st.header("バランス確認")
     st.write("保存済み選手をSQLiteから読み込み、生成結果の偏りを確認します。")
     df = load_history_for_balance()
+    total_saved_count = len(df)
     if df.empty:
         st.info("保存済み選手がまだありません。選手を生成すると集計できます。")
         return
+
+    st.subheader("履歴管理")
+    confirm_delete = st.checkbox("保存済み選手を全削除することを確認しました")
+    if st.button("保存済み選手を全削除", type="secondary", disabled=not confirm_delete):
+        deleted_count = delete_all_players()
+        st.session_state.pop("latest_players", None)
+        st.success(f"保存済み選手を{deleted_count}件削除しました。")
+        st.rerun()
+
+    st.subheader("絞り込み")
+    filter_col1, filter_col2 = st.columns(2)
+    with filter_col1:
+        selected_categories = st.multiselect("カテゴリ", CATEGORIES, default=CATEGORIES)
+    with filter_col2:
+        selected_roles = st.multiselect("投手 / 野手", ["投手", "野手"], default=["投手", "野手"])
+    df = apply_history_filters(df, selected_categories, selected_roles)
+    st.caption(f"フィルター適用後: {len(df)}件 / 全保存件数: {total_saved_count}件")
+    if df.empty:
+        st.info("条件に一致する保存済み選手がありません。")
+        return
+
+    st.download_button("フィルター後CSV出力", data=df.to_csv(index=False).encode("utf-8-sig"), file_name="pawapuro_players_filtered.csv", mime="text/csv")
 
     st.subheader("投手/野手別人数")
     st.dataframe(df["role"].value_counts().rename_axis("投手/野手").reset_index(name="人数"), use_container_width=True, hide_index=True)
@@ -342,16 +383,22 @@ def main() -> None:
         st.header("生成条件")
         role = st.radio("投手 / 野手", ["投手", "野手"], horizontal=True)
         category = st.selectbox("カテゴリ", CATEGORIES)
-        count = st.number_input("生成人数", min_value=1, max_value=30, value=3, step=1)
+        count = st.number_input("生成人数", min_value=1, max_value=1000, value=3, step=1)
         generate = st.button("生成する", type="primary", use_container_width=True)
     if page == "バランス確認":
         render_balance_check(master)
         return
     if generate:
-        players = [generate_player(role, category, master) for _ in range(int(count))]
-        save_players(players)
+        total_count = int(count)
+        progress = st.progress(0, text="選手を生成中です...")
+        players = []
+        for index in range(total_count):
+            players.append(generate_player(role, category, master))
+            progress.progress((index + 1) / total_count, text=f"選手を生成中です... {index + 1}/{total_count}")
+        saved_count = save_players(players)
+        progress.empty()
         st.session_state["latest_players"] = players
-        st.success(f"{len(players)}人の選手を生成してSQLiteに保存しました。")
+        st.success(f"{len(players)}人の選手を生成し、SQLiteに{saved_count}件保存しました。")
     for player in st.session_state.get("latest_players", []):
         render_card(player)
     st.divider()
