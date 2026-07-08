@@ -2,7 +2,6 @@ import csv
 import json
 import random
 import sqlite3
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -23,6 +22,12 @@ TYPE_WEIGHTS = {
     "野手": [("バランス型", 24), ("巧打型", 20), ("長距離砲", 16), ("俊足型", 16), ("守備職人", 14), ("強肩型", 10)],
 }
 RANK_COLORS = {"A": "#ff5a5a", "B": "#ff9f43", "C": "#ffd166", "D": "#6ee7b7", "E": "#60a5fa", "F": "#a78bfa", "G": "#cbd5e1"}
+SEED_MAX = 10_000_000_000
+SPECIAL_ROLE_FALLBACKS = {
+    "投手": {"nobi", "kire", "strikeout", "walk", "pinch"},
+    "野手": {"chance", "left", "hit_style", "direction", "run", "steal", "field"},
+    "共通": {"injury"},
+}
 
 
 @dataclass
@@ -49,15 +54,15 @@ def ensure_master_files() -> None:
         }, ensure_ascii=False, indent=2), encoding="utf-8")
     if not abilities_path.exists():
         rows = [
-            ["name", "kind", "group", "power", "weight"],
-            ["チャンス〇", "blue", "chance", "normal", 18], ["チャンス◎", "blue", "chance", "strong", 4], ["チャンス×", "red", "chance", "red", 7],
-            ["対左投手〇", "blue", "left", "normal", 14], ["対左投手×", "red", "left", "red", 6], ["アベレージヒッター", "blue", "hit_style", "strong", 4],
-            ["パワーヒッター", "blue", "hit_style", "strong", 4], ["広角打法", "blue", "direction", "strong", 5], ["走塁〇", "blue", "run", "normal", 12],
-            ["盗塁〇", "blue", "steal", "normal", 12], ["盗塁×", "red", "steal", "red", 5], ["守備職人", "blue", "field", "strong", 5],
-            ["ケガしにくさ〇", "blue", "injury", "normal", 10], ["ケガしにくさ×", "red", "injury", "red", 6], ["勝負師", "gold", "chance", "gold", 1],
-            ["ノビ〇", "blue", "nobi", "normal", 14], ["ノビ◎", "blue", "nobi", "strong", 3], ["ノビ×", "red", "nobi", "red", 5],
-            ["キレ〇", "blue", "kire", "normal", 12], ["奪三振", "blue", "strikeout", "strong", 5], ["四球", "red", "walk", "red", 7],
-            ["対ピンチ〇", "blue", "pinch", "normal", 12], ["対ピンチ×", "red", "pinch", "red", 6], ["怪物球威", "gold", "nobi", "gold", 1],
+            ["name", "kind", "group", "power", "weight", "target_role"],
+            ["チャンス〇", "blue", "chance", "normal", 18, "野手"], ["チャンス◎", "blue", "chance", "strong", 4, "野手"], ["チャンス×", "red", "chance", "red", 7, "野手"],
+            ["対左投手〇", "blue", "left", "normal", 14, "野手"], ["対左投手×", "red", "left", "red", 6, "野手"], ["アベレージヒッター", "blue", "hit_style", "strong", 4, "野手"],
+            ["パワーヒッター", "blue", "hit_style", "strong", 4, "野手"], ["広角打法", "blue", "direction", "strong", 5, "野手"], ["走塁〇", "blue", "run", "normal", 12, "野手"],
+            ["盗塁〇", "blue", "steal", "normal", 12, "野手"], ["盗塁×", "red", "steal", "red", 5, "野手"], ["守備職人", "blue", "field", "strong", 5, "野手"],
+            ["ケガしにくさ〇", "blue", "injury", "normal", 10, "共通"], ["ケガしにくさ×", "red", "injury", "red", 6, "共通"], ["勝負師", "gold", "chance", "gold", 1, "野手"],
+            ["ノビ〇", "blue", "nobi", "normal", 14, "投手"], ["ノビ◎", "blue", "nobi", "strong", 3, "投手"], ["ノビ×", "red", "nobi", "red", 5, "投手"],
+            ["キレ〇", "blue", "kire", "normal", 12, "投手"], ["奪三振", "blue", "strikeout", "strong", 5, "投手"], ["四球", "red", "walk", "red", 7, "投手"],
+            ["対ピンチ〇", "blue", "pinch", "normal", 12, "投手"], ["対ピンチ×", "red", "pinch", "red", 6, "投手"], ["怪物球威", "gold", "nobi", "gold", 1, "投手"],
         ]
         with abilities_path.open("w", encoding="utf-8", newline="") as f:
             csv.writer(f).writerows(rows)
@@ -65,10 +70,13 @@ def ensure_master_files() -> None:
 
 def load_master_data() -> MasterData:
     ensure_master_files()
+    abilities = pd.read_csv(DATA_DIR / "special_abilities.csv")
+    if "target_role" not in abilities.columns:
+        abilities["target_role"] = abilities["group"].apply(infer_special_target_role)
     return MasterData(
         names=json.loads((DATA_DIR / "names.json").read_text(encoding="utf-8")),
         places=json.loads((DATA_DIR / "places.json").read_text(encoding="utf-8")),
-        abilities=pd.read_csv(DATA_DIR / "special_abilities.csv").to_dict("records"),
+        abilities=abilities.to_dict("records"),
     )
 
 
@@ -87,6 +95,46 @@ def init_db() -> None:
 
 def weighted_choice(rng: random.Random, items: list[tuple[Any, int]]) -> Any:
     return rng.choices([i[0] for i in items], weights=[i[1] for i in items], k=1)[0]
+
+
+def infer_special_target_role(group: str) -> str:
+    if group in SPECIAL_ROLE_FALLBACKS["投手"]:
+        return "投手"
+    if group in SPECIAL_ROLE_FALLBACKS["野手"]:
+        return "野手"
+    return "共通"
+
+
+def seed_batch_rng() -> random.Random:
+    return random.Random(random.SystemRandom().randrange(SEED_MAX))
+
+
+def generate_batch_seeds(count: int, rng: random.Random | None = None) -> list[int]:
+    rng = rng or seed_batch_rng()
+    seeds: list[int] = []
+    used: set[int] = set()
+    while len(seeds) < count:
+        seed = rng.randrange(SEED_MAX)
+        if seed not in used:
+            used.add(seed)
+            seeds.append(seed)
+    return seeds
+
+
+def special_target_role(row: dict[str, Any]) -> str:
+    role = row.get("target_role")
+    if isinstance(role, str) and role in ("投手", "野手", "共通"):
+        return role
+    return infer_special_target_role(str(row.get("group", "")))
+
+
+def role_allowed_specials(master: MasterData, role: str) -> set[str]:
+    return {row["name"] for row in master.abilities if special_target_role(row) in (role, "共通")}
+
+
+def inappropriate_special_count(df: pd.DataFrame, master: MasterData) -> int:
+    allowed = {role: role_allowed_specials(master, role) for role in ("投手", "野手")}
+    return int(df.apply(lambda row: sum(name not in allowed.get(row["role"], set()) for name in row["special_abilities"]), axis=1).sum())
 
 
 def rank(value: int) -> str:
@@ -113,7 +161,7 @@ def age_for(rng: random.Random, category: str) -> int:
 def generate_specials(rng: random.Random, master: MasterData, role: str, player_type: str) -> list[str]:
     selected, used_groups = [], set()
     count = weighted_choice(rng, [(0, 10), (1, 25), (2, 32), (3, 22), (4, 9), (5, 2)])
-    candidates = master.abilities[:]
+    candidates = [row for row in master.abilities if special_target_role(row) in (role, "共通")]
     rng.shuffle(candidates)
     for row in candidates:
         if len(selected) >= count:
@@ -130,8 +178,9 @@ def generate_specials(rng: random.Random, master: MasterData, role: str, player_
     return selected
 
 
-def generate_fielder_abilities(rng: random.Random, age: int, position: str, player_type: str) -> dict[str, Any]:
-    base = 48 + (8 if 24 <= age <= 31 else 0) - (4 if age <= 19 else 0) - (3 if age >= 35 else 0)
+def generate_fielder_abilities(rng: random.Random, age: int, position: str, player_type: str, category: str) -> dict[str, Any]:
+    veteran_keep = age >= 35 and (player_type == "巧打型" or rng.random() < 0.12)
+    base = 48 + (8 if 24 <= age <= 31 else 0) - (4 if age <= 19 else 0) - (5 if age >= 35 and not veteran_keep else 1 if age >= 35 else 0)
     mods = {"ミート": 0, "パワー": 0, "走力": 0, "肩力": 0, "守備力": 0, "捕球": 0}
     for key in mods:
         mods[key] += rng.randint(-14, 16)
@@ -143,6 +192,17 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
     pos_mods = {"捕手": {"肩力": 10, "守備力": 8}, "遊撃手": {"守備力": 12, "肩力": 6}, "二塁手": {"守備力": 8, "走力": 4}, "一塁手": {"パワー": 8, "走力": -4}, "外野手": {"走力": 6, "肩力": 8}}
     for d in (type_mods.get(player_type, {}), pos_mods.get(position, {})):
         for k, v in d.items(): mods[k] += v
+    if category == "助っ人外国人用":
+        mods["パワー"] += 8
+        if player_type in ("巧打型", "守備職人"):
+            mods["パワー"] -= 3
+    if age >= 35:
+        decline = rng.randint(3, 8) if not veteran_keep else rng.randint(0, 3)
+        mods["走力"] -= decline + 2
+        mods["守備力"] -= decline
+        mods["捕球"] -= max(1, decline - 1)
+        if player_type == "巧打型":
+            mods["ミート"] += 4
     result = {k: ability(base + v) for k, v in mods.items()}
     power = result["パワー"]["value"]
     result["弾道"] = 4 if power >= 78 else 3 if power >= 60 else 2 if power >= 42 else 1
@@ -150,10 +210,16 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
 
 
 def generate_pitcher_abilities(rng: random.Random, age: int, position: str, player_type: str) -> dict[str, Any]:
-    prime = 1 if 24 <= age <= 32 else -1 if age <= 19 or age >= 36 else 0
+    veteran_keep = age >= 35 and (player_type == "技巧派" or rng.random() < 0.12)
+    prime = 1 if 24 <= age <= 32 else -1 if age <= 19 or (age >= 35 and not veteran_keep) else 0
     speed = rng.randint(138, 149) + prime * 2 + (6 if player_type == "速球派" else 0) - (3 if player_type == "技巧派" else 0)
     control = 48 + rng.randint(-14, 16) + (16 if player_type == "技巧派" else 0) + (4 if position == "抑え" else 0)
     stamina = 48 + rng.randint(-14, 16) + (18 if position == "先発" or player_type == "スタミナ型" else -8 if position == "抑え" else 0)
+    if age >= 35:
+        speed -= rng.randint(2, 5) if not veteran_keep else rng.randint(0, 2)
+        stamina -= rng.randint(4, 9) if not veteran_keep else rng.randint(0, 3)
+        if player_type == "技巧派":
+            control += 5
     return {"球速": f"{max(125, min(165, speed))} km/h", "コントロール": ability(control), "スタミナ": ability(stamina)}
 
 
@@ -165,15 +231,22 @@ def generate_breaking_balls(rng: random.Random, player_type: str) -> list[dict[s
 
 
 def generate_player(role: str, category: str, master: MasterData, seed: int | None = None) -> dict[str, Any]:
-    seed = seed if seed is not None else time.time_ns() % 10_000_000_000
+    seed = seed if seed is not None else random.SystemRandom().randrange(SEED_MAX)
     rng = random.Random(seed)
     age = age_for(rng, category)
     foreign = category == "助っ人外国人用" or (category == "架空球団用" and rng.random() < 0.08)
     nation_key = "外国" if foreign else "日本"
     nationality = weighted_choice(rng, [("日本", 92), ("アメリカ", 3), ("ドミニカ共和国", 2), ("韓国", 1), ("台湾", 1), ("キューバ", 1)]) if not foreign else weighted_choice(rng, [("アメリカ", 32), ("ドミニカ共和国", 24), ("ベネズエラ", 16), ("キューバ", 10), ("メキシコ", 8), ("韓国", 5), ("台湾", 5)])
-    position = weighted_choice(rng, [(p, 35 if p == "先発" else 25) for p in POSITIONS[role]]) if role == "投手" else weighted_choice(rng, [("捕手", 12), ("一塁手", 14), ("二塁手", 14), ("三塁手", 14), ("遊撃手", 16), ("外野手", 30)])
-    player_type = weighted_choice(rng, TYPE_WEIGHTS[role])
-    abilities = generate_pitcher_abilities(rng, age, position, player_type) if role == "投手" else generate_fielder_abilities(rng, age, position, player_type)
+    if role == "投手":
+        position_weights = [("先発", 40), ("中継ぎ", 52), ("抑え", 8)] if category == "架空球団用" else [("先発", 38), ("中継ぎ", 42), ("抑え", 20)]
+        position = weighted_choice(rng, position_weights)
+        type_weights = [("本格派", 34), ("技巧派", 18), ("速球派", 26), ("変化球派", 14), ("スタミナ型", 8)] if category == "助っ人外国人用" else TYPE_WEIGHTS[role]
+    else:
+        position_weights = [("捕手", 8), ("一塁手", 20), ("二塁手", 9), ("三塁手", 18), ("遊撃手", 10), ("外野手", 35)] if category == "助っ人外国人用" else [("捕手", 12), ("一塁手", 14), ("二塁手", 14), ("三塁手", 14), ("遊撃手", 16), ("外野手", 30)]
+        position = weighted_choice(rng, position_weights)
+        type_weights = [("バランス型", 16), ("巧打型", 16), ("長距離砲", 28), ("俊足型", 8), ("守備職人", 12), ("強肩型", 20)] if category == "助っ人外国人用" else TYPE_WEIGHTS[role]
+    player_type = weighted_choice(rng, type_weights)
+    abilities = generate_pitcher_abilities(rng, age, position, player_type) if role == "投手" else generate_fielder_abilities(rng, age, position, player_type, category)
     return {
         "seed": seed, "role": role, "category": category, "name": rng.choice(master.names[nation_key]), "age": age,
         "nationality": nationality, "birthplace": rng.choice(master.places[nation_key]), "position": position, "player_type": player_type,
@@ -274,6 +347,18 @@ def special_ability_summary(df: pd.DataFrame, master: MasterData) -> tuple[pd.Da
     return counts, kind_counts
 
 
+def player_fingerprint(row: pd.Series) -> str:
+    keys = ["role", "category", "name", "age", "nationality", "birthplace", "position", "player_type", "abilities_json", "special_abilities_json", "breaking_balls_json"]
+    return json.dumps({key: row.get(key) for key in keys}, ensure_ascii=False, sort_keys=True)
+
+
+def special_count_distribution(df: pd.DataFrame) -> pd.DataFrame:
+    buckets = df["special_abilities"].apply(lambda values: "3個以上" if len(values) >= 3 else f"{len(values)}個")
+    order = pd.DataFrame({"特殊能力数": ["0個", "1個", "2個", "3個以上"]})
+    counts = buckets.value_counts().rename_axis("特殊能力数").reset_index(name="人数")
+    return order.merge(counts, on="特殊能力数", how="left").fillna({"人数": 0}).astype({"人数": int})
+
+
 def render_balance_check(master: MasterData) -> None:
     st.header("バランス確認")
     st.write("保存済み選手をSQLiteから読み込み、生成結果の偏りを確認します。")
@@ -305,6 +390,19 @@ def render_balance_check(master: MasterData) -> None:
 
     st.download_button("フィルター後CSV出力", data=df.to_csv(index=False).encode("utf-8-sig"), file_name="pawapuro_players_filtered.csv", mime="text/csv")
 
+    unique_seed_count = int(df["seed"].nunique())
+    seed_duplicate_count = int(len(df) - unique_seed_count)
+    complete_duplicate_count = int(len(df) - df.apply(player_fingerprint, axis=1).nunique())
+    invalid_special_count = inappropriate_special_count(df, master)
+    avg_special_count = round(df["special_abilities"].apply(len).mean(), 2)
+    st.subheader("生成品質チェック")
+    metric_cols = st.columns(5)
+    metric_cols[0].metric("総件数", len(df))
+    metric_cols[1].metric("ユニークseed数", unique_seed_count)
+    metric_cols[2].metric("seed重複数", seed_duplicate_count)
+    metric_cols[3].metric("完全重複選手数", complete_duplicate_count)
+    metric_cols[4].metric("不適切な特殊能力件数", invalid_special_count)
+
     st.subheader("投手/野手別人数")
     st.dataframe(df["role"].value_counts().rename_axis("投手/野手").reset_index(name="人数"), use_container_width=True, hide_index=True)
 
@@ -335,6 +433,10 @@ def render_balance_check(master: MasterData) -> None:
     with col4:
         st.subheader("金特・青特・赤特 出現数")
         st.dataframe(kind_counts, use_container_width=True, hide_index=True)
+        st.metric("1人あたり平均特殊能力数", avg_special_count)
+
+    st.subheader("特殊能力数分布")
+    st.dataframe(special_count_distribution(df), use_container_width=True, hide_index=True)
 
     col5, col6 = st.columns(2)
     with col5:
@@ -392,8 +494,9 @@ def main() -> None:
         total_count = int(count)
         progress = st.progress(0, text="選手を生成中です...")
         players = []
-        for index in range(total_count):
-            players.append(generate_player(role, category, master))
+        seeds = generate_batch_seeds(total_count)
+        for index, seed in enumerate(seeds):
+            players.append(generate_player(role, category, master, seed=seed))
             progress.progress((index + 1) / total_count, text=f"選手を生成中です... {index + 1}/{total_count}")
         saved_count = save_players(players)
         progress.empty()
