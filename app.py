@@ -292,7 +292,7 @@ def choose_nationality(rng: random.Random, category: str) -> str:
     if category == "ドラフト候補用":
         # ドラフト候補は原則日本国籍。まれな外国籍候補は留学生・日系選手想定として国籍に合う名前と出身地を使う。
         return weighted_choice(rng, [("日本", 98), ("韓国", 1), ("台湾", 1)])
-    return weighted_choice(rng, [("日本", 92), ("アメリカ", 3), ("ドミニカ共和国", 2), ("ベネズエラ", 1), ("キューバ", 1), ("韓国", 1)])
+    return weighted_choice(rng, [("日本", 92), ("アメリカ", 3), ("ドミニカ共和国", 2), ("ベネズエラ", 1), ("キューバ", 1), ("韓国", 1), ("台湾", 1), ("メキシコ", 1)])
 
 
 def choose_name(rng: random.Random, names: dict[str, Any], nationality: str) -> str:
@@ -306,16 +306,26 @@ def choose_birthplace(rng: random.Random, places: dict[str, list[str]], national
     return rng.choice(places.get(nationality) or places["日本"])
 
 
-def classify_name_type(name: str, master: MasterData) -> str:
-    for nation, entry in master.names.items():
-        if isinstance(entry, dict):
-            surnames = entry.get("姓", [])
-            given_names = entry.get("名", [])
-            if any(name.startswith(f"{surname} ") for surname in surnames) and any(name.endswith(f" {given}") for given in given_names):
-                return nation
-        elif name in entry:
-            return nation
-    return "不明"
+def name_matches_entry(name: str, entry: Any) -> bool:
+    if isinstance(entry, dict):
+        surnames = entry.get("姓", [])
+        given_names = entry.get("名", [])
+        return any(name.startswith(f"{surname} ") for surname in surnames) and any(name.endswith(f" {given}") for given in given_names)
+    if isinstance(entry, list):
+        return name in entry
+    return False
+
+
+def classify_name_type(name: str, master: MasterData, nationality: str | None = None) -> str:
+    if nationality and name_matches_entry(name, master.names.get(nationality)):
+        return nationality
+
+    matched_nations = [nation for nation, entry in master.names.items() if name_matches_entry(name, entry)]
+    if not matched_nations:
+        return "不明"
+    if len(matched_nations) > 1:
+        return "複数国該当"
+    return matched_nations[0]
 
 
 def classify_birthplace_type(birthplace: str, master: MasterData) -> str:
@@ -479,12 +489,7 @@ def restricted_left_throwing_positions(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def name_matches_nationality(name: str, nationality: str, master: MasterData) -> bool:
-    entry = master.names.get(nationality)
-    if isinstance(entry, dict):
-        return any(name.startswith(f"{surname} ") for surname in entry.get("姓", [])) and any(name.endswith(f" {given}") for given in entry.get("名", []))
-    if isinstance(entry, list):
-        return name in entry
-    return False
+    return name_matches_entry(name, master.names.get(nationality))
 
 
 def birthplace_matches_nationality(birthplace: str, nationality: str, master: MasterData) -> bool:
@@ -494,7 +499,7 @@ def consistency_table(df: pd.DataFrame, master: MasterData, kind: str) -> pd.Dat
     work = df.copy()
     type_column = "名前種別" if kind == "name" else "出身地種別"
     if kind == "name":
-        work[type_column] = work["name"].apply(lambda value: classify_name_type(value, master))
+        work[type_column] = work.apply(lambda row: classify_name_type(row["name"], master, row["nationality"]), axis=1)
     else:
         work[type_column] = work["birthplace"].apply(lambda value: classify_birthplace_type(value, master))
     if kind == "name":
