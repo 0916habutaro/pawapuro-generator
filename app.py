@@ -105,6 +105,26 @@ def infer_special_target_role(group: str) -> str:
     return "共通"
 
 
+def handedness_from_batting_throwing(batting_throwing: str) -> str:
+    if batting_throwing.startswith("左投"):
+        return "左投"
+    return "右投"
+
+
+def generate_batting_throwing(rng: random.Random, role: str, position: str) -> str:
+    if role == "投手":
+        throw_weights = [("右投", 68), ("左投", 32)]
+    elif position in ("一塁手", "外野手"):
+        throw_weights = [("右投", 75), ("左投", 25)]
+    elif position in ("捕手", "二塁手", "三塁手", "遊撃手"):
+        throw_weights = [("右投", 100)]
+    else:
+        throw_weights = [("右投", 83), ("左投", 17)]
+
+    throwing = weighted_choice(rng, throw_weights)
+    bat_side = weighted_choice(rng, [("右打", 58), ("左打", 32), ("両打", 10)])
+    return f"{throwing}{bat_side}"
+
 def seed_batch_rng() -> random.Random:
     return random.Random(random.SystemRandom().randrange(SEED_MAX))
 
@@ -247,11 +267,12 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         type_weights = [("バランス型", 16), ("巧打型", 16), ("長距離砲", 28), ("俊足型", 8), ("守備職人", 12), ("強肩型", 20)] if category == "助っ人外国人用" else TYPE_WEIGHTS[role]
     player_type = weighted_choice(rng, type_weights)
     abilities = generate_pitcher_abilities(rng, age, position, player_type) if role == "投手" else generate_fielder_abilities(rng, age, position, player_type, category)
+    batting_throwing = generate_batting_throwing(rng, role, position)
     return {
         "seed": seed, "role": role, "category": category, "name": rng.choice(master.names[nation_key]), "age": age,
         "nationality": nationality, "birthplace": rng.choice(master.places[nation_key]), "position": position, "player_type": player_type,
-        "handedness": weighted_choice(rng, [("右投", 62), ("左投", 28), ("両投", 1), ("右投/左打", 9)]),
-        "batting_throwing": weighted_choice(rng, [("右投右打", 48), ("右投左打", 24), ("左投左打", 18), ("左投右打", 5), ("右投両打", 5)]),
+        "handedness": handedness_from_batting_throwing(batting_throwing),
+        "batting_throwing": batting_throwing,
         "height": rng.randint(168, 196) + (3 if role == "投手" else 0), "weight": rng.randint(68, 105),
         "abilities": abilities, "special_abilities": generate_specials(rng, master, role, player_type),
         "breaking_balls": generate_breaking_balls(rng, player_type) if role == "投手" else [],
@@ -287,8 +308,7 @@ def apply_history_filters(df: pd.DataFrame, categories: list[str], roles: list[s
 def load_history() -> pd.DataFrame:
     init_db()
     with sqlite3.connect(DB_PATH) as conn:
-        return pd.read_sql_query("SELECT id, created_at, seed, role, category, name, age, nationality, birthplace, position, player_type, abilities_json, special_abilities_json, breaking_balls_json FROM players ORDER BY id DESC", conn)
-
+        return pd.read_sql_query("SELECT id, created_at, seed, role, category, name, age, nationality, birthplace, position, player_type, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, breaking_balls_json FROM players ORDER BY id DESC", conn)
 
 
 def parse_json_column(value: Any, fallback: Any) -> Any:
@@ -348,15 +368,40 @@ def special_ability_summary(df: pd.DataFrame, master: MasterData) -> tuple[pd.Da
 
 
 def player_fingerprint(row: pd.Series) -> str:
-    keys = ["role", "category", "name", "age", "nationality", "birthplace", "position", "player_type", "abilities_json", "special_abilities_json", "breaking_balls_json"]
+    keys = ["role", "category", "name", "age", "nationality", "birthplace", "position", "player_type", "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "breaking_balls_json"]
     return json.dumps({key: row.get(key) for key in keys}, ensure_ascii=False, sort_keys=True)
 
 
+def special_count_bucket(values: list[str]) -> str:
+    return "3個以上" if len(values) >= 3 else f"{len(values)}個"
+
+
 def special_count_distribution(df: pd.DataFrame) -> pd.DataFrame:
-    buckets = df["special_abilities"].apply(lambda values: "3個以上" if len(values) >= 3 else f"{len(values)}個")
+    buckets = df["special_abilities"].apply(special_count_bucket)
     order = pd.DataFrame({"特殊能力数": ["0個", "1個", "2個", "3個以上"]})
     counts = buckets.value_counts().rename_axis("特殊能力数").reset_index(name="人数")
     return order.merge(counts, on="特殊能力数", how="left").fillna({"人数": 0}).astype({"人数": int})
+
+
+def grouped_special_count_distribution(df: pd.DataFrame, group_columns: list[str]) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=[*group_columns, "特殊能力数", "人数"])
+    work = df.copy()
+    work["特殊能力数"] = work["special_abilities"].apply(special_count_bucket)
+    return work.groupby([*group_columns, "特殊能力数"]).size().reset_index(name="人数")
+
+
+def handedness_batting_mismatch_count(df: pd.DataFrame) -> int:
+    derived = df["batting_throwing"].apply(handedness_from_batting_throwing)
+    return int((df["handedness"] != derived).sum())
+
+
+def restricted_left_throwing_positions(df: pd.DataFrame) -> pd.DataFrame:
+    positions = ["捕手", "二塁手", "三塁手", "遊撃手"]
+    target = df[(df["position"].isin(positions)) & (df["handedness"] == "左投")]
+    counts = target["position"].value_counts().rename_axis("ポジション").reset_index(name="人数")
+    base = pd.DataFrame({"ポジション": positions})
+    return base.merge(counts, on="ポジション", how="left").fillna({"人数": 0}).astype({"人数": int})
 
 
 def render_balance_check(master: MasterData) -> None:
@@ -394,14 +439,22 @@ def render_balance_check(master: MasterData) -> None:
     seed_duplicate_count = int(len(df) - unique_seed_count)
     complete_duplicate_count = int(len(df) - df.apply(player_fingerprint, axis=1).nunique())
     invalid_special_count = inappropriate_special_count(df, master)
+    handedness_mismatch_count = handedness_batting_mismatch_count(df)
+    restricted_table = restricted_left_throwing_positions(df)
+    restricted_left_count = int(restricted_table["人数"].sum())
     avg_special_count = round(df["special_abilities"].apply(len).mean(), 2)
     st.subheader("生成品質チェック")
-    metric_cols = st.columns(5)
+    metric_cols = st.columns(7)
     metric_cols[0].metric("総件数", len(df))
     metric_cols[1].metric("ユニークseed数", unique_seed_count)
     metric_cols[2].metric("seed重複数", seed_duplicate_count)
     metric_cols[3].metric("完全重複選手数", complete_duplicate_count)
     metric_cols[4].metric("不適切な特殊能力件数", invalid_special_count)
+    metric_cols[5].metric("利き腕/投打 不一致件数", handedness_mismatch_count)
+    metric_cols[6].metric("左投げの捕手/内野手", restricted_left_count)
+
+    st.subheader("利き腕診断")
+    st.dataframe(restricted_table, use_container_width=True, hide_index=True)
 
     st.subheader("投手/野手別人数")
     st.dataframe(df["role"].value_counts().rename_axis("投手/野手").reset_index(name="人数"), use_container_width=True, hide_index=True)
@@ -437,6 +490,17 @@ def render_balance_check(master: MasterData) -> None:
 
     st.subheader("特殊能力数分布")
     st.dataframe(special_count_distribution(df), use_container_width=True, hide_index=True)
+
+    col_special1, col_special2 = st.columns(2)
+    with col_special1:
+        st.subheader("特殊能力数分布（投手/野手別）")
+        st.dataframe(grouped_special_count_distribution(df, ["role"]).rename(columns={"role": "投手/野手"}), use_container_width=True, hide_index=True)
+    with col_special2:
+        st.subheader("特殊能力数分布（カテゴリ別）")
+        st.dataframe(grouped_special_count_distribution(df, ["category"]).rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
+
+    st.subheader("特殊能力数分布（投手/野手 × カテゴリ別）")
+    st.dataframe(grouped_special_count_distribution(df, ["role", "category"]).rename(columns={"role": "投手/野手", "category": "カテゴリ"}), use_container_width=True, hide_index=True)
 
     col5, col6 = st.columns(2)
     with col5:
