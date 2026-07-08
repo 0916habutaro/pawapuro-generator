@@ -1,6 +1,7 @@
 import csv
 import json
 import random
+import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +39,9 @@ SPECIAL_KIND_LABELS = {
 }
 SPECIAL_KIND_ORDER = ["金特", "青特", "赤特", "緑特", "青赤特", "中間ランク", "不明"]
 SPECIAL_ABILITY_COLUMNS = ["name", "kind", "group", "power", "weight", "target_role"]
+RANKED_SPECIAL_RANKS = ["A", "B", "C", "D", "E", "F", "G"]
+RANKED_SPECIAL_BASE_WEIGHTS = {"A": 2, "B": 7, "C": 18, "D": 46, "E": 18, "F": 7, "G": 2}
+RANKED_SPECIAL_DISPLAY_GROUPS = ["対ピンチ", "ノビ", "チャンス", "盗塁", "キャッチャー"]
 
 
 @dataclass
@@ -106,6 +110,8 @@ def load_master_data() -> MasterData:
     abilities["kind"] = abilities["kind"].fillna("unknown").astype(str)
     abilities["power"] = abilities["power"].fillna("normal").astype(str)
     abilities["weight"] = pd.to_numeric(abilities["weight"], errors="coerce").fillna(0).astype(int)
+    global _CURRENT_ABILITIES_FOR_RANK_CHECK
+    _CURRENT_ABILITIES_FOR_RANK_CHECK = abilities.to_dict("records")
     return MasterData(
         names=normalize_name_master(json.loads((DATA_DIR / "names.json").read_text(encoding="utf-8"))),
         places=normalize_place_master(json.loads((DATA_DIR / "places.json").read_text(encoding="utf-8"))),
@@ -181,13 +187,32 @@ def special_target_role(row: dict[str, Any]) -> str:
     return infer_special_target_role(str(row.get("group", "")))
 
 
+def is_ranked_special(row: dict[str, Any]) -> bool:
+    name = str(row.get("name", ""))
+    if not re.search(r"[A-G]$", name):
+        return False
+    group = str(row.get("group", ""))
+    group_rows = [candidate for candidate in _CURRENT_ABILITIES_FOR_RANK_CHECK if str(candidate.get("group", "")) == group]
+    ranks = {str(candidate.get("name", ""))[-1] for candidate in group_rows if re.search(r"[A-G]$", str(candidate.get("name", "")))}
+    return set(RANKED_SPECIAL_RANKS).issubset(ranks)
+
+
+_CURRENT_ABILITIES_FOR_RANK_CHECK: list[dict[str, Any]] = []
+
+
+def ranked_special_base_name(name: str) -> str:
+    return re.sub(r"[A-G]$", "", name)
+
+
 def role_allowed_specials(master: MasterData, role: str) -> set[str]:
     return {row["name"] for row in master.abilities if special_target_role(row) in (role, "共通")}
 
 
 def inappropriate_special_count(df: pd.DataFrame, master: MasterData) -> int:
     allowed = {role: role_allowed_specials(master, role) for role in ("投手", "野手")}
-    return int(df.apply(lambda row: sum(name not in allowed.get(row["role"], set()) for name in row["special_abilities"]), axis=1).sum())
+    normal_invalid = df.apply(lambda row: sum(name not in allowed.get(row["role"], set()) for name in row["special_abilities"]), axis=1).sum()
+    ranked_invalid = df.apply(lambda row: sum(name not in allowed.get(row["role"], set()) for name in (row.get("ranked_specials") or {}).values()), axis=1).sum() if "ranked_specials" in df.columns else 0
+    return int(normal_invalid + ranked_invalid)
 
 
 def rank(value: int) -> str:
@@ -214,7 +239,7 @@ def age_for(rng: random.Random, category: str) -> int:
 def generate_specials(rng: random.Random, master: MasterData, role: str, player_type: str) -> list[str]:
     selected, used_groups = [], set()
     count = weighted_choice(rng, [(0, 10), (1, 25), (2, 32), (3, 22), (4, 9), (5, 2)])
-    candidates = [row for row in master.abilities if special_target_role(row) in (role, "共通")]
+    candidates = [row for row in master.abilities if special_target_role(row) in (role, "共通") and not is_ranked_special(row)]
     rng.shuffle(candidates)
     for row in candidates:
         if len(selected) >= count:
@@ -232,6 +257,60 @@ def generate_specials(rng: random.Random, master: MasterData, role: str, player_
             used_groups.add(group)
     return selected
 
+
+
+def ranked_shift_for_group(rng: random.Random, group_name: str, role: str, position: str, player_type: str, abilities: dict[str, Any]) -> int:
+    shift = 0
+    if role == "投手":
+        if player_type == "速球派" and group_name == "ノビ":
+            shift += 1
+        if player_type == "技巧派" and group_name in ("クイック", "対ピンチ", "対左打者"):
+            shift += 1
+        control = ability_numeric_value(abilities, "コントロール")
+        if isinstance(control, int | float) and control >= 70 and group_name in ("クイック", "対ピンチ"):
+            shift += 1
+    else:
+        if player_type == "長距離砲" and group_name == "チャンス" and rng.random() < 0.5:
+            shift += rng.choice([-1, 1])
+        if player_type == "俊足型" and group_name in ("盗塁", "走塁"):
+            shift += 1
+        if player_type == "守備職人" and group_name in ("送球", "キャッチャー"):
+            shift += 1
+        speed = ability_numeric_value(abilities, "走力")
+        fielding = ability_numeric_value(abilities, "守備力")
+        if isinstance(speed, int | float) and speed >= 70 and group_name in ("盗塁", "走塁"):
+            shift += 1
+        if isinstance(fielding, int | float) and fielding >= 70 and group_name in ("送球", "キャッチャー"):
+            shift += 1
+    if position == "捕手" and group_name == "キャッチャー":
+        shift += 1
+    return max(-2, min(2, shift))
+
+
+def shifted_rank(rank_value: str, shift: int) -> str:
+    index = RANKED_SPECIAL_RANKS.index(rank_value)
+    return RANKED_SPECIAL_RANKS[max(0, min(len(RANKED_SPECIAL_RANKS) - 1, index - shift))]
+
+
+def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, position: str, player_type: str, abilities: dict[str, Any]) -> dict[str, str]:
+    ranked_rows = [row for row in master.abilities if special_target_role(row) in (role, "共通") and is_ranked_special(row)]
+    rows_by_group: dict[str, list[dict[str, Any]]] = {}
+    for row in ranked_rows:
+        rows_by_group.setdefault(str(row.get("group", "")), []).append(row)
+    selected: dict[str, str] = {}
+    for rows in rows_by_group.values():
+        names_by_rank = {str(row["name"])[-1]: str(row["name"]) for row in rows if str(row.get("name", ""))[-1:] in RANKED_SPECIAL_RANKS}
+        if not set(RANKED_SPECIAL_RANKS).issubset(names_by_rank):
+            continue
+        group_name = ranked_special_base_name(names_by_rank["D"])
+        if group_name == "キャッチャー" and position != "捕手":
+            continue
+        rank_value = weighted_choice(rng, list(RANKED_SPECIAL_BASE_WEIGHTS.items()))
+        if group_name == "チャンス" and player_type == "長距離砲" and rng.random() < 0.35:
+            rank_value = weighted_choice(rng, [("A", 4), ("B", 12), ("C", 20), ("D", 28), ("E", 20), ("F", 12), ("G", 4)])
+        rank_value = shifted_rank(rank_value, ranked_shift_for_group(rng, group_name, role, position, player_type, abilities))
+        selected[group_name] = names_by_rank[rank_value]
+    return selected
 
 def generate_fielder_abilities(rng: random.Random, age: int, position: str, player_type: str, category: str) -> dict[str, Any]:
     veteran_keep = age >= 35 and (player_type == "巧打型" or rng.random() < 0.12)
@@ -379,7 +458,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         "handedness": handedness_from_batting_throwing(batting_throwing),
         "batting_throwing": batting_throwing,
         "height": rng.randint(168, 196) + (3 if role == "投手" else 0), "weight": rng.randint(68, 105),
-        "abilities": abilities, "special_abilities": generate_specials(rng, master, role, player_type),
+        "abilities": {**abilities, "ranked_specials": generate_ranked_specials(rng, master, role, position, player_type, abilities)}, "special_abilities": generate_specials(rng, master, role, player_type),
         "breaking_balls": generate_breaking_balls(rng, player_type) if role == "投手" else [],
     }
 
@@ -432,6 +511,7 @@ def load_history_for_balance() -> pd.DataFrame:
     df = history.copy()
     df["abilities"] = df["abilities_json"].apply(lambda value: parse_json_column(value, {}))
     df["special_abilities"] = df["special_abilities_json"].apply(lambda value: parse_json_column(value, []))
+    df["ranked_specials"] = df["abilities"].apply(lambda value: value.get("ranked_specials", {}) if isinstance(value, dict) else {})
     return df
 
 
@@ -471,6 +551,24 @@ def special_ability_summary(df: pd.DataFrame, master: MasterData) -> tuple[pd.Da
     kind_counts["出現数"] = kind_counts["出現数"].astype(int)
     return counts, kind_counts
 
+
+
+def ranked_special_distribution(df: pd.DataFrame, group_names: list[str] | None = None) -> pd.DataFrame:
+    rows = []
+    for ranked_specials in df.get("ranked_specials", pd.Series(dtype=object)):
+        if not isinstance(ranked_specials, dict):
+            continue
+        for group_name, special_name in ranked_specials.items():
+            if group_names and group_name not in group_names:
+                continue
+            rows.append({"グループ": group_name, "ランク": str(special_name)[-1]})
+    base_groups = group_names or sorted({row["グループ"] for row in rows})
+    base = pd.MultiIndex.from_product([base_groups, RANKED_SPECIAL_RANKS], names=["グループ", "ランク"]).to_frame(index=False)
+    if not rows:
+        base["人数"] = 0
+        return base
+    counts = pd.DataFrame(rows).groupby(["グループ", "ランク"]).size().reset_index(name="人数")
+    return base.merge(counts, on=["グループ", "ランク"], how="left").fillna({"人数": 0}).astype({"人数": int})
 
 def player_fingerprint(row: pd.Series) -> str:
     keys = ["role", "category", "name", "age", "nationality", "birthplace", "position", "player_type", "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "breaking_balls_json"]
@@ -636,6 +734,8 @@ def render_balance_check(master: MasterData) -> None:
         st.subheader("投手能力 平均値")
         st.dataframe(ability_average_table(df, "投手", ["球速", "コントロール", "スタミナ"]), use_container_width=True, hide_index=True)
 
+    ranked_dist = ranked_special_distribution(df)
+    key_ranked_dist = ranked_special_distribution(df, RANKED_SPECIAL_DISPLAY_GROUPS)
     special_counts, kind_counts = special_ability_summary(df, master)
     col3, col4 = st.columns(2)
     with col3:
@@ -646,7 +746,13 @@ def render_balance_check(master: MasterData) -> None:
         st.dataframe(kind_counts, use_container_width=True, hide_index=True)
         st.metric("1人あたり平均特殊能力数", avg_special_count)
 
-    st.subheader("特殊能力数分布")
+    st.subheader("ランク系特殊能力の分布")
+    st.dataframe(ranked_dist, use_container_width=True, hide_index=True)
+
+    st.subheader("主要ランク系特殊能力分布")
+    st.dataframe(key_ranked_dist, use_container_width=True, hide_index=True)
+
+    st.subheader("通常特殊能力数の分布")
     st.dataframe(special_count_distribution(df), use_container_width=True, hide_index=True)
 
     col_special1, col_special2 = st.columns(2)
@@ -687,11 +793,15 @@ def render_card(p: dict[str, Any]) -> None:
         cols[2].metric("種別", p["role"])
         st.markdown("#### 能力")
         for k, v in p["abilities"].items():
-            render_ability_item(k, v)
+            if k != "ranked_specials":
+                render_ability_item(k, v)
         if p["breaking_balls"]:
             st.markdown("#### 変化球")
             st.write(" / ".join(f"{b['name']} {b['level']}" for b in p["breaking_balls"]))
-        st.markdown("#### 特殊能力")
+        ranked_specials = p.get("abilities", {}).get("ranked_specials", {})
+        st.markdown("#### ランク系特殊能力")
+        st.write("、".join(ranked_specials.values()) if ranked_specials else "なし")
+        st.markdown("#### 通常特殊能力")
         st.write("、".join(p["special_abilities"]) if p["special_abilities"] else "なし")
 
 
