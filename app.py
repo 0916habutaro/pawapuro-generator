@@ -106,8 +106,6 @@ def infer_special_target_role(group: str) -> str:
 
 
 def handedness_from_batting_throwing(batting_throwing: str) -> str:
-    if batting_throwing.startswith("両投"):
-        return "両投"
     if batting_throwing.startswith("左投"):
         return "左投"
     return "右投"
@@ -115,13 +113,13 @@ def handedness_from_batting_throwing(batting_throwing: str) -> str:
 
 def generate_batting_throwing(rng: random.Random, role: str, position: str) -> str:
     if role == "投手":
-        throw_weights = [("右投", 67), ("左投", 32), ("両投", 1)]
+        throw_weights = [("右投", 68), ("左投", 32)]
     elif position in ("一塁手", "外野手"):
-        throw_weights = [("右投", 74), ("左投", 25), ("両投", 1)]
+        throw_weights = [("右投", 75), ("左投", 25)]
     elif position in ("捕手", "二塁手", "三塁手", "遊撃手"):
-        throw_weights = [("右投", 990), ("左投", 8), ("両投", 2)]
+        throw_weights = [("右投", 100)]
     else:
-        throw_weights = [("右投", 82), ("左投", 17), ("両投", 1)]
+        throw_weights = [("右投", 83), ("左投", 17)]
 
     throwing = weighted_choice(rng, throw_weights)
     bat_side = weighted_choice(rng, [("右打", 58), ("左打", 32), ("両打", 10)])
@@ -400,10 +398,10 @@ def handedness_batting_mismatch_count(df: pd.DataFrame) -> int:
 
 def restricted_left_throwing_positions(df: pd.DataFrame) -> pd.DataFrame:
     positions = ["捕手", "二塁手", "三塁手", "遊撃手"]
-    target = df[(df["position"].isin(positions)) & (df["handedness"].isin(["左投", "両投"]))]
-    counts = target.groupby(["position", "handedness"]).size().reset_index(name="人数")
-    base = pd.MultiIndex.from_product([positions, ["左投", "両投"]], names=["ポジション", "利き腕"]).to_frame(index=False)
-    return base.merge(counts.rename(columns={"position": "ポジション", "handedness": "利き腕"}), on=["ポジション", "利き腕"], how="left").fillna({"人数": 0}).astype({"人数": int})
+    target = df[(df["position"].isin(positions)) & (df["handedness"] == "左投")]
+    counts = target["position"].value_counts().rename_axis("ポジション").reset_index(name="人数")
+    base = pd.DataFrame({"ポジション": positions})
+    return base.merge(counts, on="ポジション", how="left").fillna({"人数": 0}).astype({"人数": int})
 
 
 def render_balance_check(master: MasterData) -> None:
@@ -443,7 +441,7 @@ def render_balance_check(master: MasterData) -> None:
     invalid_special_count = inappropriate_special_count(df, master)
     handedness_mismatch_count = handedness_batting_mismatch_count(df)
     restricted_table = restricted_left_throwing_positions(df)
-    restricted_left_count = int(restricted_table[restricted_table["利き腕"] == "左投"]["人数"].sum())
+    restricted_left_count = int(restricted_table["人数"].sum())
     avg_special_count = round(df["special_abilities"].apply(len).mean(), 2)
     st.subheader("生成品質チェック")
     metric_cols = st.columns(7)
