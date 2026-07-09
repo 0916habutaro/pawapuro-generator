@@ -538,11 +538,21 @@ def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, 
     return selected
 
 def generate_fielder_abilities(rng: random.Random, age: int, position: str, player_type: str, category: str) -> dict[str, Any]:
-    veteran_keep = age >= 35 and (player_type == "巧打型" or rng.random() < 0.12)
-    base = 48 + (8 if 24 <= age <= 31 else 0) - (4 if age <= 19 else 0) - (5 if age >= 35 and not veteran_keep else 1 if age >= 35 else 0)
+    veteran_keep = age >= 35 and (player_type == "巧打型" or rng.random() < 0.18)
+    base = 47 + (7 if 23 <= age <= 29 else 3 if 30 <= age <= 34 else 0) - (6 if age <= 19 else 3 if age <= 22 else 0) - (2 if age >= 35 and not veteran_keep else 0)
     mods = {"ミート": 0, "パワー": 0, "走力": 0, "肩力": 0, "守備力": 0, "捕球": 0}
     for key in mods:
-        mods[key] += rng.randint(-14, 16)
+        spread = 18 if category in {"ドラフト候補用", "助っ人外国人用"} else 15
+        mods[key] += rng.randint(-spread, spread)
+    position_styles = {
+        "捕手": [("守備型捕手", 62), ("打撃型捕手", 9), ("平均型捕手", 29)],
+        "一塁手": [("強打一塁手", 62), ("守備型一塁手", 18), ("平均型一塁手", 20)],
+        "二塁手": [("守備走塁二塁手", 62), ("打撃型二塁手", 10), ("平均型二塁手", 28)],
+        "三塁手": [("強打三塁手", 45), ("守備型三塁手", 27), ("平均型三塁手", 28)],
+        "遊撃手": [("守備走塁遊撃手", 68), ("強打遊撃手", 7), ("平均型遊撃手", 25)],
+        "外野手": [("走攻守外野手", 26), ("俊足外野手", 25), ("強打外野手", 25), ("守備外野手", 24)],
+    }
+    style = weighted_choice(rng, position_styles.get(position, [("平均型", 1)]))
     type_mods = {
         "巧打型": {"ミート": 16, "パワー": -4}, "長距離砲": {"パワー": 20, "走力": -8, "ミート": -4},
         "俊足型": {"走力": 20, "守備力": 6, "パワー": -8}, "守備職人": {"守備力": 18, "捕球": 14, "ミート": -3},
@@ -558,6 +568,26 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
     }
     for d in (type_mods.get(player_type, {}), pos_mods.get(position, {})):
         for k, v in d.items(): mods[k] += v
+    style_mods = {
+        "守備型捕手": {"肩力": 9, "守備力": 8, "捕球": 9, "走力": -5, "ミート": -5, "パワー": -4},
+        "打撃型捕手": {"ミート": 7, "パワー": 11, "肩力": 3, "守備力": -2},
+        "平均型捕手": {"肩力": 5, "捕球": 4, "守備力": 3, "走力": -3},
+        "強打一塁手": {"パワー": 11, "弾道": 1, "走力": -4, "守備力": -4},
+        "守備型一塁手": {"守備力": 8, "捕球": 8, "パワー": 3},
+        "守備走塁二塁手": {"走力": 8, "守備力": 8, "捕球": 6, "パワー": -3},
+        "打撃型二塁手": {"ミート": 7, "パワー": 8, "守備力": -3},
+        "強打三塁手": {"パワー": 9, "肩力": 5, "守備力": -2},
+        "守備型三塁手": {"肩力": 7, "守備力": 8, "捕球": 6, "パワー": 1},
+        "守備走塁遊撃手": {"走力": 8, "肩力": 7, "守備力": 9, "捕球": 5, "パワー": -4, "ミート": -3},
+        "強打遊撃手": {"パワー": 12, "ミート": 4, "守備力": -2},
+        "走攻守外野手": {"ミート": 4, "パワー": 4, "走力": 5, "肩力": 4, "守備力": 3},
+        "俊足外野手": {"走力": 12, "守備力": 4, "パワー": -5},
+        "強打外野手": {"パワー": 12, "弾道": 1, "走力": -3, "守備力": -3},
+        "守備外野手": {"肩力": 8, "守備力": 8, "捕球": 5, "ミート": -2},
+    }
+    for k, v in style_mods.get(style, {}).items():
+        if k in mods:
+            mods[k] += v
     if position == "三塁手":
         if player_type == "長距離砲":
             mods["パワー"] += 4
@@ -572,16 +602,37 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
             mods["肩力"] += 1
     if category == "助っ人外国人用":
         mods["パワー"] += 8
+        mods["ミート"] -= 2
+        if rng.random() < 0.35:
+            mods["守備力"] -= rng.randint(4, 9)
+            mods["捕球"] -= rng.randint(3, 8)
         if player_type in ("巧打型", "守備職人"):
             mods["パワー"] -= 3
+    elif category == "ドラフト候補用":
+        for k in ("ミート", "守備力", "捕球"):
+            mods[k] -= 2
+        if rng.random() < 0.16:
+            mods[rng.choice(["パワー", "走力", "肩力"])] += rng.randint(10, 18)
+    elif category == "架空球団用":
+        roster_tier = weighted_choice(rng, [("一軍級", 35), ("控え級", 25), ("二軍級", 18), ("若手", 12), ("ベテラン", 10)])
+        tier_mod = {"一軍級": 5, "控え級": 0, "二軍級": -7, "若手": -4, "ベテラン": 1}[roster_tier]
+        for k in mods:
+            mods[k] += tier_mod
     if age >= 35:
-        decline = rng.randint(3, 8) if not veteran_keep else rng.randint(0, 3)
-        mods["走力"] -= decline + 2
+        decline = rng.randint(5, 10) if not veteran_keep else rng.randint(2, 5)
+        mods["走力"] -= decline + 3
         mods["守備力"] -= decline
-        mods["捕球"] -= max(1, decline - 1)
+        mods["肩力"] -= max(1, decline - 2)
+        mods["捕球"] -= max(0, decline - 3)
         if player_type == "巧打型":
             mods["ミート"] += 4
         mods["パワー"] += 2
+    elif 30 <= age <= 34:
+        mods["走力"] -= rng.randint(2, 5)
+        mods["守備力"] -= rng.randint(1, 4)
+    elif age <= 22 and not (category == "ドラフト候補用" and rng.random() < 0.10):
+        for k in ("ミート", "パワー", "守備力", "捕球"):
+            mods[k] -= 2
     category_tune = {
         "架空球団用": {"ミート": -5, "パワー": 0, "走力": 4, "肩力": 3, "守備力": -4, "捕球": -4},
         "ドラフト候補用": {"ミート": -5, "パワー": 0, "走力": 5, "肩力": 2, "守備力": -5, "捕球": -3},
@@ -624,6 +675,8 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
         result["ミート"] = ability(min(result["ミート"]["value"], 58))
     power = result["パワー"]["value"]
     result["弾道"] = 4 if power >= 76 else 3 if power >= 57 else 2 if power >= 38 else 1
+    if style in {"強打一塁手", "強打三塁手", "強打外野手"} and power >= 55:
+        result["弾道"] = min(4, result["弾道"] + 1)
     if position in {"一塁手", "三塁手"} and power >= 52:
         result["弾道"] = max(result["弾道"], 3)
     elif position == "遊撃手":
@@ -672,7 +725,7 @@ def pitcher_aptitude_text(player: dict[str, Any]) -> str:
 
 def generate_pitcher_abilities(rng: random.Random, age: int, player_type: str, category: str, aptitudes: dict[str, str]) -> dict[str, Any]:
     veteran_keep = age >= 35 and (player_type == "技巧派" or rng.random() < 0.12)
-    prime = 1 if 24 <= age <= 32 else -1 if age <= 19 or (age >= 35 and not veteran_keep) else 0
+    prime = 2 if 23 <= age <= 29 else 1 if 30 <= age <= 34 else -2 if age <= 19 else -1 if age <= 22 or (age >= 35 and not veteran_keep) else 0
     speed = rng.randint(138, 149) + prime * 2 + (6 if player_type == "速球派" else 0) - (3 if player_type == "技巧派" else 0)
     speed += {"架空球団用": 4, "ドラフト候補用": 3, "助っ人外国人用": 6}.get(category, 0)
     reliever = aptitudes.get("reliever_aptitude", "-")
@@ -686,10 +739,16 @@ def generate_pitcher_abilities(rng: random.Random, age: int, player_type: str, c
     stamina += 12 if starter == "◎" else 5 if starter == "○" else 0
     stamina -= 5 if closer == "◎" else 2 if closer == "○" else 0
     if age >= 35:
-        speed -= rng.randint(2, 5) if not veteran_keep else rng.randint(0, 2)
+        speed -= rng.randint(3, 6) if not veteran_keep else rng.randint(1, 3)
         stamina -= rng.randint(4, 9) if not veteran_keep else rng.randint(0, 3)
         if player_type == "技巧派":
             control += 5
+    elif 30 <= age <= 34:
+        speed -= rng.randint(0, 2)
+        stamina -= rng.randint(1, 4)
+    elif age <= 22 and not (category == "ドラフト候補用" and rng.random() < 0.12):
+        control -= rng.randint(2, 6)
+        stamina -= rng.randint(1, 4)
     return {"球速": f"{max(125, min(165, speed))} km/h", "コントロール": ability(control), "スタミナ": ability(stamina), **aptitudes}
 
 

@@ -45,6 +45,9 @@ REPORT_FILENAMES = {
     "position_balance_summary": "position_balance_summary.csv",
     "position_balance_warnings": "position_balance_warnings.csv",
     "position_high_ability_rates": "position_high_ability_rates.csv",
+    "position_distribution_diagnostics": "position_distribution_diagnostics.csv",
+    "position_extreme_examples": "position_extreme_examples.csv",
+    "combination_warnings": "warnings.csv",
 }
 
 REAL_POSITION_AVERAGES = {
@@ -383,6 +386,77 @@ def position_high_ability_rates(df: pd.DataFrame) -> pd.DataFrame:
             rows.append({"ポジション": position, "指標": label, "人数": count, "対象人数": int(len(subset)), "割合%": round(count / total * 100, 2)})
     return pd.DataFrame(rows)
 
+
+def position_distribution_diagnostics(df: pd.DataFrame) -> pd.DataFrame:
+    f = df[df["role"] == "野手"].copy()
+    rows = []
+    for (category, position), subset in f.groupby(["category", "position"], dropna=False):
+        total = max(1, len(subset))
+        for key in FIELDING_KEYS:
+            values = pd.to_numeric(subset[key], errors="coerce").dropna()
+            if values.empty:
+                continue
+            rows.append({
+                "カテゴリ": category,
+                "ポジション": position,
+                "能力": key,
+                "人数": int(len(values)),
+                "平均": round(values.mean(), 3),
+                "標準偏差": round(values.std(), 3) if len(values) > 1 else 0,
+                "下位割合_39以下%": round((values <= 39).sum() / total * 100, 2),
+                "上位割合_70以上%": round((values >= 70).sum() / total * 100, 2),
+                "極上位割合_80以上%": round((values >= 80).sum() / total * 100, 2),
+            })
+    return pd.DataFrame(rows)
+
+
+def position_extreme_examples(df: pd.DataFrame) -> pd.DataFrame:
+    f = df[df["role"] == "野手"].copy()
+    rows = []
+    for position, subset in f.groupby("position", dropna=False):
+        for label, order in [("総合上位", False), ("総合下位", True)]:
+            for _, row in subset.sort_values("総合スコア", ascending=order).head(3).iterrows():
+                rows.append({
+                    "ポジション": position,
+                    "例種別": label,
+                    "seed": row["seed"],
+                    "カテゴリ": row["category"],
+                    "年齢": row["age"],
+                    "タイプ": row["player_type"],
+                    "総合スコア": round(row["総合スコア"], 1),
+                    "能力": " / ".join(f"{key}{int(row[key])}" for key in FIELDING_KEYS if pd.notna(row[key])),
+                })
+    return pd.DataFrame(rows)
+
+
+def combination_warnings(df: pd.DataFrame) -> pd.DataFrame:
+    f = df[df["role"] == "野手"].copy()
+    rules = [
+        ("捕手の打撃過多", (f["position"].eq("捕手")) & (f["ミート"] >= 65) & (f["パワー"] >= 70) & (f["守備力"] < 50)),
+        ("捕手の守備不足", (f["position"].eq("捕手")) & ((f["肩力"] < 50) | (f["守備力"] < 42) | (f["捕球"] < 38))),
+        ("一塁手の非力すぎ", (f["position"].eq("一塁手")) & (f["パワー"] < 42) & (f["守備力"] < 60)),
+        ("二塁手の守備走力不足", (f["position"].eq("二塁手")) & ((f["走力"] < 50) | (f["守備力"] < 48)) & (f["パワー"] < 60)),
+        ("三塁手の肩不足", (f["position"].eq("三塁手")) & (f["肩力"] < 48) & (f["パワー"] < 65)),
+        ("遊撃手の守備不足", (f["position"].eq("遊撃手")) & ((f["守備力"] < 48) | (f["肩力"] < 52) | (f["走力"] < 52))),
+        ("外野手の走肩守不足", (f["position"].eq("外野手")) & (f[["走力", "肩力", "守備力"]].max(axis=1) < 55) & (f["パワー"] < 65)),
+        ("高齢選手の走守肩過多", (f["age"] >= 35) & (f["走力"] >= 75) & (f["守備力"] >= 70) & (f["肩力"] >= 75)),
+        ("若手の完成度過多", (f["age"] <= 22) & (f["総合スコア"] >= 455) & ~(f["category"].eq("ドラフト候補用") & (f[["パワー", "走力", "肩力"]].max(axis=1) >= 85))),
+    ]
+    rows = []
+    for name, mask in rules:
+        subset = f[mask]
+        for _, row in subset.head(30).iterrows():
+            rows.append({
+                "警告タイプ": name,
+                "seed": row["seed"],
+                "カテゴリ": row["category"],
+                "ポジション": row["position"],
+                "年齢": row["age"],
+                "タイプ": row["player_type"],
+                "能力": " / ".join(f"{key}{int(row[key])}" for key in FIELDING_KEYS if pd.notna(row[key])),
+            })
+    return pd.DataFrame(rows)
+
 def detect_anomalies(df: pd.DataFrame) -> pd.DataFrame:
     pitchers = df[df["role"] == "投手"]
     checks = [
@@ -471,6 +545,11 @@ def write_markdown_summary(tables: dict[str, pd.DataFrame], path: Path) -> None:
     warnings = tables["position_balance_warnings"]
     rates = tables["position_high_ability_rates"]
     sub_warnings = tables["sub_position_summary"][tables["sub_position_summary"]["集計軸"].eq("警告チェック")]
+    age_stats = tables["ability_stats"][tables["ability_stats"]["集計軸"].eq("年齢帯") & tables["ability_stats"]["対象"].isin(["野手", "投手"])]
+    category_stats = tables["ability_stats"][tables["ability_stats"]["集計軸"].eq("category") & tables["ability_stats"]["対象"].isin(["野手", "投手"])]
+    distributions = tables["position_distribution_diagnostics"]
+    extremes = tables["position_extreme_examples"]
+    combo_warnings = tables["combination_warnings"]
 
     def markdown_table(table: pd.DataFrame) -> str:
         if table.empty:
@@ -503,6 +582,26 @@ def write_markdown_summary(tables: dict[str, pd.DataFrame], path: Path) -> None:
         "## 高能力者割合",
         "",
         markdown_table(rates),
+        "",
+        "## 年齢帯別の能力平均",
+        "",
+        markdown_table(age_stats[["対象", "集計値", "能力", "人数", "平均"]].head(80)),
+        "",
+        "## カテゴリ別の能力平均",
+        "",
+        markdown_table(category_stats[["対象", "集計値", "能力", "人数", "平均"]].head(80)),
+        "",
+        "## ポジション別の能力分布・上位割合・下位割合",
+        "",
+        markdown_table(distributions[distributions["カテゴリ"].eq("架空球団用")].head(80)),
+        "",
+        "## ポジション別の極端な選手例",
+        "",
+        markdown_table(extremes.head(60)),
+        "",
+        "## 能力の組み合わせが不自然な選手の警告",
+        "",
+        "警告なし" if combo_warnings.empty else markdown_table(combo_warnings.head(80)),
         "",
         "## サブポジ警告",
         "",
@@ -554,6 +653,9 @@ def main() -> None:
         "position_balance_summary": position_balance_summary(df),
         "position_balance_warnings": position_balance_warnings(df),
         "position_high_ability_rates": position_high_ability_rates(df),
+        "position_distribution_diagnostics": position_distribution_diagnostics(df),
+        "position_extreme_examples": position_extreme_examples(df),
+        "combination_warnings": combination_warnings(df),
     }
     write_reports(tables, args.output_dir, args.excel)
     print_console_summary(tables, args.output_dir)
