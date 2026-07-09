@@ -34,6 +34,7 @@ REPORT_FILENAMES = {
     "special_name_stats": "special_name_stats.csv",
     "ranked_special_stats": "ranked_special_stats.csv",
     "anomalies": "anomalies.csv",
+    "pitcher_aptitude_summary": "pitcher_aptitude_summary.csv",
 }
 
 
@@ -77,6 +78,8 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
         breaking_balls = player["breaking_balls"]
         break_levels = [int(ball.get("level", 0) or 0) for ball in breaking_balls]
         row = {key: player[key] for key in ["seed", "role", "category", "name", "age", "nationality", "birthplace", "position", "player_type", "handedness", "batting_throwing", "height", "weight"]}
+        for key in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]:
+            row[key] = player.get(key) or abilities.get(key)
         row["年齢帯"] = age_band(player["age"])
         for key in FIELDING_KEYS:
             row[key] = ability_numeric_value(abilities, key)
@@ -157,8 +160,43 @@ def special_stats(players: list[dict[str, Any]], df: pd.DataFrame) -> tuple[pd.D
     return pd.DataFrame(rows), pd.DataFrame(name_rows), pd.DataFrame(ranked_rows)
 
 
+
+def aptitude_pattern(row: pd.Series) -> str:
+    return f"先発{row.get('starter_aptitude', '-') or '-'} / 中継ぎ{row.get('reliever_aptitude', '-') or '-'} / 抑え{row.get('closer_aptitude', '-') or '-'}"
+
+
+def pitcher_aptitude_summary(df: pd.DataFrame) -> pd.DataFrame:
+    pitchers = df[df["role"] == "投手"].copy()
+    if pitchers.empty:
+        return pd.DataFrame()
+    pitchers["適正パターン"] = pitchers.apply(aptitude_pattern, axis=1)
+    rows = [
+        {"集計軸": "先発◎人数", "値": "◎", "人数": int((pitchers["starter_aptitude"] == "◎").sum())},
+        {"集計軸": "中継ぎ◎人数", "値": "◎", "人数": int((pitchers["reliever_aptitude"] == "◎").sum())},
+        {"集計軸": "抑え◎人数", "値": "◎", "人数": int((pitchers["closer_aptitude"] == "◎").sum())},
+        {"集計軸": "先発○人数", "値": "○", "人数": int((pitchers["starter_aptitude"] == "○").sum())},
+        {"集計軸": "中継ぎ○人数", "値": "○", "人数": int((pitchers["reliever_aptitude"] == "○").sum())},
+        {"集計軸": "抑え○人数", "値": "○", "人数": int((pitchers["closer_aptitude"] == "○").sum())},
+    ]
+    for pattern, subset in pitchers.groupby("適正パターン", dropna=False):
+        rows.append({
+            "集計軸": "適正パターン別", "値": pattern, "人数": int(len(subset)),
+            "平均球速": round(pd.to_numeric(subset["球速"], errors="coerce").mean(), 3),
+            "平均コントロール": round(pd.to_numeric(subset["コントロール"], errors="coerce").mean(), 3),
+            "平均スタミナ": round(pd.to_numeric(subset["スタミナ"], errors="coerce").mean(), 3),
+            "平均球種数": round(pd.to_numeric(subset["変化球数"], errors="coerce").mean(), 3),
+            "平均総変化量": round(pd.to_numeric(subset["総変化量"], errors="coerce").mean(), 3),
+        })
+    return pd.DataFrame(rows)
+
 def detect_anomalies(df: pd.DataFrame) -> pd.DataFrame:
+    pitchers = df[df["role"] == "投手"]
     checks = [
+        ("中継ぎ- / 抑え◎", pitchers[(pitchers["reliever_aptitude"] == "-") & (pitchers["closer_aptitude"] == "◎")]),
+        ("中継ぎ- / 抑え○", pitchers[(pitchers["reliever_aptitude"] == "-") & (pitchers["closer_aptitude"] == "○")]),
+        ("先発◎ / 中継ぎ- / 抑え◎", pitchers[(pitchers["starter_aptitude"] == "◎") & (pitchers["reliever_aptitude"] == "-") & (pitchers["closer_aptitude"] == "◎")]),
+        ("全部-", pitchers[(pitchers["starter_aptitude"] == "-") & (pitchers["reliever_aptitude"] == "-") & (pitchers["closer_aptitude"] == "-")]),
+        ("◎が1つもない投手", pitchers[(pitchers[["starter_aptitude", "reliever_aptitude", "closer_aptitude"]] == "◎").sum(axis=1) == 0]),
         ("投手の球種が極端に少ない", df[(df["role"] == "投手") & (df["変化球数"] <= 1)]),
         ("投手の総変化量が極端に低い", df[(df["role"] == "投手") & (df["総変化量"] <= 2)]),
         ("投手の球種数が極端に多い", df[(df["role"] == "投手") & (df["変化球数"] >= 5)]),
@@ -195,6 +233,8 @@ def print_console_summary(tables: dict[str, pd.DataFrame], output_dir: Path) -> 
     print(tables["ability_stats"][tables["ability_stats"]["集計軸"] == "全体"].to_string(index=False))
     print("\n[特殊能力種別: 全体]")
     print(tables["special_kind_stats"][tables["special_kind_stats"]["集計軸"] == "全体"].to_string(index=False))
+    print("\n[投手適正サマリー]")
+    print(tables["pitcher_aptitude_summary"].to_string(index=False))
     print("\n[異常値検出]")
     print(tables["anomalies"].to_string(index=False))
 
@@ -211,6 +251,7 @@ def main() -> None:
         "special_name_stats": special_name,
         "ranked_special_stats": ranked_special,
         "anomalies": detect_anomalies(df),
+        "pitcher_aptitude_summary": pitcher_aptitude_summary(df),
     }
     write_reports(tables, args.output_dir, args.excel)
     print_console_summary(tables, args.output_dir)
