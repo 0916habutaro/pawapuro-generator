@@ -4,6 +4,7 @@ import argparse
 import html
 import logging
 import re
+import unicodedata
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,22 +23,37 @@ DIRECTION_NAMES = {
     "3": "フォーク方向",
     "4": "シンカー方向",
     "5": "シュート方向",
-    "6": "特殊方向6",
-    "7": "特殊方向7",
-    "8": "特殊方向8",
-    "9": "特殊方向9",
 }
+RIGHT_THROW_LOGICAL_DIRECTION_CODE = {"5": "1", "4": "2", "3": "3", "2": "4", "1": "5"}
+LEFT_THROW_LOGICAL_DIRECTION_CODE = {"1": "1", "2": "2", "3": "3", "4": "4", "5": "5"}
+ALLOWED_PITCHES_BY_DIRECTION_RIGHT = {
+    "1": {"スライダー", "Hスライダー", "カットボール"},
+    "2": {"カーブ", "スローカーブ", "ドロップカーブ", "スラーブ", "ナックルカーブ", "パワーカーブ", "Dスライダー"},
+    "3": {"フォーク", "パーム", "チェンジアップ", "Vスライダー", "SFF", "ナックル"},
+    "4": {"シンカー", "Hシンカー", "サークルチェンジ", "シンキングスプリット", "ファストチェンジ"},
+    "5": {"シュート", "Hシュート", "シンキングツーシーム"},
+}
+ALLOWED_PITCHES_BY_DIRECTION_LEFT = {
+    "1": {"スライダー", "Hスライダー", "カットボール"},
+    "2": {"カーブ", "スローカーブ", "ドロップカーブ", "スラーブ", "ナックルカーブ", "パワーカーブ", "Dスライダー"},
+    "3": {"フォーク", "パーム", "チェンジアップ", "Vスライダー", "SFF", "ナックル"},
+    "4": {"スクリュー", "サークルチェンジ", "シンキングスプリット", "ファストチェンジ"},
+    "5": {"シュート", "Hシュート", "シンキングツーシーム"},
+}
+SECOND_FASTBALL_TYPES = {"ツーシームファスト", "ムービングファスト", "超スローボール"}
+FIXED_FASTBALL_TYPES = {"ストレート"}
+CANONICAL_PITCH_TYPES = {"スクリュー": "シンカー"}
 PLAYER_COLUMNS = [
     "team", "name", "number", "role", "throws_bats", "main_position",
     "sub_positions", "pitcher_roles", "usage", "top_speed", "control", "stamina",
     "trajectory", "contact", "power", "run_speed", "arm_strength", "fielding", "catching",
 ]
 BREAKING_BALL_COLUMNS = [
-    "source", "team", "name", "direction_code", "direction", "slot", "pitch_type", "movement", "source_class", "status",
+    "source", "team", "name", "throws_bats", "source_direction_code", "logical_direction_code", "direction_code", "direction", "slot", "raw_pitch_type", "pitch_type", "canonical_pitch_type", "movement", "source_class", "status", "kind", "raw_text", "normalized_text", "raw_neighbor_text", "detail",
 ]
 SPECIAL_COLUMNS = ["source", "team", "name", "special", "special_kind"]
 UNKNOWN_CLASS_COLUMNS = ["source", "team", "name", "source_class", "detail"]
-UNKNOWN_BREAKING_COLUMNS = ["source", "team", "name", "source_class", "slot", "movement", "detail"]
+UNKNOWN_BREAKING_COLUMNS = ["source", "team", "name", "source_class", "slot", "movement", "detail", "raw_text", "normalized_text"]
 FAILED_PLAYER_COLUMNS = ["source", "team", "name", "reason", "detail"]
 INPUT_ERROR_COLUMNS = ["source", "reason", "detail"]
 
@@ -55,10 +71,12 @@ POSITION_ALIASES = {
 }
 POSITION_PATTERN = re.compile("捕手|一塁手|二塁手|三塁手|遊撃手|外野手|左翼手|中堅手|右翼手|キャッチャー|ファースト|セカンド|サード|ショート|レフト|センター|ライト|捕|一|二|三|遊|外")
 PITCH_TYPE_NAMES = [
-    "スライダー", "Hスライダー", "Vスライダー", "カットボール", "カーブ", "スローカーブ", "ドロップ", "ドロップカーブ",
-    "ナックルカーブ", "パワーカーブ", "フォーク", "SFF", "パーム", "ナックル", "縦スライダー", "チェンジアップ",
-    "サークルチェンジ", "シンカー", "Hシンカー", "スクリュー", "シュート", "Hシュート", "シンキングツーシーム",
-    "ツーシーム", "ムービングファスト", "超スローボール", "オリジナル変化球",
+    "ストレート", "ツーシームファスト", "ムービングファスト", "超スローボール",
+    "スライダー", "Hスライダー", "カットボール",
+    "カーブ", "スローカーブ", "ドロップカーブ", "スラーブ", "ナックルカーブ", "パワーカーブ", "Dスライダー",
+    "フォーク", "パーム", "チェンジアップ", "Vスライダー", "SFF", "ナックル",
+    "シンカー", "Hシンカー", "スクリュー", "サークルチェンジ", "シンキングスプリット", "ファストチェンジ",
+    "シュート", "Hシュート", "シンキングツーシーム",
 ]
 PITCH_TYPE_RE = re.compile("|".join(re.escape(name) for name in sorted(PITCH_TYPE_NAMES, key=len, reverse=True)))
 
@@ -125,6 +143,30 @@ def clean_text(value: str) -> str:
     value = TAG_RE.sub(" ", value)
     return re.sub(r"\s+", " ", html.unescape(value).replace("\xa0", " ")).strip()
 
+
+
+def normalize_pitch_text(value: str) -> str:
+    return unicodedata.normalize("NFKC", value or "")
+
+
+def logical_direction_code(source_direction_code: str, throws_bats: str) -> str:
+    if str(throws_bats).startswith("右投"):
+        return RIGHT_THROW_LOGICAL_DIRECTION_CODE.get(str(source_direction_code), str(source_direction_code))
+    return LEFT_THROW_LOGICAL_DIRECTION_CODE.get(str(source_direction_code), str(source_direction_code))
+
+
+def allowed_pitches_for(direction_code: str, throws_bats: str) -> set[str]:
+    is_left = str(throws_bats).startswith("左投")
+    table = ALLOWED_PITCHES_BY_DIRECTION_LEFT if is_left else ALLOWED_PITCHES_BY_DIRECTION_RIGHT
+    return table.get(direction_code, set())
+
+
+def is_pitch_allowed_for_direction(direction_code: str, pitch_type: str, throws_bats: str) -> bool:
+    return pitch_type in allowed_pitches_for(direction_code, throws_bats)
+
+
+def canonical_pitch_type(pitch_type: str) -> str:
+    return CANONICAL_PITCH_TYPES.get(pitch_type, pitch_type)
 
 def normalize_label(value: str) -> str:
     return re.sub(r"[\s:：/／・_-]+", "", value)
@@ -364,7 +406,7 @@ def extract_fielder_positions_from_ability_block(block: str) -> list[str]:
 
 def extract_pitch_names(value: str) -> list[str]:
     names: list[str] = []
-    for name in PITCH_TYPE_RE.findall(value or ""):
+    for name in PITCH_TYPE_RE.findall(normalize_pitch_text(value or "")):
         if name not in names:
             names.append(name)
     if names:
@@ -429,6 +471,8 @@ def parse_real_blocks(doc: SourceDoc) -> ParseResult:
         current = row.copy()
         for bb in parse_breaking_from_block(ability_block, current, doc.source_name, result):
             result.breaking.append(bb)
+        for sf in parse_second_fastballs_from_block(ability_block, current, doc.source_name):
+            result.breaking.append(sf)
         specials_block = (inner_by_id(block, f"pa{num_id}") if role == "投手" else inner_by_id(block, f"ba{num_id}"))
         ranked = [clean_text(a + b) for a, b in re.findall(r'<b\b[^>]*class="[^"]*[PNM][^"]*"[^>]*>\s*<b>(.*?)</b>\s*<b>(.*?)</b>', specials_block, re.I | re.S)]
         normals = [clean_text(x) for x in re.findall(r'<b\b[^>]*class="[^"]*[PNM][^"]*"[^>]*>([^<][^<>]*?)</b>', specials_block, re.I | re.S)]
@@ -443,18 +487,105 @@ def parse_real_blocks(doc: SourceDoc) -> ParseResult:
     return result
 
 
+
+def classify_pitch(direction_code: str, pitch_type: str, throws_bats: str) -> tuple[str, str]:
+    if pitch_type in FIXED_FASTBALL_TYPES:
+        return "excluded_fixed_fastball", "fixed_fastball"
+    if pitch_type in SECOND_FASTBALL_TYPES:
+        return "second_fastball", "second_fastball"
+    if pitch_type == "unknown":
+        return "unknown", "unknown"
+    if is_pitch_allowed_for_direction(direction_code, pitch_type, throws_bats):
+        return "ok", "breaking"
+    return "invalid_direction", "breaking"
+
+
+def make_breaking_row(source: str, current: dict[str, str], source_direction_code: str, slot: int | None, amount: str | int, source_class: str, pitch_type: str, raw_text: str, normalized_text: str, raw_neighbor_text: str = "", detail: str = "") -> dict[str, str]:
+    throws_bats = current.get("throws_bats", "")
+    logical_code = logical_direction_code(source_direction_code, throws_bats)
+    status, kind = classify_pitch(logical_code, pitch_type, throws_bats)
+    if status == "invalid_direction" and not detail:
+        detail = "球種候補は見つかりましたが投げ手補正後の方向コードと一致しません"
+    return {
+        "source": source, "team": current.get("team", "unknown"), "name": current.get("name", "unknown"), "throws_bats": throws_bats,
+        "source_direction_code": source_direction_code, "logical_direction_code": logical_code, "direction_code": logical_code,
+        "direction": DIRECTION_NAMES.get(logical_code, "unknown"), "slot": slot,
+        "raw_pitch_type": pitch_type, "pitch_type": pitch_type, "canonical_pitch_type": canonical_pitch_type(pitch_type),
+        "movement": int(amount), "source_class": source_class, "status": status, "kind": kind,
+        "raw_text": raw_text, "normalized_text": normalized_text, "raw_neighbor_text": raw_neighbor_text, "detail": detail,
+    }
+
+def unique_pitch_names(*texts: str) -> list[str]:
+    names: list[str] = []
+    for text in texts:
+        for name in extract_pitch_names(normalize_pitch_text(text or "")):
+            if name not in names:
+                names.append(name)
+    return names
+
+
+def select_pitch_names_for_code(raw_text: str, raw_neighbor_text: str, logical_code: str, throws_bats: str, slot_count: int) -> tuple[list[str], str, str]:
+    raw_names = unique_pitch_names(raw_text)
+    raw_allowed = [name for name in raw_names if is_pitch_allowed_for_direction(logical_code, name, throws_bats)]
+    if len(raw_allowed) >= slot_count:
+        return raw_allowed[:slot_count], "ok", "raw_textから投げ手補正後の方向一致候補を採用"
+
+    neighbor_names = unique_pitch_names(raw_neighbor_text)
+    names = []
+    for name in [*raw_names, *neighbor_names]:
+        if name not in names:
+            names.append(name)
+    allowed = [name for name in names if is_pitch_allowed_for_direction(logical_code, name, throws_bats)]
+    if len(allowed) >= slot_count:
+        return allowed[:slot_count], "ok", "raw_text/neighbor_textから投げ手補正後の方向一致候補を採用"
+    if len(allowed) == 1 and slot_count == 1:
+        return allowed, "ok", "raw_text/neighbor_textから唯一の方向一致候補を採用"
+
+    direction_mismatches = [name for name in names if name not in SECOND_FASTBALL_TYPES and name not in FIXED_FASTBALL_TYPES]
+    if direction_mismatches:
+        return direction_mismatches[:slot_count] or [direction_mismatches[0]] * slot_count, "invalid_direction", "球種候補は見つかりましたが投げ手補正後の方向コードと一致しません"
+    if names:
+        return names[:slot_count] or [names[0]] * slot_count, "unknown", "候補球種は通常変化球ではありません"
+    return ["unknown"] * slot_count, "unknown", "球種候補を特定できません"
+
+def make_second_fastball_row(source: str, current: dict[str, str], pitch_type: str, raw_text: str) -> dict[str, str]:
+    return {
+        "source": source, "team": current.get("team", "unknown"), "name": current.get("name", "unknown"), "throws_bats": current.get("throws_bats", ""),
+        "source_direction_code": "", "logical_direction_code": "", "direction_code": "", "direction": "ストレート系第二種", "slot": "",
+        "raw_pitch_type": pitch_type, "pitch_type": pitch_type, "canonical_pitch_type": pitch_type,
+        "movement": 0, "source_class": "", "status": "second_fastball", "kind": "second_fastball",
+        "raw_text": raw_text, "normalized_text": normalize_pitch_text(raw_text), "raw_neighbor_text": raw_text, "detail": "投手能力ブロック全体から検出",
+    }
+
+
+def parse_second_fastballs_from_block(block: str, current: dict[str, str], source: str) -> list[dict[str, str]]:
+    text = html_text_with_attrs(block)
+    found = []
+    for pitch_type in SECOND_FASTBALL_TYPES:
+        if pitch_type in normalize_pitch_text(text):
+            found.append(make_second_fastball_row(source, current, pitch_type, text))
+    return sorted(found, key=lambda row: normalize_pitch_text(text).find(row["pitch_type"]))
+
 def parse_breaking_from_block(block: str, current: dict[str, str], source: str, result: ParseResult) -> list[dict[str, str]]:
     out = []
+    block_text = html_text_with_attrs(block)
     for m in re.finditer(r'<b\b[^>]*class="[^"]*\bv(\d{2,3})\b[^"]*"[^>]*>(.*?)</b>', block, re.I | re.S):
         code = m.group(1)
-        text = clean_text(m.group(2)).replace(" / ", " ").strip()
-        context = html_text_with_attrs(block[max(0, m.start() - 500): min(len(block), m.end() + 500)])
-        names = extract_pitch_names(text) or extract_pitch_names(context) or ["unknown"] * (len(code) - 1)
-        for idx, amount in enumerate(code[1:], start=1):
-            pitch_type = names[idx - 1] if idx - 1 < len(names) and names[idx - 1] else "unknown"
-            row = {"source": source, "team": current.get("team", "unknown"), "name": current.get("name", "unknown"), "direction_code": code[0], "direction": DIRECTION_NAMES.get(code[0], "unknown"), "slot": idx, "pitch_type": pitch_type, "movement": int(amount), "source_class": f"v{code}", "status": "ok" if pitch_type != "unknown" else "unknown"}
-            if pitch_type == "unknown":
-                result.unknown_breaking.append({"source": source, "team": row["team"], "name": row["name"], "source_class": row["source_class"], "slot": idx, "movement": int(amount), "detail": "class内/周辺要素から球種名を特定できません"})
+        source_direction_code = code[0]
+        logical_code = logical_direction_code(source_direction_code, current.get("throws_bats", ""))
+        amounts = list(code[1:])
+        raw_text = clean_text(m.group(2)).replace(" / ", " ").strip()
+        raw_neighbor_text = html_text_with_attrs(block[max(0, m.start() - 180): min(len(block), m.end() + 180)]) or block_text
+        normalized_text = normalize_pitch_text(raw_text)
+        names, selection_status, detail = select_pitch_names_for_code(raw_text, raw_neighbor_text or block_text, logical_code, current.get("throws_bats", ""), len(amounts))
+        for idx, amount in enumerate(amounts, start=1):
+            pitch_type = names[idx - 1] if idx - 1 < len(names) else (names[0] if names else "unknown")
+            row = make_breaking_row(source, current, source_direction_code, idx, amount, f"v{code}", pitch_type, raw_text, normalized_text, raw_neighbor_text, detail)
+            if selection_status == "invalid_direction":
+                row["status"] = "invalid_direction"
+                row["kind"] = "breaking"
+            if row["status"] == "unknown":
+                result.unknown_breaking.append({"source": source, "team": row["team"], "name": row["name"], "source_class": row["source_class"], "slot": idx, "movement": int(amount), "detail": detail, "raw_text": raw_text, "normalized_text": normalized_text})
             out.append(row)
     return out
 
@@ -520,35 +651,28 @@ def parse_breaking_ball_row(cells: list[tuple[str, str]], current: dict[str, str
     matches = V_CLASS_RE.findall(row_html)
     if not matches:
         return out
-    texts = [html_text_with_attrs(c[1]) for c in cells]
-    pitch_names = []
-    for text in texts:
-        if text and normalize_label(text) not in LABEL_ALIASES:
-            pitch_names.extend(name for name in extract_pitch_names(text) if name not in pitch_names)
-    if not pitch_names:
-        pitch_names = extract_pitch_names(html_text_with_attrs(row_html))
+    raw_text = " ".join(html_text_with_attrs(c[1]) for c in cells)
+    normalized_text = normalize_pitch_text(raw_text)
     for code in matches:
         source_class = f"v{code}"
         if code not in css_classes:
             detail = "ball.css等のCSSにclass定義が見つかりません"
             result.unknown_classes.append({"source": source, "team": current.get("team", "unknown"), "name": current.get("name", "unknown"), "source_class": source_class, "detail": detail})
             LOGGER.warning("CSSに定義がない変化球class: %s (%s / %s / %s)", source_class, current.get("name", "unknown"), current.get("team", "unknown"), source)
-        direction_code = code[0]
+        source_direction_code = code[0]
+        logical_code = logical_direction_code(source_direction_code, current.get("throws_bats", ""))
         amounts = list(code[1:])
+        names, selection_status, detail = select_pitch_names_for_code(raw_text, normalized_text, logical_code, current.get("throws_bats", ""), len(amounts))
         for idx, amount in enumerate(amounts, start=1):
-            pitch_type = pitch_names[idx - 1] if idx - 1 < len(pitch_names) else "unknown"
-            status = "ok" if pitch_type != "unknown" else "unknown"
-            row = {
-                "source": source, "team": current.get("team", "unknown"), "name": current.get("name", "unknown"),
-                "direction_code": direction_code, "direction": DIRECTION_NAMES.get(direction_code, "unknown"),
-                "slot": idx, "pitch_type": pitch_type, "movement": int(amount), "source_class": source_class,
-                "status": status,
-            }
-            if status == "unknown":
-                result.unknown_breaking.append({"source": source, "team": row["team"], "name": row["name"], "source_class": source_class, "slot": idx, "movement": int(amount), "detail": "同一行から球種名を特定できません"})
+            pitch_type = names[idx - 1] if idx - 1 < len(names) else "unknown"
+            row = make_breaking_row(source, current, source_direction_code, idx, amount, source_class, pitch_type, raw_text, normalized_text, normalized_text, detail)
+            if selection_status == "invalid_direction":
+                row["status"] = "invalid_direction"
+                row["kind"] = "breaking"
+            if row["status"] == "unknown":
+                result.unknown_breaking.append({"source": source, "team": row["team"], "name": row["name"], "source_class": source_class, "slot": idx, "movement": int(amount), "detail": detail, "raw_text": raw_text, "normalized_text": normalized_text})
             out.append(row)
     return out
-
 
 def combine_results(results: list[ParseResult], source_failures: list[dict[str, str]]) -> ParseResult:
     combined = ParseResult(input_errors=list(source_failures))
@@ -593,12 +717,26 @@ def team_roster_summary(players: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values("players", ascending=False)
 
 
+def normal_breaking_df(breaking: pd.DataFrame) -> pd.DataFrame:
+    if breaking.empty:
+        return pd.DataFrame(columns=BREAKING_BALL_COLUMNS)
+    kind = breaking.get("kind", pd.Series(dtype=str)).fillna("breaking")
+    status = breaking.get("status", pd.Series(dtype=str)).fillna("ok")
+    return breaking[kind.eq("breaking") & status.isin(["ok", "corrected_by_direction_filter"]) & ~breaking.get("pitch_type", pd.Series(dtype=str)).isin(["ストレート", *SECOND_FASTBALL_TYPES])].copy()
+
+
+def second_fastball_df(breaking: pd.DataFrame) -> pd.DataFrame:
+    if breaking.empty:
+        return pd.DataFrame(columns=BREAKING_BALL_COLUMNS)
+    return breaking[breaking.get("kind", pd.Series(dtype=str)).eq("second_fastball") | breaking.get("pitch_type", pd.Series(dtype=str)).isin(SECOND_FASTBALL_TYPES)].copy()
+
+
 def pitcher_breaking_metrics(players: pd.DataFrame, breaking: pd.DataFrame) -> pd.DataFrame:
     pitchers = players[players.get("role", pd.Series(dtype=str)).eq("投手")].copy() if not players.empty else pd.DataFrame()
     if pitchers.empty:
         return pitchers
-    if not breaking.empty:
-        b = breaking.copy()
+    b = normal_breaking_df(breaking)
+    if not b.empty:
         b["movement"] = pd.to_numeric(b["movement"], errors="coerce").fillna(0)
         per = b.groupby(["source", "team", "name"], dropna=False).agg(breaking_ball_count=("pitch_type", "count"), total_movement=("movement", "sum"), has_second_pitch=("slot", lambda x: (pd.to_numeric(x, errors="coerce") >= 2).any())).reset_index()
         pitchers = pitchers.merge(per, on=["source", "team", "name"], how="left")
@@ -606,8 +744,15 @@ def pitcher_breaking_metrics(players: pd.DataFrame, breaking: pd.DataFrame) -> p
         pitchers["breaking_ball_count"] = 0
         pitchers["total_movement"] = 0
         pitchers["has_second_pitch"] = False
-    pitchers[["breaking_ball_count", "total_movement"]] = pitchers[["breaking_ball_count", "total_movement"]].fillna(0)
+    sf = second_fastball_df(breaking)
+    if not sf.empty:
+        has_sf = sf.groupby(["source", "team", "name"], dropna=False).size().reset_index(name="second_fastball_count")
+        pitchers = pitchers.merge(has_sf, on=["source", "team", "name"], how="left")
+    else:
+        pitchers["second_fastball_count"] = 0
+    pitchers[["breaking_ball_count", "total_movement", "second_fastball_count"]] = pitchers[["breaking_ball_count", "total_movement", "second_fastball_count"]].fillna(0)
     pitchers["has_second_pitch"] = pitchers["has_second_pitch"].fillna(False).astype(bool)
+    pitchers["has_second_fastball"] = pitchers["second_fastball_count"].fillna(0).gt(0)
     return pitchers
 
 
@@ -649,10 +794,14 @@ def write_outputs(result: ParseResult, output_dir: Path, excel: bool) -> dict[st
     players = dfs["players"]
     pitchers = players[players["role"].fillna("").eq("投手")] if not players.empty else pd.DataFrame(columns=players.columns)
     fielders = players[players["role"].fillna("").eq("野手")] if not players.empty else pd.DataFrame(columns=players.columns)
+    normal_breaking = normal_breaking_df(dfs["breaking_balls"])
+    second_fastballs = second_fastball_df(dfs["breaking_balls"])
+    invalid_directions = dfs["breaking_balls"][dfs["breaking_balls"].get("status", pd.Series(dtype=str)).eq("invalid_direction")].copy() if not dfs["breaking_balls"].empty else pd.DataFrame(columns=BREAKING_BALL_COLUMNS)
+    dfs["invalid_pitch_directions"] = invalid_directions
     pitcher_metrics = pitcher_breaking_metrics(players, dfs["breaking_balls"])
     dfs["position_summary"] = summarize(players, "main_position")
     dfs["pitcher_role_summary"] = summarize(pitchers[pitchers["pitcher_roles"].fillna("").ne("")], "pitcher_roles")
-    dfs["breaking_ball_summary"] = summarize(dfs["breaking_balls"], "pitch_type", numeric="movement")
+    dfs["breaking_ball_summary"] = summarize(normal_breaking, "canonical_pitch_type", numeric="movement")
     dfs["team_roster_summary"] = team_roster_summary(players)
     dfs["team_pitcher_ability_average"] = average_by(pitchers, "team", ["top_speed", "control", "stamina"])
     dfs["team_fielder_ability_average"] = average_by(fielders, "team", ["trajectory", "contact", "power", "run_speed", "arm_strength", "fielding", "catching"])
@@ -660,6 +809,14 @@ def write_outputs(result: ParseResult, output_dir: Path, excel: bool) -> dict[st
     dfs["pitcher_role_ability_average"] = average_by(pitcher_metrics[pitcher_metrics["pitcher_roles"].fillna("").ne("")], "pitcher_roles", ["top_speed", "control", "stamina", "breaking_ball_count", "total_movement"])
     dfs["breaking_ball_count_distribution"] = distribution(pitcher_metrics, "breaking_ball_count")
     dfs["second_pitch_summary"] = ratio_summary("第二球種あり投手", int(pitcher_metrics.get("has_second_pitch", pd.Series(dtype=bool)).sum()), len(pitcher_metrics))
+    dfs["second_fastball_summary"] = ratio_summary("ストレート系第二種あり投手", int(pitcher_metrics.get("has_second_fastball", pd.Series(dtype=bool)).sum()), len(pitcher_metrics))
+    dfs["second_fastball_type_summary"] = summarize(second_fastballs, "pitch_type")
+    dfs["pitch_direction_summary"] = summarize(normal_breaking, "direction")
+    dfs["raw_pitch_type_summary"] = summarize(normal_breaking, "raw_pitch_type")
+    dfs["canonical_pitch_type_summary"] = summarize(normal_breaking, "canonical_pitch_type", numeric="movement")
+    dfs["raw_vs_canonical_pitch_summary"] = normal_breaking.groupby(["raw_pitch_type", "canonical_pitch_type"], dropna=False).size().reset_index(name="count") if not normal_breaking.empty else pd.DataFrame(columns=["raw_pitch_type", "canonical_pitch_type", "count"])
+    dfs["invalid_pitch_direction_summary"] = summarize(invalid_directions, "pitch_type")
+    dfs["direction_code_pitch_type_crosstab"] = pd.crosstab(normal_breaking["logical_direction_code"], normal_breaking["pitch_type"]).reset_index().rename(columns={"logical_direction_code": "direction_code"}) if not normal_breaking.empty else pd.DataFrame()
     dfs["total_movement_distribution"] = distribution(pitcher_metrics, "total_movement")
     subpos_count = int(fielders["sub_positions"].fillna("").ne("").sum()) if "sub_positions" in fielders else 0
     dfs["fielder_sub_position_summary"] = ratio_summary("サブポジあり野手", subpos_count, len(fielders))
