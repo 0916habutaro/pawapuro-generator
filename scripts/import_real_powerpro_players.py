@@ -176,6 +176,13 @@ def decode_text_file(raw: bytes) -> str:
     return raw.decode("utf-8", errors="ignore")
 
 
+
+def decode_zip_member_name(name: str) -> str:
+    try:
+        return name.encode("cp437").decode("cp932")
+    except Exception:  # noqa: BLE001
+        return name
+
 def read_sources(input_dir: Path) -> tuple[list[SourceDoc], list[dict[str, str]]]:
     docs: list[SourceDoc] = []
     failures: list[dict[str, str]] = []
@@ -184,17 +191,17 @@ def read_sources(input_dir: Path) -> tuple[list[SourceDoc], list[dict[str, str]]
             with zipfile.ZipFile(path) as zf:
                 html_names = [n for n in zf.namelist() if n.lower().endswith((".html", ".htm", ".mhtml", ".mht"))]
                 css_names = [n for n in zf.namelist() if n.lower().endswith(".css")]
-                css_texts = {n: decode_text_file(zf.read(n)) for n in css_names}
+                css_texts = {decode_zip_member_name(n): decode_text_file(zf.read(n)) for n in css_names}
                 if not html_names:
                     failures.append({"source": path.name, "reason": "html_not_found", "detail": "ZIP内にHTML/MHTMLがありません"})
                 for name in html_names:
                     try:
                         text, enc, warn = decode_html(zf.read(name))
-                        docs.append(SourceDoc(f"{path.name}:{name}", text, enc, css_texts))
+                        docs.append(SourceDoc(f"{path.name}:{decode_zip_member_name(name)}", text, enc, css_texts))
                         if warn:
-                            failures.append({"source": f"{path.name}:{name}", "reason": "decode_warning", "detail": warn})
+                            failures.append({"source": f"{path.name}:{decode_zip_member_name(name)}", "reason": "decode_warning", "detail": warn})
                     except Exception as exc:  # noqa: BLE001
-                        failures.append({"source": f"{path.name}:{name}", "reason": "html_read_failed", "detail": f"{type(exc).__name__}: {exc}"})
+                        failures.append({"source": f"{path.name}:{decode_zip_member_name(name)}", "reason": "html_read_failed", "detail": f"{type(exc).__name__}: {exc}"})
         except Exception as exc:  # noqa: BLE001
             failures.append({"source": path.name, "reason": "zip_read_failed", "detail": f"{type(exc).__name__}: {exc}"})
     for path in sorted(input_dir.glob("*.htm*")) + sorted(input_dir.glob("*.mht*")):
@@ -262,6 +269,24 @@ def extract_positions_from_text(value: str) -> list[str]:
     return found
 
 
+
+def extract_fielder_positions_from_ability_block(block: str) -> list[str]:
+    """野手能力ブロック内の c8 w から守備位置略称を取得します。"""
+    class_re = r'(?=[^"]*\bc8\b)(?=[^"]*\bw\b)[^"]*'
+    for m in re.finditer(rf'<b\b[^>]*class="{class_re}"[^>]*>(.*?)</b>\s*</b>', block, re.I | re.S):
+        inner = m.group(1)
+        nested = re.findall(r'<b\b[^>]*>(.*?)</b>', inner, re.I | re.S)
+        candidates = [clean_text(value) for value in nested if clean_text(value)]
+        candidates.append(clean_text(inner))
+        for candidate in reversed(candidates):
+            positions = extract_positions_from_text(candidate)
+            if positions:
+                return positions
+    m = re.search(rf'<b\b[^>]*class="{class_re}"[^>]*>(.*?)(?=<b\b[^>]*class=|</p>|<a\s+name=|\Z)', block, re.I | re.S)
+    if m:
+        return extract_positions_from_text(clean_text(m.group(1)))
+    return []
+
 def extract_pitch_names(value: str) -> list[str]:
     names: list[str] = []
     for name in PITCH_TYPE_RE.findall(value or ""):
@@ -304,6 +329,7 @@ def parse_real_blocks(doc: SourceDoc) -> ParseResult:
         ft = clean_text(field)
         tb = re.search(r"[左右]投[左右両]打", ft)
         row["throws_bats"] = tb.group(0) if tb else ""
+        ability_block = inner_by_id(block, f"p{num_id}") if role == "投手" else inner_by_id(block, f"b{num_id}")
         posblock = inner_by_id(block, f"pr{num_id}") if role == "投手" else inner_by_id(block, f"br{num_id}")
         post = clean_text(posblock)
         if role == "投手":
@@ -311,10 +337,15 @@ def parse_real_blocks(doc: SourceDoc) -> ParseResult:
             row["main_position"] = "投手"
             row["pitcher_roles"] = m.group(0) if m else ""
         else:
-            positions = extract_positions_from_text(post) or extract_positions_from_text(html_text_with_attrs(posblock))
+            detail_block = inner_by_id(block, f"d{num_id}")
+            positions = (
+                extract_fielder_positions_from_ability_block(ability_block)
+                or extract_fielder_positions_from_ability_block(detail_block)
+                or extract_positions_from_text(post)
+                or extract_positions_from_text(html_text_with_attrs(posblock))
+            )
             row["main_position"] = positions[0] if positions else ""
-            row["sub_positions"] = " / ".join(positions[1:])
-        ability_block = inner_by_id(block, f"p{num_id}") if role == "投手" else inner_by_id(block, f"b{num_id}")
+            row["sub_positions"] = ";".join(positions[1:])
         vals = [clean_text(x) for x in re.findall(r'<(?:b|i)\b[^>]*>(\d+)</(?:b|i)>', ability_block, re.I | re.S)]
         if role == "投手":
             for key, val in zip(["top_speed", "control", "stamina"], vals[:3]): row[key] = val

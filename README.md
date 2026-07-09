@@ -98,6 +98,10 @@ python scripts/import_real_powerpro_players.py \
 - `ranked_special_summary.csv`: ランク系特殊能力別出現数
 - `real_powerpro_players.xlsx`: `--excel` 指定時のみ作成
 
+### 野手ポジションの扱い
+
+実在選手HTMLでは、野手ポジションは表示中の野手能力ブロック `b{選手番号}` 内の `class="c8 w"` にある略称を優先して解析します。例: `三外` は `main_position=三塁手`、`sub_positions=外野手` として出力します。
+
 ### 変化球classの扱い
 
 HTML内の `v52`, `v133`, `v543` のようなclassを解析します。
