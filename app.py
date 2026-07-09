@@ -662,54 +662,71 @@ def generate_pitcher_abilities(rng: random.Random, age: int, player_type: str, c
 
 
 BREAKING_BALL_MASTER = [
-    {"name": "スライダー", "direction": "スライダー"},
-    {"name": "カットボール", "direction": "スライダー"},
-    {"name": "カーブ", "direction": "カーブ"},
-    {"name": "スローカーブ", "direction": "カーブ"},
-    {"name": "スラーブ", "direction": "カーブ"},
-    {"name": "フォーク", "direction": "フォーク"},
-    {"name": "SFF", "direction": "フォーク"},
-    {"name": "チェンジアップ", "direction": "フォーク"},
-    {"name": "シンカー", "direction": "シンカー"},
-    {"name": "スクリュー", "direction": "シンカー"},
-    {"name": "シュート", "direction": "シュート"},
-    {"name": "ツーシーム", "direction": "シュート"},
+    {"name": "スライダー", "direction": "スライダー", "base_weight": 17, "second_pitch_allowed": True, "second_pitch_weight": 12, "min_movement": 2, "max_movement": 6},
+    {"name": "Hスライダー", "direction": "スライダー", "base_weight": 6, "second_pitch_allowed": True, "second_pitch_weight": 6, "min_movement": 2, "max_movement": 5},
+    {"name": "Vスライダー", "direction": "スライダー", "base_weight": 5, "second_pitch_allowed": True, "second_pitch_weight": 5, "min_movement": 1, "max_movement": 5},
+    {"name": "カットボール", "direction": "スライダー", "base_weight": 13, "second_pitch_allowed": True, "second_pitch_weight": 10, "min_movement": 1, "max_movement": 5},
+    {"name": "カーブ", "direction": "カーブ", "base_weight": 14, "second_pitch_allowed": True, "second_pitch_weight": 10, "min_movement": 2, "max_movement": 6},
+    {"name": "スローカーブ", "direction": "カーブ", "base_weight": 5, "second_pitch_allowed": True, "second_pitch_weight": 6, "min_movement": 1, "max_movement": 5},
+    {"name": "ドロップ", "direction": "カーブ", "base_weight": 3, "second_pitch_allowed": True, "second_pitch_weight": 3, "min_movement": 1, "max_movement": 5},
+    {"name": "ドロップカーブ", "direction": "カーブ", "base_weight": 5, "second_pitch_allowed": True, "second_pitch_weight": 5, "min_movement": 1, "max_movement": 5},
+    {"name": "ナックルカーブ", "direction": "カーブ", "base_weight": 5, "second_pitch_allowed": True, "second_pitch_weight": 5, "min_movement": 1, "max_movement": 5},
+    {"name": "パワーカーブ", "direction": "カーブ", "base_weight": 5, "second_pitch_allowed": True, "second_pitch_weight": 4, "min_movement": 2, "max_movement": 6, "pitcher_type_bias": {"速球派": 2, "助っ人外国人用": 2}},
+    {"name": "フォーク", "direction": "フォーク", "base_weight": 16, "second_pitch_allowed": True, "second_pitch_weight": 12, "min_movement": 2, "max_movement": 7},
+    {"name": "SFF", "direction": "フォーク", "base_weight": 10, "second_pitch_allowed": True, "second_pitch_weight": 10, "min_movement": 1, "max_movement": 5},
+    {"name": "パーム", "direction": "フォーク", "base_weight": 3, "second_pitch_allowed": True, "second_pitch_weight": 3, "min_movement": 1, "max_movement": 5},
+    {"name": "ナックル", "direction": "フォーク", "base_weight": 1, "second_pitch_allowed": False, "second_pitch_weight": 0, "min_movement": 2, "max_movement": 5},
+    {"name": "縦スライダー", "direction": "フォーク", "base_weight": 6, "second_pitch_allowed": True, "second_pitch_weight": 6, "min_movement": 1, "max_movement": 5},
+    {"name": "チェンジアップ", "direction": "フォーク", "base_weight": 13, "second_pitch_allowed": True, "second_pitch_weight": 10, "min_movement": 1, "max_movement": 6},
+    {"name": "サークルチェンジ", "direction": "フォーク", "base_weight": 5, "second_pitch_allowed": True, "second_pitch_weight": 5, "min_movement": 1, "max_movement": 5},
+    {"name": "シンカー", "direction": "シンカー", "base_weight": 8, "second_pitch_allowed": True, "second_pitch_weight": 7, "min_movement": 1, "max_movement": 6},
+    {"name": "Hシンカー", "direction": "シンカー", "base_weight": 4, "second_pitch_allowed": True, "second_pitch_weight": 4, "min_movement": 1, "max_movement": 5},
+    {"name": "スクリュー", "direction": "シンカー", "base_weight": 5, "second_pitch_allowed": True, "second_pitch_weight": 5, "min_movement": 1, "max_movement": 5},
+    {"name": "シンキングツーシーム", "direction": "シンカー", "base_weight": 4, "second_pitch_allowed": True, "second_pitch_weight": 4, "min_movement": 1, "max_movement": 4},
+    {"name": "シュート", "direction": "シュート", "base_weight": 10, "second_pitch_allowed": True, "second_pitch_weight": 8, "min_movement": 1, "max_movement": 5},
+    {"name": "Hシュート", "direction": "シュート", "base_weight": 4, "second_pitch_allowed": True, "second_pitch_weight": 4, "min_movement": 1, "max_movement": 4},
+    {"name": "ツーシーム", "direction": "シュート", "base_weight": 8, "second_pitch_allowed": True, "second_pitch_weight": 7, "min_movement": 1, "max_movement": 4},
+    {"name": "ムービングファスト", "direction": "シュート", "base_weight": 3, "second_pitch_allowed": True, "second_pitch_weight": 3, "min_movement": 1, "max_movement": 4},
+    {"name": "超スローボール", "direction": "カーブ", "base_weight": 1, "second_pitch_allowed": False, "second_pitch_weight": 0, "min_movement": 1, "max_movement": 3},
 ]
-SECOND_PITCH_PAIRS = {
-    "スライダー": ["カットボール"],
-    "カットボール": ["スライダー"],
-    "カーブ": ["スローカーブ", "スラーブ"],
-    "スローカーブ": ["カーブ"],
-    "スラーブ": ["カーブ"],
-    "フォーク": ["SFF", "チェンジアップ"],
-    "SFF": ["フォーク"],
-    "チェンジアップ": ["フォーク", "SFF"],
-    "シンカー": ["スクリュー"],
-    "スクリュー": ["シンカー"],
-    "シュート": ["ツーシーム"],
-    "ツーシーム": ["シュート"],
-}
 BREAKING_BY_NAME = {ball["name"]: ball for ball in BREAKING_BALL_MASTER}
+BREAKING_DIRECTIONS = sorted({ball["direction"] for ball in BREAKING_BALL_MASTER})
+
+
+def weighted_breaking_names(rng: random.Random, direction: str, player_type: str, category: str, *, second_pitch: bool = False) -> str:
+    choices = []
+    for ball in BREAKING_BALL_MASTER:
+        if ball["direction"] != direction:
+            continue
+        weight_key = "second_pitch_weight" if second_pitch else "base_weight"
+        weight = int(ball.get(weight_key, 0) or 0)
+        if second_pitch and not ball.get("second_pitch_allowed", False):
+            weight = 0
+        bias = ball.get("pitcher_type_bias", {})
+        weight += int(bias.get(player_type, 0) or 0) + int(bias.get(category, 0) or 0)
+        if weight > 0:
+            choices.append((ball["name"], weight))
+    return weighted_choice(rng, choices)
 
 
 def second_pitch_chance(player_type: str, category: str, aptitudes: dict[str, str]) -> float:
-    chance = 0.15
+    chance = 0.17
     if aptitudes.get("starter_aptitude") == "◎":
-        chance += 0.03
+        chance += 0.025
     if aptitudes.get("closer_aptitude") == "◎":
-        chance -= 0.03
+        chance -= 0.025
     if player_type in {"変化球派", "技巧派"}:
-        chance += 0.02
+        chance += 0.015
     if category == "助っ人外国人用":
         chance += 0.03
     elif category == "ドラフト候補用":
-        chance -= 0.04
-    return max(0.08, min(0.22, chance))
+        chance -= 0.035
+    return max(0.08, min(0.23, chance))
 
 
 def make_breaking_ball(name: str, movement: int, is_second_pitch: bool, slot: int) -> dict[str, Any]:
     master = BREAKING_BY_NAME[name]
-    movement = max(1, min(7, movement))
+    movement = max(int(master.get("min_movement", 1)), min(int(master.get("max_movement", 7)), movement))
     return {
         "name": name,
         "direction": master["direction"],
@@ -720,28 +737,62 @@ def make_breaking_ball(name: str, movement: int, is_second_pitch: bool, slot: in
     }
 
 
-def generate_breaking_balls(rng: random.Random, player_type: str, category: str, aptitudes: dict[str, str]) -> list[dict[str, Any]]:
-    count_weights = [(1, 28), (2, 50), (3, 20), (4, 2)]
+def pitch_count_weights(player_type: str, category: str, aptitudes: dict[str, str]) -> list[tuple[int, int]]:
     if category == "ドラフト候補用":
-        count_weights = [(1, 30), (2, 50), (3, 18), (4, 2)]
+        weights = {1: 23, 2: 54, 3: 21, 4: 2}
     elif category == "助っ人外国人用":
-        count_weights = [(1, 20), (2, 52), (3, 25), (4, 3)]
-    count = weighted_choice(rng, count_weights) + (1 if player_type == "変化球派" and rng.random() < 0.30 else 0)
+        weights = {1: 13, 2: 55, 3: 28, 4: 4}
+    else:
+        weights = {1: 17, 2: 54, 3: 27, 4: 2}
+    if aptitudes.get("starter_aptitude") == "◎":
+        weights[1] -= 4; weights[2] += 2; weights[3] += 2
+    if aptitudes.get("reliever_aptitude") == "◎" and aptitudes.get("starter_aptitude") != "◎":
+        weights[1] += 2; weights[3] -= 2
+    if aptitudes.get("closer_aptitude") == "◎" and aptitudes.get("starter_aptitude") != "◎":
+        weights[1] -= 2; weights[2] += 5; weights[3] -= 3
+    if player_type == "変化球派":
+        weights[1] -= 4; weights[2] -= 1; weights[3] += 4; weights[4] += 1
+    return [(count, max(1, weight)) for count, weight in weights.items()]
+
+
+def movement_weights(player_type: str, category: str, aptitudes: dict[str, str], count: int) -> list[tuple[int, int]]:
+    weights = {1: 9, 2: 24, 3: 34, 4: 24, 5: 8, 6: 1}
+    if count == 1:
+        weights[1] += 4; weights[2] += 4; weights[4] += 4; weights[5] += 2
+    if aptitudes.get("starter_aptitude") == "◎":
+        weights[1] -= 2; weights[2] -= 1; weights[4] += 2; weights[5] += 1
+    if aptitudes.get("closer_aptitude") == "◎":
+        weights[1] -= 2; weights[2] -= 1; weights[4] += 2; weights[5] += 1
+    if category == "ドラフト候補用":
+        weights[1] += 3; weights[2] += 2; weights[5] -= 2
+    elif category == "助っ人外国人用":
+        weights[1] -= 2; weights[4] += 2; weights[5] += 2
+    if player_type == "変化球派":
+        weights[1] -= 3; weights[2] -= 2; weights[4] += 3; weights[5] += 2
+    return [(level, max(1, weight)) for level, weight in weights.items()]
+
+
+def generate_breaking_balls(rng: random.Random, player_type: str, category: str, aptitudes: dict[str, str]) -> list[dict[str, Any]]:
+    count = weighted_choice(rng, pitch_count_weights(player_type, category, aptitudes))
     names_by_direction: dict[str, list[str]] = {}
     for ball in BREAKING_BALL_MASTER:
-        names_by_direction.setdefault(ball["direction"], []).append(ball["name"])
+        if int(ball.get("base_weight", 0) or 0) > 0:
+            names_by_direction.setdefault(ball["direction"], []).append(ball["name"])
     primary_directions = rng.sample(list(names_by_direction), min(count, len(names_by_direction)))
-    primary = [rng.choice(names_by_direction[direction]) for direction in primary_directions]
     balls = []
-    for index, name in enumerate(primary, start=1):
-        movement = weighted_choice(rng, [(1, 13), (2, 24), (3, 30), (4, 23), (5, 10)]) + (1 if player_type == "変化球派" and rng.random() < 0.35 else 0)
+    for index, direction in enumerate(primary_directions, start=1):
+        name = weighted_breaking_names(rng, direction, player_type, category)
+        movement = weighted_choice(rng, movement_weights(player_type, category, aptitudes, count))
         balls.append(make_breaking_ball(name, movement, False, index))
     if balls and rng.random() < second_pitch_chance(player_type, category, aptitudes):
-        candidates = [ball for ball in balls if SECOND_PITCH_PAIRS.get(ball["name"])]
+        candidates = [ball for ball in balls if any(m["direction"] == ball["direction"] and m["name"] != ball["name"] and m.get("second_pitch_allowed", False) for m in BREAKING_BALL_MASTER)]
         if candidates:
             base = max(candidates, key=lambda b: (b["movement"], rng.random()))
-            second_name = rng.choice(SECOND_PITCH_PAIRS[base["name"]])
-            second_movement = min(base["movement"], weighted_choice(rng, [(1, 45), (2, 35), (3, 16), (4, 4)]))
+            second_name = weighted_breaking_names(rng, base["direction"], player_type, category, second_pitch=True)
+            if second_name == base["name"]:
+                alternatives = [m["name"] for m in BREAKING_BALL_MASTER if m["direction"] == base["direction"] and m["name"] != base["name"] and m.get("second_pitch_allowed", False)]
+                second_name = rng.choice(alternatives) if alternatives else second_name
+            second_movement = min(base["movement"] + (1 if rng.random() < 0.08 else 0), weighted_choice(rng, [(1, 38), (2, 38), (3, 19), (4, 5)]))
             balls.append(make_breaking_ball(second_name, second_movement, True, 2))
     return balls
 

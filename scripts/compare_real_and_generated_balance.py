@@ -115,6 +115,14 @@ def normalize_generated_players(df: pd.DataFrame) -> pd.DataFrame:
         out["第二球種数"] = 0
     if "position" in out:
         out["position"] = out["position"].map(normalize_position)
+    if "breaking_ball_names" not in out and "変化球方向" in out:
+        out["breaking_ball_names"] = out["変化球方向"].fillna("").astype(str).map(lambda text: ",".join(part.split(":", 1)[1].replace("(第2)", "") for part in text.split(",") if ":" in part))
+    if "breaking_ball_directions" not in out and "変化球方向" in out:
+        out["breaking_ball_directions"] = out["変化球方向"].fillna("").astype(str).map(lambda text: ",".join(part.split(":", 1)[0] for part in text.split(",") if ":" in part))
+    if "first_pitch_directions" not in out and "変化球方向" in out:
+        out["first_pitch_directions"] = out["変化球方向"].fillna("").astype(str).map(lambda text: ",".join(part.split(":", 1)[0] for part in text.split(",") if ":" in part and "(第2)" not in part))
+    if "second_pitch_directions" not in out and "変化球方向" in out:
+        out["second_pitch_directions"] = out["変化球方向"].fillna("").astype(str).map(lambda text: ",".join(part.split(":", 1)[0] for part in text.split(",") if ":" in part and "(第2)" in part))
     if "category" not in out:
         out["category"] = "生成"
     return out
@@ -223,28 +231,63 @@ def pitcher_role_compare(real: pd.DataFrame, gen: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _explode_series(df: pd.DataFrame, column: str) -> pd.Series:
+    if column not in df:
+        return pd.Series(dtype=str)
+    values = df[column].fillna("").astype(str).str.split(",").explode().str.strip()
+    return values[values.ne("")]
+
+
 def breaking_compare(real: pd.DataFrame, gen: pd.DataFrame, real_breaking: pd.DataFrame) -> pd.DataFrame:
     rows = []
+    real_pitchers = real[real["role"].eq("投手")]
     metrics = [("球種数分布", "球種数"), ("総変化量分布", "総変化量")]
     for label, col in metrics:
-        for val, cnt in real[real["role"].eq("投手")][col].value_counts(dropna=False).items():
-            rows.append({"カテゴリ": "実在12球団", "比較軸": label, "値": val, "件数": int(cnt), "割合%": round(cnt / max(1, len(real[real['role'].eq('投手')])) * 100, 2)})
+        for val, cnt in real_pitchers[col].value_counts(dropna=False).items():
+            rows.append({"カテゴリ": "実在12球団", "比較軸": label, "値": val, "件数": int(cnt), "割合%": round(cnt / max(1, len(real_pitchers)) * 100, 2)})
         for cat in [c for c in CATEGORY_PRIORITY if c in set(gen.get("category", []))]:
             gp = gen[(gen["role"].eq("投手")) & (gen["category"].eq(cat))]
             for val, cnt in gp[col].value_counts(dropna=False).items():
                 rows.append({"カテゴリ": cat, "比較軸": label, "値": val, "件数": int(cnt), "割合%": round(cnt / max(1, len(gp)) * 100, 2)})
-    real_second = int((real[real["role"].eq("投手")]["第二球種数"] > 0).sum())
-    rows.append({"カテゴリ": "実在12球団", "比較軸": "第二球種あり", "値": "あり", "件数": real_second, "割合%": round(real_second / max(1, len(real[real['role'].eq('投手')])) * 100, 2)})
+    real_second = int((real_pitchers["第二球種数"] > 0).sum())
+    rows.append({"カテゴリ": "実在12球団", "比較軸": "第二球種あり", "値": "あり", "件数": real_second, "割合%": round(real_second / max(1, len(real_pitchers)) * 100, 2)})
     for cat in [c for c in CATEGORY_PRIORITY if c in set(gen.get("category", []))]:
         gp = gen[(gen["role"].eq("投手")) & (gen["category"].eq(cat))]
         gen_second = int((pd.to_numeric(gp.get("第二球種数", pd.Series(dtype=float)), errors="coerce").fillna(0) > 0).sum())
         rows.append({"カテゴリ": cat, "比較軸": "第二球種あり", "値": "あり", "件数": gen_second, "割合%": round(gen_second / max(1, len(gp)) * 100, 2)})
     if not real_breaking.empty:
-        for axis, col in [("方向別出現数", "direction"), ("変化量別出現数", "movement")]:
+        if "pitch_type" in real_breaking:
+            total = max(1, int(real_breaking["pitch_type"].notna().sum()))
+            for name, cnt in real_breaking["pitch_type"].fillna("unknown").astype(str).value_counts().items():
+                rows.append({"カテゴリ": "実在12球団", "比較軸": "球種名別出現率", "値": name, "件数": int(cnt), "割合%": round(cnt / total * 100, 2)})
+        for axis, col in [("方向別出現率", "direction"), ("変化量別出現数", "movement")]:
+            total = max(1, int(real_breaking[col].notna().sum())) if col in real_breaking else 1
             for val, cnt in real_breaking[col].value_counts(dropna=False).items() if col in real_breaking else []:
-                rows.append({"カテゴリ": "実在12球団", "比較軸": axis, "値": val, "件数": int(cnt), "割合%": None})
+                rows.append({"カテゴリ": "実在12球団", "比較軸": axis, "値": val, "件数": int(cnt), "割合%": round(cnt / total * 100, 2) if axis.endswith("率") else None})
+        for slot_label, mask in [("第一球種", pd.to_numeric(real_breaking.get("slot", pd.Series(dtype=float)), errors="coerce").fillna(1) < 2), ("第二球種", pd.to_numeric(real_breaking.get("slot", pd.Series(dtype=float)), errors="coerce").fillna(1) >= 2)]:
+            rb = real_breaking[mask]
+            total = max(1, len(rb))
+            if "direction" in rb:
+                for val, cnt in rb["direction"].value_counts(dropna=False).items():
+                    rows.append({"カテゴリ": "実在12球団", "比較軸": f"{slot_label}方向分布", "値": val, "件数": int(cnt), "割合%": round(cnt / total * 100, 2)})
+    for cat in [c for c in CATEGORY_PRIORITY if c in set(gen.get("category", []))]:
+        gp = gen[(gen["role"].eq("投手")) & (gen["category"].eq(cat))]
+        total_pitches = max(1, len(_explode_series(gp, "breaking_ball_names")))
+        for name, cnt in _explode_series(gp, "breaking_ball_names").value_counts().items():
+            rows.append({"カテゴリ": cat, "比較軸": "球種名別出現率", "値": name, "件数": int(cnt), "割合%": round(cnt / total_pitches * 100, 2)})
+        for axis, col in [("方向別出現率", "breaking_ball_directions"), ("第一球種方向分布", "first_pitch_directions"), ("第二球種方向分布", "second_pitch_directions")]:
+            values = _explode_series(gp, col)
+            total = max(1, len(values))
+            for val, cnt in values.value_counts().items():
+                rows.append({"カテゴリ": cat, "比較軸": axis, "値": val, "件数": int(cnt), "割合%": round(cnt / total * 100, 2)})
+    if not real_breaking.empty and "pitch_type" in real_breaking:
+        real_names = set(real_breaking["pitch_type"].dropna().astype(str))
+        gen_names = set(_explode_series(gen[gen["role"].eq("投手")], "breaking_ball_names"))
+        for name in sorted(real_names - gen_names):
+            rows.append({"カテゴリ": "差分", "比較軸": "実在に存在するが生成に出ない球種", "値": name, "件数": 0, "割合%": None})
+        for name in sorted(gen_names - real_names):
+            rows.append({"カテゴリ": "差分", "比較軸": "生成に存在するが実在にない球種", "値": name, "件数": 0, "割合%": None})
     return pd.DataFrame(rows)
-
 
 def load_special_kind_map() -> dict[str, str]:
     path = ROOT / "data" / "special_abilities.csv"
