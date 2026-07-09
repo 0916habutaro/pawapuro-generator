@@ -40,7 +40,7 @@ SPECIAL_KIND_LABELS = {
 SPECIAL_KIND_ORDER = ["金特", "青特", "赤特", "緑特", "青赤特", "中間ランク", "不明"]
 SPECIAL_ABILITY_COLUMNS = ["name", "kind", "group", "power", "weight", "target_role"]
 RANKED_SPECIAL_RANKS = ["A", "B", "C", "D", "E", "F", "G"]
-RANKED_SPECIAL_BASE_WEIGHTS = {"A": 2, "B": 7, "C": 18, "D": 46, "E": 18, "F": 7, "G": 2}
+RANKED_SPECIAL_BASE_WEIGHTS = {"A": 1, "B": 5, "C": 13, "D": 56, "E": 17, "F": 6, "G": 2}
 RANKED_SPECIAL_DISPLAY_GROUPS = ["対ピンチ", "ノビ", "チャンス", "盗塁", "キャッチャー"]
 
 
@@ -269,14 +269,14 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
     name = str(row.get("name", ""))
     kind = str(row.get("kind", ""))
     power = str(row.get("power", "normal"))
-    base_scale = 0.42 if kind == "green" or name in PERSONALITY_SPECIALS else 0.55
+    base_scale = 0.52 if kind == "green" or name in PERSONALITY_SPECIALS else 0.70
     chance = 0.35 if power == "gold" or kind == "gold" else float(base_chance) * base_scale
     if power == "strong" or name in STRONG_SPECIALS:
         chance *= 0.70
     if kind == "red":
-        chance *= 0.72
+        chance *= 1.00
     if kind == "mixed":
-        chance *= 0.82
+        chance *= 0.90
 
     if category == "ドラフト候補用":
         chance *= 0.86
@@ -345,16 +345,25 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
             if isinstance(arm, int | float): chance += 0.6 if arm >= 70 else -1.8 if arm < 45 else 0
         if kind == "red":
             if name == "三振" and isinstance(meet, int | float):
-                if meet < 45:
-                    chance += 2
-                elif meet < 55:
+                if meet < 40:
+                    chance += 4
+                elif meet < 50:
+                    chance += 3
+                elif meet < 58:
                     chance += 1
                 elif meet >= 75:
-                    chance -= 5
+                    chance -= 6
                 elif meet >= 65:
-                    chance -= 3
-            if name == "エラー" and ((isinstance(field, int | float) and field < 50) or (isinstance(catch, int | float) and catch < 50)): chance += 2
-            chance -= 1
+                    chance -= 4
+            if name == "エラー":
+                if (isinstance(field, int | float) and field < 45) or (isinstance(catch, int | float) and catch < 45): chance += 4
+                elif (isinstance(field, int | float) and field < 55) or (isinstance(catch, int | float) and catch < 55): chance += 2
+                if (isinstance(field, int | float) and field >= 70) and (isinstance(catch, int | float) and catch >= 70): chance -= 4
+            if name == "併殺":
+                if isinstance(speed, int | float) and speed < 45: chance += 3
+                elif isinstance(speed, int | float) and speed < 55: chance += 1.5
+                if isinstance(power_v, int | float) and power_v >= 75: chance -= 1
+            chance -= 0.25
     else:
         speed_v = pitcher_speed_value(abilities)
         control = ability_numeric_value(abilities, "コントロール")
@@ -365,9 +374,12 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
         stamina_dev = special_deviation(stamina, 55)
         breaking_dev = max(special_deviation(ball_count, 2, 1.0), special_deviation(total_break, 7, 3.0))
         fast = {"奪三振", "重い球", "球速安定", "速球中心", "ジャイロボール", "ノビ〇", "ノビ◎"}
-        command = {"低め○", "牽制○", "球持ち○", "緩急○", "ポーカーフェイス", "ストライク先行"}
-        breaking = {"キレ○", "奪三振", "緩急○", "変化球中心"}
+        command = {"低め○", "牽制○", "球持ち○", "緩急○", "ポーカーフェイス", "ストライク先行", "リリース○", "逃げ球", "内角攻め"}
+        breaking = {"キレ○", "奪三振", "緩急○", "変化球中心", "ナチュラルシュート", "真っスラ"}
         stamina_names = {"尻上がり", "回またぎ○", "要所○", "根性", "立ち上がり○"}
+        real_pitcher_blue = {"球速安定", "奪三振", "リリース○", "逃げ球", "球持ち○", "内角攻め", "緩急○", "キレ○", "牽制○", "ナチュラルシュート", "ゴロピッチャー", "回またぎ○", "真っスラ"}
+        if name in real_pitcher_blue:
+            chance += 0.7
         if name in fast:
             if player_type == "速球派": chance += 2
             chance += speed_dev * 0.45
@@ -386,6 +398,15 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
             if position == "先発" or player_type == "スタミナ型": chance += 2
             if position == "抑え" and name in {"回またぎ○", "根性", "尻上がり"}: chance -= 3
         if name == "緊急登板○" and position in ("中継ぎ", "抑え"): chance += 1
+        if name in {"四球", "抜け球", "乱調", "荒れ球"} and isinstance(control, int | float):
+            if control < 35:
+                chance += 4
+            elif control < 45:
+                chance += 3
+            elif control < 55:
+                chance += 1
+            elif control >= 70:
+                chance -= 4
         if name == "荒れ球" and isinstance(control, int | float):
             if control < 35:
                 chance += 5
@@ -396,10 +417,17 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
             elif control >= 60:
                 chance -= 8
         if kind == "red":
-            if name in {"四球", "乱調", "ボール先行"} and isinstance(control, int | float):
+            if name in {"四球", "乱調", "ボール先行", "抜け球"} and isinstance(control, int | float):
                 chance += 2 if control < 45 else -3 if control >= 70 else 0
+            if name in {"一発", "軽い球"}:
+                if isinstance(speed_v, int) and speed_v < 140: chance += 2
+                if isinstance(speed_v, int) and speed_v >= 150: chance -= 2
+                if player_type == "速球派": chance -= 1
+            if name in {"寸前", "負け運", "スロースターター"}:
+                if isinstance(control, int | float) and control < 55: chance += 1
+                if isinstance(stamina, int | float) and stamina < 50: chance += 1
             if name == "スロースターター" and position == "先発" and isinstance(stamina, int | float) and stamina < 45: chance += 1
-            chance -= 1
+            chance -= 0.2
 
     max_chance = 8.0 if power == "strong" or name in STRONG_SPECIALS else 25.0
     return max(0.0, min(max_chance, float(chance)))
