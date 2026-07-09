@@ -548,7 +548,14 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
         "俊足型": {"走力": 20, "守備力": 6, "パワー": -8}, "守備職人": {"守備力": 18, "捕球": 14, "ミート": -3},
         "強肩型": {"肩力": 20, "守備力": 5}, "バランス型": {"ミート": 5, "パワー": 5, "走力": 5, "肩力": 5, "守備力": 5, "捕球": 5},
     }
-    pos_mods = {"捕手": {"肩力": 10, "守備力": 8, "捕球": 4}, "遊撃手": {"守備力": 12, "肩力": 6, "捕球": 5}, "二塁手": {"守備力": 8, "走力": 4}, "三塁手": {"肩力": 5}, "一塁手": {"パワー": 8, "走力": -4}, "外野手": {"走力": 6, "肩力": 8}}
+    pos_mods = {
+        "捕手": {"ミート": -8, "肩力": 12, "守備力": -1, "捕球": -2, "走力": -8},
+        "遊撃手": {"ミート": -8, "パワー": -9, "走力": 16, "肩力": 8, "守備力": 9, "捕球": 1},
+        "二塁手": {"パワー": -5, "走力": 17, "肩力": 2, "守備力": 9, "捕球": 5},
+        "三塁手": {"パワー": 6, "走力": -1, "肩力": 7, "守備力": -3, "捕球": -3},
+        "一塁手": {"パワー": 13, "走力": -9, "肩力": 0, "守備力": -6, "捕球": -2},
+        "外野手": {"パワー": 3, "走力": 14, "肩力": 9, "守備力": -1, "捕球": -3},
+    }
     for d in (type_mods.get(player_type, {}), pos_mods.get(position, {})):
         for k, v in d.items(): mods[k] += v
     if position == "三塁手":
@@ -581,11 +588,12 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
         "助っ人外国人用": {"ミート": -6, "パワー": 0, "走力": 5, "肩力": 3, "守備力": -5, "捕球": -3},
     }
     position_tune = {
-        "捕手": {"ミート": -2, "守備力": -3, "捕球": -2},
-        "遊撃手": {"ミート": -2, "走力": 3, "守備力": -5, "捕球": -3},
-        "外野手": {"ミート": -2, "走力": 3, "肩力": 2},
-        "一塁手": {"パワー": 2, "走力": -1},
-        "三塁手": {"パワー": 1},
+        "捕手": {"ミート": -3, "守備力": -4, "捕球": -2, "走力": -1},
+        "二塁手": {"ミート": -1, "パワー": -1, "走力": 1, "守備力": 1, "捕球": 1},
+        "遊撃手": {"ミート": -3, "パワー": -2, "走力": 2, "守備力": -2, "捕球": -2},
+        "外野手": {"ミート": -2, "パワー": 1, "走力": 3, "肩力": 2},
+        "一塁手": {"ミート": -2, "パワー": 4, "走力": -1},
+        "三塁手": {"ミート": -5, "パワー": 6, "守備力": -2, "捕球": -2},
     }
     for tune in (category_tune.get(category, {}), position_tune.get(position, {})):
         for k, v in tune.items():
@@ -598,8 +606,28 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
     elif position == "遊撃手":
         result["守備力"] = ability(max(result["守備力"]["value"], 40))
         result["捕球"] = ability(max(result["捕球"]["value"], 36))
+    if position == "捕手":
+        if player_type == "巧打型":
+            meet_cap = 64 if 24 <= age <= 31 and result["パワー"]["value"] >= 55 else 59
+            result["ミート"] = ability(min(result["ミート"]["value"], meet_cap))
+        elif player_type in {"守備職人", "強肩型", "俊足型"} or age <= 22:
+            result["ミート"] = ability(min(result["ミート"]["value"], 49))
+        elif player_type == "長距離砲":
+            result["ミート"] = ability(min(result["ミート"]["value"], 49))
+        else:
+            result["ミート"] = ability(min(result["ミート"]["value"], 56))
+    if position == "捕手" and player_type != "守備職人":
+        result["守備力"] = ability(min(result["守備力"]["value"], 64))
+    if position == "遊撃手" and player_type not in {"長距離砲", "バランス型"}:
+        result["パワー"] = ability(min(result["パワー"]["value"], 62))
+    if position == "遊撃手" and player_type != "巧打型":
+        result["ミート"] = ability(min(result["ミート"]["value"], 58))
     power = result["パワー"]["value"]
     result["弾道"] = 4 if power >= 76 else 3 if power >= 57 else 2 if power >= 38 else 1
+    if position in {"一塁手", "三塁手"} and power >= 52:
+        result["弾道"] = max(result["弾道"], 3)
+    elif position == "遊撃手":
+        result["弾道"] = max(result["弾道"], 2)
     return result
 
 

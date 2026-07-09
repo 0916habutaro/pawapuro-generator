@@ -42,6 +42,27 @@ REPORT_FILENAMES = {
     "pitch_count_distribution": "pitch_count_distribution.csv",
     "total_movement_distribution": "total_movement_distribution.csv",
     "sub_position_summary": "sub_position_summary.csv",
+    "position_balance_summary": "position_balance_summary.csv",
+    "position_balance_warnings": "position_balance_warnings.csv",
+    "position_high_ability_rates": "position_high_ability_rates.csv",
+}
+
+REAL_POSITION_AVERAGES = {
+    "捕手": {"弾道": 2.47, "ミート": 38.06, "パワー": 50.51, "走力": 51.86, "肩力": 72.72, "守備力": 48.87, "捕球": 46.92},
+    "一塁手": {"弾道": 3.21, "ミート": 45.97, "パワー": 62.55, "走力": 48.55, "肩力": 60.14, "守備力": 45.83, "捕球": 48.00},
+    "二塁手": {"弾道": 2.37, "ミート": 46.81, "パワー": 50.40, "走力": 71.98, "肩力": 60.16, "守備力": 59.07, "捕球": 54.05},
+    "三塁手": {"弾道": 3.20, "ミート": 42.38, "パワー": 61.23, "走力": 57.88, "肩力": 64.30, "守備力": 46.40, "捕球": 45.48},
+    "遊撃手": {"弾道": 2.21, "ミート": 39.79, "パワー": 45.79, "走力": 71.21, "肩力": 66.78, "守備力": 54.69, "捕球": 47.44},
+    "外野手": {"弾道": 2.68, "ミート": 44.60, "パワー": 57.93, "走力": 71.62, "肩力": 67.10, "守備力": 51.13, "捕球": 47.30},
+}
+
+POSITION_WARNING_RULES = {
+    "捕手": [("ミート", ">", 42), ("守備力", ">", 53), ("肩力", "<", 68), ("肩力", ">", 78), ("走力", ">", 58)],
+    "一塁手": [("パワー", "<", 57), ("走力", ">", 58), ("守備力", ">", 53)],
+    "二塁手": [("走力", "<", 66), ("守備力", "<", 53), ("パワー", ">", 57)],
+    "三塁手": [("パワー", "<", 56), ("走力", ">", 66), ("守備力", ">", 54)],
+    "遊撃手": [("ミート", ">", 45), ("パワー", ">", 53), ("走力", "<", 66), ("守備力", "<", 50)],
+    "外野手": [("走力", "<", 65), ("パワー", "<", 52), ("肩力", "<", 60)],
 }
 
 
@@ -308,6 +329,60 @@ def sub_position_summary(df: pd.DataFrame) -> pd.DataFrame:
     rows.append({"集計軸": "警告チェック", "値": "捕手サブ出現率", "人数": int(catcher_sub), "割合%": round(catcher_sub / total * 100, 2)})
     return pd.DataFrame(rows)
 
+
+def position_balance_summary(df: pd.DataFrame) -> pd.DataFrame:
+    f = df[(df["role"] == "野手") & (df["category"] == "架空球団用")].copy()
+    rows = []
+    for position, subset in f.groupby("position"):
+        for key in ["弾道", "ミート", "パワー", "走力", "肩力", "守備力", "捕球"]:
+            actual = pd.to_numeric(subset[key], errors="coerce").mean()
+            real = REAL_POSITION_AVERAGES.get(position, {}).get(key)
+            rows.append({
+                "カテゴリ": "架空球団用",
+                "ポジション": position,
+                "能力": key,
+                "人数": int(len(subset)),
+                "生成平均": round(actual, 3),
+                "実在平均": real,
+                "差分": round(actual - real, 3) if real is not None else None,
+            })
+    return pd.DataFrame(rows)
+
+
+def position_balance_warnings(df: pd.DataFrame) -> pd.DataFrame:
+    summary = position_balance_summary(df)
+    rows = []
+    for position, rules in POSITION_WARNING_RULES.items():
+        for ability_name, op, threshold in rules:
+            match = summary[(summary["ポジション"] == position) & (summary["能力"] == ability_name)]
+            if match.empty:
+                continue
+            avg = float(match.iloc[0]["生成平均"])
+            triggered = avg > threshold if op == ">" else avg < threshold
+            if triggered:
+                rows.append({"ポジション": position, "能力": ability_name, "平均": avg, "条件": f"{op}{threshold}", "警告": "警告"})
+    return pd.DataFrame(rows, columns=["ポジション", "能力", "平均", "条件", "警告"])
+
+
+def position_high_ability_rates(df: pd.DataFrame) -> pd.DataFrame:
+    f = df[(df["role"] == "野手") & (df["category"] == "架空球団用")].copy()
+    checks = {
+        "捕手": [("ミート50以上", "ミート", 50), ("ミート60以上", "ミート", 60), ("守備力55以上", "守備力", 55), ("守備力65以上", "守備力", 65)],
+        "二塁手": [("走力60以上", "走力", 60), ("走力70以上", "走力", 70)],
+        "遊撃手": [("走力60以上", "走力", 60), ("走力70以上", "走力", 70), ("パワー60以上", "パワー", 60), ("パワー65以上", "パワー", 65)],
+        "一塁手": [("パワー65以上", "パワー", 65)],
+        "三塁手": [("パワー65以上", "パワー", 65)],
+        "外野手": [("パワー65以上", "パワー", 65)],
+    }
+    rows = []
+    for position, items in checks.items():
+        subset = f[f["position"] == position]
+        total = max(1, len(subset))
+        for label, key, threshold in items:
+            count = int((pd.to_numeric(subset[key], errors="coerce") >= threshold).sum())
+            rows.append({"ポジション": position, "指標": label, "人数": count, "対象人数": int(len(subset)), "割合%": round(count / total * 100, 2)})
+    return pd.DataFrame(rows)
+
 def detect_anomalies(df: pd.DataFrame) -> pd.DataFrame:
     pitchers = df[df["role"] == "投手"]
     checks = [
@@ -386,6 +461,55 @@ def write_reports(tables: dict[str, pd.DataFrame], output_dir: Path, excel: bool
         with pd.ExcelWriter(output_dir / "ability_balance_report.xlsx") as writer:
             for key, table in tables.items():
                 table.to_excel(writer, sheet_name=key[:31], index=False)
+    write_markdown_summary(tables, output_dir / "summary.md")
+
+
+def write_markdown_summary(tables: dict[str, pd.DataFrame], path: Path) -> None:
+    position_summary = tables["position_balance_summary"]
+    pivot = position_summary.pivot(index="ポジション", columns="能力", values="生成平均").reset_index()
+    diff = position_summary.pivot(index="ポジション", columns="能力", values="差分").reset_index()
+    warnings = tables["position_balance_warnings"]
+    rates = tables["position_high_ability_rates"]
+    sub_warnings = tables["sub_position_summary"][tables["sub_position_summary"]["集計軸"].eq("警告チェック")]
+
+    def markdown_table(table: pd.DataFrame) -> str:
+        if table.empty:
+            return "（なし）"
+        text = table.fillna("").astype(str)
+        columns = list(text.columns)
+        lines = [
+            "| " + " | ".join(columns) + " |",
+            "| " + " | ".join("---" for _ in columns) + " |",
+        ]
+        for _, row in text.iterrows():
+            lines.append("| " + " | ".join(str(row[col]).replace("|", "\\|") for col in columns) + " |")
+        return "\n".join(lines)
+
+    lines = [
+        "# 能力バランス検証サマリー",
+        "",
+        "## 架空球団用1000人のポジション別能力平均",
+        "",
+        markdown_table(pivot),
+        "",
+        "## 実在データとの差分（生成平均 - 実在平均）",
+        "",
+        markdown_table(diff),
+        "",
+        "## ポジション別の警告一覧",
+        "",
+        "警告なし" if warnings.empty else markdown_table(warnings),
+        "",
+        "## 高能力者割合",
+        "",
+        markdown_table(rates),
+        "",
+        "## サブポジ警告",
+        "",
+        markdown_table(sub_warnings),
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def print_console_summary(tables: dict[str, pd.DataFrame], output_dir: Path) -> None:
@@ -399,6 +523,11 @@ def print_console_summary(tables: dict[str, pd.DataFrame], output_dir: Path) -> 
     print(tables["pitcher_aptitude_summary"].to_string(index=False))
     print("\n[サブポジ集計]")
     print(tables["sub_position_summary"].to_string(index=False))
+    print("\n[ポジション別能力警告]")
+    if tables["position_balance_warnings"].empty:
+        print("警告なし")
+    else:
+        print(tables["position_balance_warnings"].to_string(index=False))
     print("\n[異常値検出]")
     print(tables["anomalies"].to_string(index=False))
 
@@ -422,6 +551,9 @@ def main() -> None:
         "pitch_count_distribution": distribution_summary(df, "pitch_type_count_including_second", "球種数"),
         "total_movement_distribution": distribution_summary(df, "total_movement_including_second", "総変化量"),
         "sub_position_summary": sub_position_summary(df),
+        "position_balance_summary": position_balance_summary(df),
+        "position_balance_warnings": position_balance_warnings(df),
+        "position_high_ability_rates": position_high_ability_rates(df),
     }
     write_reports(tables, args.output_dir, args.excel)
     print_console_summary(tables, args.output_dir)
