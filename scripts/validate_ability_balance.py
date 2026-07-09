@@ -41,6 +41,7 @@ REPORT_FILENAMES = {
     "breaking_direction_summary": "breaking_direction_summary.csv",
     "pitch_count_distribution": "pitch_count_distribution.csv",
     "total_movement_distribution": "total_movement_distribution.csv",
+    "sub_position_summary": "sub_position_summary.csv",
 }
 
 
@@ -111,6 +112,12 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
         row["first_pitch_directions"] = ",".join(str(ball.get("direction", "")) for ball in breaking_balls if not bool(ball.get("is_second_pitch", False)))
         row["first_pitch_names"] = ",".join(str(ball.get("name", "")) for ball in breaking_balls if not bool(ball.get("is_second_pitch", False)))
         row["変化球方向"] = ",".join(f"{ball.get('direction', ball.get('name', ''))}:{ball.get('name', '')}{'(第2)' if ball.get('is_second_pitch') else ''}" for ball in breaking_balls)
+        subs = player.get("sub_positions", [])
+        row["サブポジ数"] = len(subs)
+        row["サブポジ"] = " / ".join(f"{item['position']}{item['aptitude']}" for item in subs)
+        row["サブポジ一覧"] = " / ".join(item["position"] for item in subs)
+        row["サブポジ評価一覧"] = " / ".join(item["aptitude"] for item in subs)
+        row["サブポジJSON"] = str(subs)
         row["特殊能力"] = ",".join(player["special_abilities"])
         row["ランク系特殊能力"] = ",".join(player["abilities"].get("ranked_specials", {}).values())
         row["特殊能力数"] = len(player["special_abilities"])
@@ -275,6 +282,32 @@ def distribution_summary(df: pd.DataFrame, column: str, label: str) -> pd.DataFr
         rows.append({"集計軸": group_label, "分布": f"{label}サマリー", "値": "平均", "人数": int(total), "割合%": round(values.mean(), 3) if total else None})
     return pd.DataFrame(rows)
 
+
+def sub_position_summary(df: pd.DataFrame) -> pd.DataFrame:
+    f = df[df["role"] == "野手"].copy()
+    rows = []
+    if f.empty:
+        return pd.DataFrame(rows)
+    total = len(f)
+    rows.append({"集計軸": "全体", "値": "サブポジ保有率", "人数": int((f["サブポジ数"] > 0).sum()), "割合%": round((f["サブポジ数"] > 0).mean() * 100, 2)})
+    for label, count in f["サブポジ数"].clip(upper=3).map({0:"0個",1:"1個",2:"2個",3:"3個以上"}).value_counts().items():
+        rows.append({"集計軸": "サブポジ数分布", "値": label, "人数": int(count), "割合%": round(count / total * 100, 2)})
+    for pos, sub in f.groupby("position"):
+        rows.append({"集計軸": "メインポジション別保有率", "値": pos, "人数": int((sub["サブポジ数"] > 0).sum()), "割合%": round((sub["サブポジ数"] > 0).mean() * 100, 2)})
+    items = []
+    for _, row in f.iterrows():
+        for part, apt in zip(str(row["サブポジ一覧"]).split(" / ") if row["サブポジ一覧"] else [], str(row["サブポジ評価一覧"]).split(" / ") if row["サブポジ評価一覧"] else [], strict=False):
+            if part: items.append((row["position"], part, apt))
+    for subpos, count in Counter(p for _, p, _ in items).items():
+        rows.append({"集計軸": "サブポジ別出現数", "値": subpos, "人数": int(count), "割合%": round(count / total * 100, 2)})
+    for apt, count in Counter(a for _, _, a in items).items():
+        rows.append({"集計軸": "適性評価別出現数", "値": apt, "人数": int(count), "割合%": round(count / max(1, len(items)) * 100, 2)})
+    left_bad = f[f["batting_throwing"].str.startswith("左投") & f["サブポジ一覧"].str.contains("二塁手|三塁手|遊撃手", regex=True, na=False)]
+    rows.append({"集計軸": "警告チェック", "値": "左投げ野手の二三遊サブ", "人数": int(len(left_bad)), "割合%": round(len(left_bad) / total * 100, 2)})
+    catcher_sub = f["サブポジ一覧"].str.contains("捕手", na=False).sum()
+    rows.append({"集計軸": "警告チェック", "値": "捕手サブ出現率", "人数": int(catcher_sub), "割合%": round(catcher_sub / total * 100, 2)})
+    return pd.DataFrame(rows)
+
 def detect_anomalies(df: pd.DataFrame) -> pd.DataFrame:
     pitchers = df[df["role"] == "投手"]
     checks = [
@@ -364,6 +397,8 @@ def print_console_summary(tables: dict[str, pd.DataFrame], output_dir: Path) -> 
     print(tables["special_kind_stats"][tables["special_kind_stats"]["集計軸"] == "全体"].to_string(index=False))
     print("\n[投手適正サマリー]")
     print(tables["pitcher_aptitude_summary"].to_string(index=False))
+    print("\n[サブポジ集計]")
+    print(tables["sub_position_summary"].to_string(index=False))
     print("\n[異常値検出]")
     print(tables["anomalies"].to_string(index=False))
 
@@ -386,6 +421,7 @@ def main() -> None:
         "breaking_direction_summary": breaking_direction_summary(df),
         "pitch_count_distribution": distribution_summary(df, "pitch_type_count_including_second", "球種数"),
         "total_movement_distribution": distribution_summary(df, "total_movement_including_second", "総変化量"),
+        "sub_position_summary": sub_position_summary(df),
     }
     write_reports(tables, args.output_dir, args.excel)
     print_console_summary(tables, args.output_dir)
