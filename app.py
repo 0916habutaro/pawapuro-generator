@@ -733,13 +733,15 @@ def _ball(name: str, code: str, weight: int, second_weight: int | None = None, m
     }
 
 BREAKING_BALL_MASTER = [
-    _ball("スライダー", "1", 17, 12, 2, 6), _ball("Hスライダー", "1", 6, 6, 2, 5), _ball("カットボール", "1", 13, 10, 1, 5),
-    _ball("カーブ", "2", 14, 10, 2, 6), _ball("スローカーブ", "2", 5, 6), _ball("ドロップカーブ", "2", 5, 5), _ball("スラーブ", "2", 6, 5), _ball("ナックルカーブ", "2", 5, 5), _ball("パワーカーブ", "2", 5, 4, 2, 6, {"速球派": 2, "助っ人外国人用": 2}), _ball("Dスライダー", "2", 4, 4),
-    _ball("フォーク", "3", 16, 12, 2, 7), _ball("パーム", "3", 3, 3), _ball("チェンジアップ", "3", 13, 10, 1, 6), _ball("Vスライダー", "3", 5, 5), _ball("SFF", "3", 10, 10), _ball("ナックル", "3", 1, 0, 2, 5),
-    _ball("シンカー", "4", 8, 7, 1, 6), _ball("Hシンカー", "4", 4, 4), _ball("スクリュー", "4", 5, 5), _ball("サークルチェンジ", "4", 5, 5), _ball("シンキングスプリット", "4", 4, 4), _ball("ファストチェンジ", "4", 3, 3),
-    _ball("シュート", "5", 10, 8), _ball("Hシュート", "5", 4, 4, 1, 4), _ball("シンキングツーシーム", "5", 4, 4, 1, 4),
+    _ball("スライダー", "1", 127, 23, 2, 4), _ball("Hスライダー", "1", 65, 9, 1, 3), _ball("カットボール", "1", 135, 26, 1, 3),
+    _ball("カーブ", "2", 66, 10, 1, 3), _ball("スローカーブ", "2", 30, 4, 1, 2), _ball("ドロップカーブ", "2", 42, 6, 1, 3), _ball("スラーブ", "2", 73, 12, 2, 4), _ball("ナックルカーブ", "2", 30, 4, 2, 3), _ball("パワーカーブ", "2", 13, 4, 2, 4, {"速球派": 3, "助っ人外国人用": 8}), _ball("Dスライダー", "2", 3, 1, 3, 5),
+    _ball("フォーク", "3", 96, 18, 2, 4), _ball("パーム", "3", 4, 1, 1, 3), _ball("チェンジアップ", "3", 34, 6, 2, 4), _ball("Vスライダー", "3", 59, 10, 2, 4), _ball("SFF", "3", 102, 22, 2, 4, {"助っ人外国人用": 10}), _ball("ナックル", "3", 1, 0, 2, 5),
+    _ball("シンカー", "4", 10, 2, 1, 3), _ball("Hシンカー", "4", 34, 3, 2, 3), _ball("スクリュー", "4", 10, 2, 1, 3), _ball("サークルチェンジ", "4", 65, 4, 2, 3), _ball("シンキングスプリット", "4", 44, 4, 2, 4, {"助っ人外国人用": 8}), _ball("ファストチェンジ", "4", 10, 1, 2, 3),
+    _ball("シュート", "5", 3, 1, 1, 2), _ball("Hシュート", "5", 15, 1, 1, 2), _ball("シンキングツーシーム", "5", 27, 1, 1, 3),
 ]
 BREAKING_BY_NAME = {ball["name"]: ball for ball in BREAKING_BALL_MASTER}
+DIRECTION_SELECTION_WEIGHTS = {"1": 32, "2": 24, "3": 28, "4": 13, "5": 4}
+SECOND_PITCH_DIRECTION_WEIGHTS = {"1": 23, "2": 12, "3": 34, "4": 3, "5": 1}
 
 
 def allowed_pitch_names_for_generation(direction_code: str, batting_throwing: str) -> set[str]:
@@ -770,7 +772,7 @@ def weighted_breaking_names(rng: random.Random, direction_code: str, player_type
     return weighted_choice(rng, choices)
 
 def second_pitch_chance(player_type: str, category: str, aptitudes: dict[str, str]) -> float:
-    chance = 0.17
+    chance = 0.18
     if aptitudes.get("starter_aptitude") == "◎":
         chance += 0.025
     if aptitudes.get("closer_aptitude") == "◎":
@@ -778,10 +780,10 @@ def second_pitch_chance(player_type: str, category: str, aptitudes: dict[str, st
     if player_type in {"変化球派", "技巧派"}:
         chance += 0.015
     if category == "助っ人外国人用":
-        chance += 0.03
+        chance += 0.055
     elif category == "ドラフト候補用":
-        chance -= 0.035
-    return max(0.08, min(0.23, chance))
+        chance -= 0.075
+    return max(0.07, min(0.30, chance))
 
 
 def make_breaking_ball(name: str, movement: int, is_second_pitch: bool, slot: int) -> dict[str, Any]:
@@ -800,26 +802,28 @@ def make_breaking_ball(name: str, movement: int, is_second_pitch: bool, slot: in
 
 
 def generate_second_fastball(rng: random.Random, player_type: str, category: str, aptitudes: dict[str, str]) -> dict[str, Any] | None:
-    chance = 0.18
+    chance = 0.115
     if player_type in {"技巧派", "変化球派"}:
-        chance += 0.03
+        chance += 0.015
+    if category == "助っ人外国人用":
+        chance += 0.055
     if category == "ドラフト候補用":
-        chance -= 0.04
+        chance -= 0.045
     if aptitudes.get("closer_aptitude") == "◎":
-        chance += 0.02
-    if rng.random() >= max(0.08, min(0.26, chance)):
+        chance += 0.01
+    if rng.random() >= max(0.04, min(0.24, chance)):
         return None
-    name = weighted_choice(rng, [("ツーシームファスト", 55), ("ムービングファスト", 35), ("超スローボール", 10)])
+    name = weighted_choice(rng, [("ツーシームファスト", 43), ("ムービングファスト", 3), ("超スローボール", 1)])
     return {"name": name, "direction_code": None, "direction": "ストレート系第二種", "movement": 0, "level": 0, "is_second_pitch": False, "slot": None, "kind": "second_fastball"}
 
 
 def pitch_count_weights(player_type: str, category: str, aptitudes: dict[str, str]) -> list[tuple[int, int]]:
     if category == "ドラフト候補用":
-        weights = {1: 23, 2: 54, 3: 21, 4: 2}
+        weights = {1: 14, 2: 56, 3: 29, 4: 1}
     elif category == "助っ人外国人用":
-        weights = {1: 13, 2: 55, 3: 28, 4: 4}
+        weights = {1: 3, 2: 24, 3: 63, 4: 10}
     else:
-        weights = {1: 17, 2: 54, 3: 27, 4: 2}
+        weights = {1: 2, 2: 45, 3: 52, 4: 1}
     if aptitudes.get("starter_aptitude") == "◎":
         weights[1] -= 4; weights[2] += 2; weights[3] += 2
     if aptitudes.get("reliever_aptitude") == "◎" and aptitudes.get("starter_aptitude") != "◎":
@@ -832,7 +836,7 @@ def pitch_count_weights(player_type: str, category: str, aptitudes: dict[str, st
 
 
 def movement_weights(player_type: str, category: str, aptitudes: dict[str, str], count: int) -> list[tuple[int, int]]:
-    weights = {1: 9, 2: 24, 3: 34, 4: 24, 5: 8, 6: 1}
+    weights = {1: 12, 2: 36, 3: 34, 4: 15, 5: 3, 6: 0}
     if count == 1:
         weights[1] += 4; weights[2] += 4; weights[4] += 4; weights[5] += 2
     if aptitudes.get("starter_aptitude") == "◎":
@@ -840,31 +844,41 @@ def movement_weights(player_type: str, category: str, aptitudes: dict[str, str],
     if aptitudes.get("closer_aptitude") == "◎":
         weights[1] -= 2; weights[2] -= 1; weights[4] += 2; weights[5] += 1
     if category == "ドラフト候補用":
-        weights[1] += 3; weights[2] += 2; weights[5] -= 2
+        weights[1] += 6; weights[2] += 5; weights[4] -= 4; weights[5] -= 2
     elif category == "助っ人外国人用":
-        weights[1] -= 2; weights[4] += 2; weights[5] += 2
+        weights[1] -= 3; weights[2] -= 3; weights[4] += 5; weights[5] += 2
     if player_type == "変化球派":
         weights[1] -= 3; weights[2] -= 2; weights[4] += 3; weights[5] += 2
     return [(level, max(1, weight)) for level, weight in weights.items()]
 
 
+def weighted_direction_sample(rng: random.Random, direction_codes: list[str], count: int) -> list[str]:
+    remaining = list(direction_codes)
+    selected: list[str] = []
+    for _ in range(min(count, len(remaining))):
+        code = weighted_choice(rng, [(code, DIRECTION_SELECTION_WEIGHTS.get(code, 1)) for code in remaining])
+        selected.append(code)
+        remaining.remove(code)
+    return selected
+
+
 def generate_breaking_balls(rng: random.Random, player_type: str, category: str, aptitudes: dict[str, str], batting_throwing: str) -> list[dict[str, Any]]:
     count = weighted_choice(rng, pitch_count_weights(player_type, category, aptitudes))
     direction_codes = [code for code in DIRECTION_NAMES if any(ball["direction_code"] == code and ball["name"] in allowed_pitch_names_for_generation(code, batting_throwing) for ball in BREAKING_BALL_MASTER)]
-    primary_codes = rng.sample(direction_codes, min(count, len(direction_codes)))
+    primary_codes = weighted_direction_sample(rng, direction_codes, count)
     balls: list[dict[str, Any]] = []
     for direction_code in primary_codes:
         name = weighted_breaking_names(rng, direction_code, player_type, category, batting_throwing)
         movement = weighted_choice(rng, movement_weights(player_type, category, aptitudes, count))
         balls.append(make_breaking_ball(name, movement, False, 1))
-    if balls and rng.random() < second_pitch_chance(player_type, category, aptitudes):
+    if balls and len(balls) < 4 and rng.random() < second_pitch_chance(player_type, category, aptitudes):
         candidates = []
         for ball in balls:
             names = allowed_pitch_names_for_generation(str(ball["direction_code"]), batting_throwing) - {ball["name"]}
             if any(BREAKING_BY_NAME[name].get("second_pitch_allowed", False) for name in names):
                 candidates.append(ball)
         if candidates:
-            base = max(candidates, key=lambda b: (b["movement"], rng.random()))
+            base = weighted_choice(rng, [(ball, SECOND_PITCH_DIRECTION_WEIGHTS.get(str(ball["direction_code"]), 1)) for ball in candidates])
             direction_code = str(base["direction_code"])
             second_name = weighted_breaking_names(rng, direction_code, player_type, category, batting_throwing, second_pitch=True, exclude={base["name"]})
             second_movement = min(base["movement"] + (1 if rng.random() < 0.08 else 0), weighted_choice(rng, [(1, 38), (2, 38), (3, 19), (4, 5)]))
@@ -1251,6 +1265,7 @@ def breaking_balance_tables(df: pd.DataFrame) -> dict[str, Any]:
     rows = []
     invalid = []
     for _, player in pitchers.iterrows():
+        second_fastball_count = 0
         for ball in player.get("breaking_balls", []) or []:
             row = {"選手名": player["name"], "投打": player["batting_throwing"], "球種": ball.get("name", ""), "方向コード": ball.get("direction_code"), "方向": ball.get("direction", ""), "変化量": pitch_movement(ball), "kind": ball.get("kind", "breaking"), "第二球種": bool(ball.get("is_second_pitch"))}
             rows.append(row)
@@ -1264,8 +1279,14 @@ def breaking_balance_tables(df: pd.DataFrame) -> dict[str, Any]:
                     reasons.append("左投手のシンカー/Hシンカー")
                 if code not in DIRECTION_NAMES or not is_pitch_allowed_for_generation(code, name, str(player["batting_throwing"])):
                     reasons.append("方向コードと球種の不一致")
+                if name in {"ツーシーム", "ドロップ", "縦スライダー", "オリジナル変化球"}:
+                    reasons.append("生成対象外の球種")
                 if reasons:
                     invalid.append({**row, "理由": "、".join(reasons)})
+            elif row["kind"] == "second_fastball":
+                second_fastball_count += 1
+        if second_fastball_count > 1:
+            invalid.append({"選手名": player["name"], "投打": player["batting_throwing"], "球種": "ストレート系第二種", "方向コード": None, "方向": "ストレート系第二種", "変化量": 0, "kind": "second_fastball", "第二球種": False, "理由": "ストレート系第二種が2個以上"})
     balls = pd.DataFrame(rows)
     breaking = balls[balls["kind"].eq("breaking")] if not balls.empty else pd.DataFrame(columns=["選手名", "球種", "方向", "変化量", "第二球種"])
     second = balls[balls["kind"].eq("second_fastball")] if not balls.empty else pd.DataFrame(columns=["選手名", "球種"])
@@ -1280,7 +1301,9 @@ def breaking_balance_tables(df: pd.DataFrame) -> dict[str, Any]:
         {"項目": "ストレート系第二種あり投手割合", "値": f"{round(len(second_players) / len(pitchers) * 100, 2) if len(pitchers) else 0}%"},
         {"項目": "不正球種件数", "値": len(invalid)},
     ])
-    return {"metrics": metrics, "direction": breaking["方向"].value_counts().rename_axis("方向").reset_index(name="出現数") if not breaking.empty else pd.DataFrame(columns=["方向", "出現数"]), "pitch": breaking["球種"].value_counts().rename_axis("球種").reset_index(name="出現数") if not breaking.empty else pd.DataFrame(columns=["球種", "出現数"]), "second_fastball": second["球種"].value_counts().rename_axis("球種").reset_index(name="出現数") if not second.empty else pd.DataFrame(columns=["球種", "出現数"]), "invalid": pd.DataFrame(invalid)}
+    count_dist = per_pitcher["通常変化球数"].value_counts().sort_index().rename_axis("通常変化球数").reset_index(name="投手数") if not per_pitcher.empty else pd.DataFrame(columns=["通常変化球数", "投手数"])
+    movement_dist = per_pitcher["総変化量"].value_counts().sort_index().rename_axis("総変化量").reset_index(name="投手数") if not per_pitcher.empty else pd.DataFrame(columns=["総変化量", "投手数"])
+    return {"metrics": metrics, "count_dist": count_dist, "movement_dist": movement_dist, "direction": breaking["方向"].value_counts().rename_axis("方向").reset_index(name="出現数") if not breaking.empty else pd.DataFrame(columns=["方向", "出現数"]), "pitch": breaking["球種"].value_counts().rename_axis("球種").reset_index(name="出現数") if not breaking.empty else pd.DataFrame(columns=["球種", "出現数"]), "second_fastball": second["球種"].value_counts().rename_axis("球種").reset_index(name="出現数") if not second.empty else pd.DataFrame(columns=["球種", "出現数"]), "invalid": pd.DataFrame(invalid)}
 
 def render_balance_check(master: MasterData) -> None:
     st.header("バランス確認")
@@ -1430,11 +1453,15 @@ def render_balance_check(master: MasterData) -> None:
     st.dataframe(breaking_tables["metrics"], use_container_width=True, hide_index=True)
     bcol1, bcol2 = st.columns(2)
     with bcol1:
+        st.subheader("通常変化球数分布")
+        st.dataframe(breaking_tables["count_dist"], use_container_width=True, hide_index=True)
         st.subheader("方向別出現数")
         st.dataframe(breaking_tables["direction"], use_container_width=True, hide_index=True)
         st.subheader("ストレート系第二種 種類別出現数")
         st.dataframe(breaking_tables["second_fastball"], use_container_width=True, hide_index=True)
     with bcol2:
+        st.subheader("総変化量分布")
+        st.dataframe(breaking_tables["movement_dist"], use_container_width=True, hide_index=True)
         st.subheader("球種別出現数")
         st.dataframe(breaking_tables["pitch"], use_container_width=True, hide_index=True)
         st.subheader("右投手/左投手別 不正球種チェック")
