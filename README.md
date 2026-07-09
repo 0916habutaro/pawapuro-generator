@@ -52,3 +52,63 @@ streamlit run app.py
 - `players.sqlite3` は生成データのためコミット対象外です。
 - CSV出力ファイルもコミット対象外です。
 - まずは動くMVPを優先しているため、能力バランスや特殊能力の網羅性は簡易版です。
+
+## 実在パワプロ選手データ取り込み（ローカル用）
+
+`python scripts/import_real_powerpro_players.py` で、ローカルに配置したパワプロ2026-2027実在選手データのHTML/ZIPを読み込み、架空選手生成の能力バランス調整に使うCSV集計を作成できます。
+
+### データ配置方針
+
+- 12球団分のZIP本体や実データ全体はGitHubに含めません。
+- ユーザー自身が入手したZIP/HTMLを `data/raw/powerpro_2026_2027/` 配下へローカル配置してください。
+- ZIPにはHTML本体と `_files` 配下のCSS（特に `ball.css`）が含まれる想定です。
+- MHTML/単体HTMLも読み込み対象ですが、変化球classと球種名の対応はHTML+CSS一式を含むZIP/HTMLを優先してください。
+- `data/raw/powerpro_2026_2027/*.zip` と `reports/real_powerpro_players/` は `.gitignore` で除外しています。
+
+### 実行例
+
+```bash
+python scripts/import_real_powerpro_players.py \
+  --input-dir data/raw/powerpro_2026_2027 \
+  --output-dir reports/real_powerpro_players \
+  --excel
+```
+
+### 出力ファイル
+
+`--output-dir` 配下に以下を出力します。
+
+- `players.csv`: 選手単位（球団名、選手名、背番号、投手/野手、投打、ポジション、能力など）
+- `breaking_balls.csv`: 変化球単位（方向コード、球種、変化量、第1/第2球種など）
+- `special_abilities.csv`: 特殊能力単位
+- `position_summary.csv`: ポジション別summary
+- `pitcher_role_summary.csv`: 投手役割別summary
+- `breaking_ball_summary.csv`: 変化球分布summary
+- `real_powerpro_players.xlsx`: `--excel` 指定時のみ作成
+
+### 変化球classの扱い
+
+HTML内の `v52`, `v133`, `v543` のようなclassを解析します。
+
+- `vXY`: `X` を方向コード、`Y` を変化量として扱います。
+- `vXYZ`: `X` を方向コード、`Y/Z` を同方向の第1球種/第2球種の変化量として扱います。
+- 球種名が左右列にあり、中央列に変化量classがある表にも対応できるよう、同一行のテキストとclassを合わせて抽出します。
+- CSSに定義がないclassや球種名が取れない場合はログへ出し、取得失敗箇所は `unknown` としてCSVへ残します。
+
+### テスト用fixtureの作り方
+
+最小fixtureは `tests/fixtures/powerpro_sample/` に置きます。現時点では実データではなく、構造確認用のsynthetic HTML/CSSのみを含めます。今後、実HTML/CSSの最小断片を追加する場合も、実データ全体や12球団ZIP本体はコミットしないでください。
+
+fixture作成時の目安:
+
+1. 実HTMLから選手1〜2名分だけを最小化して `tests/fixtures/powerpro_sample/` 配下へ置く。
+2. 変化球検証に必要な `ball.css` の該当classだけを `*_files/ball.css` へ置く。
+3. 個人情報や大量の実データを含めず、パーサー仕様の確認に必要な最小行だけにする。
+4. 以下のようにfixtureを入力にしてCSV出力を確認する。
+
+```bash
+python scripts/import_real_powerpro_players.py \
+  --input-dir tests/fixtures/powerpro_sample \
+  --output-dir /tmp/powerpro_sample_report \
+  --excel
+```
