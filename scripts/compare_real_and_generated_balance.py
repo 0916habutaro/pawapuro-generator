@@ -7,12 +7,18 @@ from typing import Any
 
 import pandas as pd
 
+ROOT = Path(__file__).resolve().parents[1]
+
 FIELDER_ABILITIES = ["ミート", "パワー", "走力", "肩力", "守備力", "捕球", "弾道"]
 PITCHER_ABILITIES = ["球速", "コントロール", "スタミナ", "球種数", "総変化量", "第二球種数"]
 POSITIONS = ["捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手"]
 PERCENTILES = [0.10, 0.25, 0.75, 0.90]
 CATEGORY_PRIORITY = ["架空球団用", "ドラフト候補用", "助っ人外国人用"]
 SPECIAL_CATEGORY_ORDER = ["青特", "赤特", "金特", "緑特", "ランク系", "不明"]
+RANK_SUFFIX_RE = re.compile(r"(?:[A-GＡ-ＧＳ])$")
+RED_SPECIAL_NAMES = {"三振", "四球", "一発", "乱調", "スロースターター", "エラー", "併殺", "負け運", "寸前", "抜け球", "軽い球", "シュート回転", "リリース×", "キレ×", "ノビF", "ノビG", "対左打者F", "対左打者G", "対ピンチF", "対ピンチG", "打たれ強さF", "打たれ強さG"}
+GREEN_SPECIAL_NAMES = {"積極打法", "慎重打法", "積極走塁", "慎重盗塁", "積極盗塁", "選球眼", "積極守備", "チームプレイ○", "チームプレイ×", "テンポ○", "速球中心", "変化球中心", "投球位置左", "投球位置右", "強振多用", "ミート多用"}
+GOLD_SPECIAL_KEYWORDS = ("怪童", "怪物", "精密機械", "鉄腕", "走者釘付", "驚異", "変幻自在", "強心臓", "終盤力", "勝利の星", "アーチスト", "安打製造機", "電光石火", "魔術師", "球界の頭脳", "左キラー", "広角砲", "勝負師", "高速レーザー", "ストライク送球")
 
 REAL_PLAYER_COLS = {
     "role": "role", "main_position": "position", "pitcher_roles": "pitcher_role",
@@ -20,7 +26,7 @@ REAL_PLAYER_COLS = {
     "trajectory": "弾道", "contact": "ミート", "power": "パワー", "run_speed": "走力",
     "arm_strength": "肩力", "fielding": "守備力", "catching": "捕球",
 }
-GENERATED_PLAYER_COLS = {"role": "role", "category": "category", "position": "position"}
+GENERATED_PLAYER_COLS = {"role": "role", "category": "category", "position": "position", "trajectory": "弾道"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -140,25 +146,49 @@ def position_compare(real: pd.DataFrame, gen: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def role_label(text: Any) -> str:
-    t = str(text or "")
-    if "先" in t or "先発" in t: return "先発"
-    if "抑" in t or "抑え" in t: return "抑え"
-    if "中" in t or "中継" in t: return "中継ぎ"
-    return t or "未実装"
+def role_label(text: Any) -> str | None:
+    if pd.isna(text):
+        return None
+    t = str(text).strip()
+    if not t or t in {"nan", "None", "野手", "投手"}:
+        return None
+    if "先" in t or "先発" in t:
+        return "先発"
+    if "抑" in t or "抑え" in t:
+        return "抑え"
+    if "中" in t or "中継" in t:
+        return "中継ぎ"
+    return t
+
+
+def assign_pitcher_usage(df: pd.DataFrame, source_columns: list[str]) -> pd.Series:
+    usage = pd.Series([None] * len(df), index=df.index, dtype="object")
+    for column in source_columns:
+        if column in df.columns:
+            normalized = df[column].map(role_label)
+            usage = usage.where(usage.notna(), normalized)
+    return usage
 
 
 def pitcher_role_compare(real: pd.DataFrame, gen: pd.DataFrame) -> pd.DataFrame:
-    real = real.copy(); gen = gen.copy()
-    real["起用"] = real.get("pitcher_role", pd.Series(dtype=str)).map(role_label)
-    gen["起用"] = gen.get("pitcher_role", gen.get("role", pd.Series(dtype=str))).map(role_label)
+    real_pitchers = real[real["role"].eq("投手")].copy()
+    gen_pitchers = gen[gen["role"].eq("投手")].copy()
+    real_pitchers["起用"] = assign_pitcher_usage(real_pitchers, ["pitcher_role", "起用", "usage", "position"])
+    gen_pitchers["起用"] = assign_pitcher_usage(gen_pitchers, ["pitcher_role", "起用", "usage", "position"])
+    real_pitchers = real_pitchers[real_pitchers["起用"].isin(["先発", "中継ぎ", "抑え"])]
+    gen_pitchers = gen_pitchers[gen_pitchers["起用"].isin(["先発", "中継ぎ", "抑え"])]
     rows = []
-    for cat in [c for c in CATEGORY_PRIORITY if c in set(gen.get("category", []))]:
-        for role in sorted(set(real["起用"].dropna()) | set(gen[gen["category"].eq(cat)]["起用"].dropna())):
+    for cat in [c for c in CATEGORY_PRIORITY if c in set(gen_pitchers.get("category", []))]:
+        cat_gen = gen_pitchers[gen_pitchers["category"].eq(cat)]
+        for usage in ["先発", "中継ぎ", "抑え"]:
+            real_usage = real_pitchers[real_pitchers["起用"].eq(usage)]
+            gen_usage = cat_gen[cat_gen["起用"].eq(usage)]
+            if real_usage.empty or gen_usage.empty:
+                continue
             for ability in ["球速", "コントロール", "スタミナ", "球種数", "総変化量"]:
-                rs = describe(real[(real["role"].eq("投手")) & (real["起用"].eq(role))].get(ability, pd.Series(dtype=float)))
-                gs = describe(gen[(gen["role"].eq("投手")) & (gen["category"].eq(cat)) & (gen["起用"].eq(role))].get(ability, pd.Series(dtype=float)))
-                rows.append({"カテゴリ": cat, "起用": role, "能力": ability, "実在平均": rs["平均"], "生成平均": gs["平均"], "平均差分": None if rs["平均"] is None or gs["平均"] is None else round(gs["平均"] - rs["平均"], 3), "実在人数": rs["人数"], "生成人数": gs["人数"]})
+                rs = describe(real_usage.get(ability, pd.Series(dtype=float)))
+                gs = describe(gen_usage.get(ability, pd.Series(dtype=float)))
+                rows.append({"カテゴリ": cat, "起用": usage, "能力": ability, "実在平均": rs["平均"], "生成平均": gs["平均"], "平均差分": round(gs["平均"] - rs["平均"], 3), "実在人数": rs["人数"], "生成人数": gs["人数"]})
     return pd.DataFrame(rows)
 
 
@@ -181,22 +211,38 @@ def breaking_compare(real: pd.DataFrame, gen: pd.DataFrame, real_breaking: pd.Da
     return pd.DataFrame(rows)
 
 
+def load_special_kind_map() -> dict[str, str]:
+    path = ROOT / "data" / "special_abilities.csv"
+    if not path.exists():
+        return {}
+    df = pd.read_csv(path)
+    if not {"name", "kind"}.issubset(df.columns):
+        return {}
+    return {str(row["name"]): normalize_special_category(row.get("kind"), row.get("name")) for _, row in df.iterrows()}
+
+
 def normalize_special_category(kind: Any, name: Any = "") -> str:
-    t = str(kind or "")
-    n = str(name or "")
-    if t in {"rank", "ランク系"} or re.search(r"[A-ZＳＡＢＣＤＥＦＧ]$", n): return "ランク系"
-    if t in {"normal", "青特"}: return "青特"
-    if "赤" in t: return "赤特"
-    if "金" in t: return "金特"
-    if "緑" in t: return "緑特"
+    t = "" if pd.isna(kind) else str(kind).strip()
+    n = "" if pd.isna(name) else str(name).strip()
+    if t in {"rank", "ランク系"} or RANK_SUFFIX_RE.search(n):
+        return "ランク系"
+    if t in {"red", "赤特"} or n in RED_SPECIAL_NAMES:
+        return "赤特"
+    if t in {"green", "緑特"} or n in GREEN_SPECIAL_NAMES:
+        return "緑特"
+    if t in {"gold", "金特"} or any(keyword in n for keyword in GOLD_SPECIAL_KEYWORDS):
+        return "金特"
+    if t in {"blue", "normal", "neutral", "mixed", "青特"}:
+        return "青特"
     return t if t else "不明"
 
 
 def special_tables(real_specials: pd.DataFrame, gen: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    special_kind_by_name = load_special_kind_map()
     real_total = max(1, int(real_specials[["team", "name"]].drop_duplicates().shape[0])) if {"team", "name"}.issubset(real_specials.columns) else 1
     rs = real_specials.copy()
     if not rs.empty:
-        rs["カテゴリ正規化"] = rs.apply(lambda r: normalize_special_category(r.get("special_kind"), r.get("special")), axis=1)
+        rs["カテゴリ正規化"] = rs.apply(lambda r: special_kind_by_name.get(str(r.get("special", "")), normalize_special_category(r.get("special_kind"), r.get("special"))), axis=1)
     cat_rows = []
     for cat, cnt in (rs["カテゴリ正規化"].value_counts() if "カテゴリ正規化" in rs else pd.Series(dtype=int)).items():
         cat_rows.append({"データ": "実在12球団", "カテゴリ": cat, "出現数": int(cnt), "出現率%": round(cnt / real_total * 100, 2)})
@@ -209,31 +255,38 @@ def special_tables(real_specials: pd.DataFrame, gen: pd.DataFrame) -> tuple[pd.D
     for cat in [c for c in CATEGORY_PRIORITY if c in set(gen.get("category", []))]:
         sub = gen[gen["category"].eq(cat)]
         total = max(1, len(sub))
+        generated_category_counts: dict[str, int] = {}
         if "特殊能力" in sub:
             exploded = sub["特殊能力"].fillna("").astype(str).str.split(",").explode().str.strip()
-            for name, cnt in exploded[exploded.ne("")].value_counts().items():
-                name_rows.append({"データ": cat, "特殊能力": name, "出現数": int(cnt), "出現率%": round(cnt / total * 100, 2)})
+            exploded = exploded[exploded.ne("")]
+            for name, cnt in exploded.value_counts().items():
+                category = special_kind_by_name.get(str(name), normalize_special_category("", name))
+                generated_category_counts[category] = generated_category_counts.get(category, 0) + int(cnt)
+                name_rows.append({"データ": cat, "特殊能力": name, "カテゴリ": category, "出現数": int(cnt), "出現率%": round(cnt / total * 100, 2)})
         if "ランク系特殊能力" in sub:
             exploded = sub["ランク系特殊能力"].fillna("").astype(str).str.split(",").explode().str.strip()
-            for name, cnt in exploded[exploded.ne("")].value_counts().items():
-                rank_rows.append({"データ": cat, "ランク系特殊能力": name, "出現数": int(cnt), "出現率%": round(cnt / total * 100, 2)})
-        for kind in ["金特", "赤特"]:
-            col = f"{kind}数"
-            if col in sub:
-                cnt = int(pd.to_numeric(sub[col], errors="coerce").fillna(0).sum())
-                cat_rows.append({"データ": cat, "カテゴリ": kind, "出現数": cnt, "出現率%": round(cnt / total * 100, 2)})
-        if "特殊能力" in sub:
-            cnt = int(sub["特殊能力"].fillna("").astype(str).str.split(",").map(lambda xs: len([x for x in xs if x.strip()])).sum())
-            cat_rows.append({"データ": cat, "カテゴリ": "青特", "出現数": cnt, "出現率%": round(cnt / total * 100, 2)})
-        if "ランク系特殊能力" in sub:
-            cnt = int(sub["ランク系特殊能力"].fillna("").astype(str).str.split(",").map(lambda xs: len([x for x in xs if x.strip()])).sum())
-            cat_rows.append({"データ": cat, "カテゴリ": "ランク系", "出現数": cnt, "出現率%": round(cnt / total * 100, 2)})
+            exploded = exploded[exploded.ne("")]
+            for name, cnt in exploded.value_counts().items():
+                generated_category_counts["ランク系"] = generated_category_counts.get("ランク系", 0) + int(cnt)
+                rank_rows.append({"データ": cat, "ランク系特殊能力": name, "カテゴリ": "ランク系", "出現数": int(cnt), "出現率%": round(cnt / total * 100, 2)})
+        for category in SPECIAL_CATEGORY_ORDER:
+            cnt = generated_category_counts.get(category, 0)
+            if cnt or category in {"赤特", "金特", "緑特", "ランク系"}:
+                cat_rows.append({"データ": cat, "カテゴリ": category, "出現数": cnt, "出現率%": round(cnt / total * 100, 2)})
     return pd.DataFrame(cat_rows), pd.DataFrame(name_rows), pd.DataFrame(rank_rows)
+
+
+def category_rate(special_cat: pd.DataFrame, dataset: str, category: str) -> float:
+    match = special_cat[(special_cat["データ"].eq(dataset)) & (special_cat["カテゴリ"].eq(category))]
+    return float(match["出現率%"].sum()) if not match.empty else 0.0
 
 
 def build_warnings(fielder: pd.DataFrame, pitcher: pd.DataFrame, pos: pd.DataFrame, breaking: pd.DataFrame, special_cat: pd.DataFrame) -> pd.DataFrame:
     rows = []
     base_f = fielder[fielder["カテゴリ"].eq("架空球団用")]
+    trajectory = base_f[base_f["能力"].eq("弾道")]
+    if trajectory.empty or trajectory["生成_平均"].isna().all():
+        rows.append({"警告": "弾道比較が未比較", "詳細": "生成側の弾道列を確認してください"})
     for _, r in base_f[base_f["平均差分"].abs() >= 8].iterrows():
         rows.append({"警告": "実在平均より生成平均が±8以上ズレている野手能力", "詳細": f"{r['能力']}: {r['平均差分']}"})
     for _, r in pitcher[(pitcher["カテゴリ"].eq("架空球団用")) & (pitcher["能力"].eq("球速")) & (pitcher["平均差分"].abs() >= 4)].iterrows():
@@ -253,6 +306,11 @@ def build_warnings(fielder: pd.DataFrame, pitcher: pd.DataFrame, pos: pd.DataFra
     gen_gold = special_cat[(special_cat["データ"].eq("架空球団用")) & (special_cat["カテゴリ"].eq("金特"))]["出現数"].sum()
     if real_gold > 0 and gen_gold == 0:
         rows.append({"警告": "金特が実在にはあるが生成で0件", "詳細": "架空球団用"})
+    for category in ["赤特", "金特", "緑特"]:
+        real_rate = category_rate(special_cat, "実在12球団", category)
+        gen_rate = category_rate(special_cat, "架空球団用", category)
+        if abs(gen_rate - real_rate) >= 10:
+            rows.append({"警告": f"{category}出現率が実在より大幅に高い/低い", "詳細": f"実在={real_rate:.2f}% 生成={gen_rate:.2f}%"})
     return pd.DataFrame(rows or [{"警告": "警告なし", "詳細": "主要しきい値内です"}])
 
 
