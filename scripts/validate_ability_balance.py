@@ -19,12 +19,13 @@ from app import (  # noqa: E402
     generate_player,
     is_ranked_special,
     load_master_data,
+    pitch_movement,
     pitcher_speed_value,
 )
 
 ROLES = ["投手", "野手"]
 FIELDING_KEYS = ["ミート", "パワー", "走力", "肩力", "守備力", "捕球", "弾道"]
-PITCHING_KEYS = ["球速", "コントロール", "スタミナ", "総変化量", "変化球数"]
+PITCHING_KEYS = ["球速", "コントロール", "スタミナ", "total_movement_including_second", "pitch_type_count_including_second", "second_pitch_count"]
 AGE_BINS = [0, 19, 22, 26, 30, 34, 99]
 AGE_LABELS = ["18-19歳", "20-22歳", "23-26歳", "27-30歳", "31-34歳", "35歳以上"]
 REPORT_FILENAMES = {
@@ -35,6 +36,7 @@ REPORT_FILENAMES = {
     "ranked_special_stats": "ranked_special_stats.csv",
     "anomalies": "anomalies.csv",
     "pitcher_aptitude_summary": "pitcher_aptitude_summary.csv",
+    "second_pitch_summary": "second_pitch_summary.csv",
 }
 
 
@@ -76,7 +78,8 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
     for player in players:
         abilities = player["abilities"]
         breaking_balls = player["breaking_balls"]
-        break_levels = [int(ball.get("level", 0) or 0) for ball in breaking_balls]
+        break_levels = [pitch_movement(ball) for ball in breaking_balls]
+        second_balls = [ball for ball in breaking_balls if bool(ball.get("is_second_pitch", False))]
         row = {key: player[key] for key in ["seed", "role", "category", "name", "age", "nationality", "birthplace", "position", "player_type", "handedness", "batting_throwing", "height", "weight"]}
         for key in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]:
             row[key] = player.get(key) or abilities.get(key)
@@ -88,9 +91,17 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
         row["コントロール"] = ability_numeric_value(abilities, "コントロール")
         row["スタミナ"] = ability_numeric_value(abilities, "スタミナ")
         row["総変化量"] = sum(break_levels)
+        row["総変化量_第一球種のみ"] = sum(pitch_movement(ball) for ball in breaking_balls if not bool(ball.get("is_second_pitch", False)))
+        row["total_movement_including_second"] = row["総変化量"]
         row["総変化量偏差用"] = row["総変化量"] * 8
         row["変化球数"] = len(breaking_balls)
-        row["変化球方向"] = ",".join(ball.get("name", "") for ball in breaking_balls)
+        row["変化球数_第一球種のみ"] = sum(1 for ball in breaking_balls if not bool(ball.get("is_second_pitch", False)))
+        row["pitch_type_count_including_second"] = row["変化球数"]
+        row["second_pitch_count"] = len(second_balls)
+        row["has_second_pitch"] = bool(second_balls)
+        row["second_pitch_directions"] = ",".join(str(ball.get("direction", "")) for ball in second_balls)
+        row["second_pitch_movements"] = ",".join(str(pitch_movement(ball)) for ball in second_balls)
+        row["変化球方向"] = ",".join(f"{ball.get('direction', ball.get('name', ''))}:{ball.get('name', '')}{'(第2)' if ball.get('is_second_pitch') else ''}" for ball in breaking_balls)
         row["特殊能力"] = ",".join(player["special_abilities"])
         row["ランク系特殊能力"] = ",".join(player["abilities"].get("ranked_specials", {}).values())
         row["特殊能力数"] = len(player["special_abilities"])
@@ -184,9 +195,28 @@ def pitcher_aptitude_summary(df: pd.DataFrame) -> pd.DataFrame:
             "平均球速": round(pd.to_numeric(subset["球速"], errors="coerce").mean(), 3),
             "平均コントロール": round(pd.to_numeric(subset["コントロール"], errors="coerce").mean(), 3),
             "平均スタミナ": round(pd.to_numeric(subset["スタミナ"], errors="coerce").mean(), 3),
-            "平均球種数": round(pd.to_numeric(subset["変化球数"], errors="coerce").mean(), 3),
-            "平均総変化量": round(pd.to_numeric(subset["総変化量"], errors="coerce").mean(), 3),
+            "平均球種数": round(pd.to_numeric(subset["pitch_type_count_including_second"], errors="coerce").mean(), 3),
+            "平均総変化量": round(pd.to_numeric(subset["total_movement_including_second"], errors="coerce").mean(), 3),
+            "第二球種率%": round(subset["has_second_pitch"].mean() * 100, 2),
         })
+    return pd.DataFrame(rows)
+
+
+def second_pitch_summary(df: pd.DataFrame) -> pd.DataFrame:
+    pitchers = df[df["role"] == "投手"].copy()
+    if pitchers.empty:
+        return pd.DataFrame()
+    rows = [{"集計軸": "全体", "値": "第二球種あり", "人数": int(pitchers["has_second_pitch"].sum()), "割合%": round(pitchers["has_second_pitch"].mean() * 100, 2)}]
+    for col, label in [("starter_aptitude", "先発適正"), ("reliever_aptitude", "中継ぎ適正"), ("closer_aptitude", "抑え適正"), ("category", "カテゴリ")]:
+        for value, subset in pitchers.groupby(col, dropna=False):
+            rows.append({"集計軸": label, "値": value, "人数": int(subset["has_second_pitch"].sum()), "割合%": round(subset["has_second_pitch"].mean() * 100, 2)})
+    directions = pitchers["second_pitch_directions"].fillna("").astype(str).str.split(",").explode()
+    directions = directions[directions.ne("")]
+    for direction, count in directions.value_counts().items():
+        rows.append({"集計軸": "第二球種方向", "値": direction, "人数": int(count), "割合%": None})
+    movements = pd.to_numeric(pitchers["second_pitch_movements"].fillna("").astype(str).str.split(",").explode(), errors="coerce").dropna().astype(int)
+    for movement, count in movements.value_counts().sort_index().items():
+        rows.append({"集計軸": "第二球種変化量", "値": movement, "人数": int(count), "割合%": None})
     return pd.DataFrame(rows)
 
 def detect_anomalies(df: pd.DataFrame) -> pd.DataFrame:
@@ -200,6 +230,7 @@ def detect_anomalies(df: pd.DataFrame) -> pd.DataFrame:
         ("投手の球種が極端に少ない", df[(df["role"] == "投手") & (df["変化球数"] <= 1)]),
         ("投手の総変化量が極端に低い", df[(df["role"] == "投手") & (df["総変化量"] <= 2)]),
         ("投手の球種数が極端に多い", df[(df["role"] == "投手") & (df["変化球数"] >= 5)]),
+        ("第二球種あり投手の総変化量が極端に高い", df[(df["role"] == "投手") & (df["has_second_pitch"]) & (df["total_movement_including_second"] >= 13)]),
         ("遊撃手なのに守備・捕球が極端に低い", df[(df["position"] == "遊撃手") & ((df["守備力"] < 40) | (df["捕球"] < 35))]),
         ("捕手なのに肩力・守備・捕球が極端に低い", df[(df["position"] == "捕手") & ((df["肩力"] < 45) | (df["守備力"] < 40) | (df["捕球"] < 35))]),
         ("高卒新人で完成されすぎた能力", df[(df["category"] == "ドラフト候補用") & (df["age"] <= 18) & (df["総合スコア"] >= 410)]),
@@ -252,6 +283,7 @@ def main() -> None:
         "ranked_special_stats": ranked_special,
         "anomalies": detect_anomalies(df),
         "pitcher_aptitude_summary": pitcher_aptitude_summary(df),
+        "second_pitch_summary": second_pitch_summary(df),
     }
     write_reports(tables, args.output_dir, args.excel)
     print_console_summary(tables, args.output_dir)
