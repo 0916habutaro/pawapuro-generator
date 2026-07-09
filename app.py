@@ -4,6 +4,7 @@ import random
 import re
 import sqlite3
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -244,9 +245,13 @@ def pitcher_speed_value(abilities: dict[str, Any]) -> int | None:
     return int(speed) if isinstance(speed, int | float) else None
 
 
+def pitch_movement(ball: dict[str, Any]) -> int:
+    return int(ball.get("movement", ball.get("level", 0)) or 0)
+
+
 def breaking_ball_summary(breaking_balls: list[dict[str, Any]] | None) -> tuple[int, int]:
     balls = breaking_balls or []
-    total = sum(int(ball.get("level", 0) or 0) for ball in balls)
+    total = sum(pitch_movement(ball) for ball in balls)
     return len(balls), total
 
 
@@ -656,11 +661,89 @@ def generate_pitcher_abilities(rng: random.Random, age: int, player_type: str, c
     return {"球速": f"{max(125, min(165, speed))} km/h", "コントロール": ability(control), "スタミナ": ability(stamina), **aptitudes}
 
 
-def generate_breaking_balls(rng: random.Random, player_type: str) -> list[dict[str, Any]]:
-    names = ["スライダー", "カーブ", "フォーク", "チェンジアップ", "シュート", "カットボール", "シンカー"]
-    count = weighted_choice(rng, [(1, 35), (2, 45), (3, 18), (4, 2)]) + (1 if player_type == "変化球派" and rng.random() < 0.35 else 0)
-    balls = rng.sample(names, min(count, len(names)))
-    return [{"name": b, "level": rng.randint(1, 5) + (1 if player_type == "変化球派" and rng.random() < 0.4 else 0)} for b in balls]
+BREAKING_BALL_MASTER = [
+    {"name": "スライダー", "direction": "スライダー"},
+    {"name": "カットボール", "direction": "スライダー"},
+    {"name": "カーブ", "direction": "カーブ"},
+    {"name": "スローカーブ", "direction": "カーブ"},
+    {"name": "スラーブ", "direction": "カーブ"},
+    {"name": "フォーク", "direction": "フォーク"},
+    {"name": "SFF", "direction": "フォーク"},
+    {"name": "チェンジアップ", "direction": "フォーク"},
+    {"name": "シンカー", "direction": "シンカー"},
+    {"name": "スクリュー", "direction": "シンカー"},
+    {"name": "シュート", "direction": "シュート"},
+    {"name": "ツーシーム", "direction": "シュート"},
+]
+SECOND_PITCH_PAIRS = {
+    "スライダー": ["カットボール"],
+    "カットボール": ["スライダー"],
+    "カーブ": ["スローカーブ", "スラーブ"],
+    "スローカーブ": ["カーブ"],
+    "スラーブ": ["カーブ"],
+    "フォーク": ["SFF", "チェンジアップ"],
+    "SFF": ["フォーク"],
+    "チェンジアップ": ["フォーク", "SFF"],
+    "シンカー": ["スクリュー"],
+    "スクリュー": ["シンカー"],
+    "シュート": ["ツーシーム"],
+    "ツーシーム": ["シュート"],
+}
+BREAKING_BY_NAME = {ball["name"]: ball for ball in BREAKING_BALL_MASTER}
+
+
+def second_pitch_chance(player_type: str, category: str, aptitudes: dict[str, str]) -> float:
+    chance = 0.15
+    if aptitudes.get("starter_aptitude") == "◎":
+        chance += 0.03
+    if aptitudes.get("closer_aptitude") == "◎":
+        chance -= 0.03
+    if player_type in {"変化球派", "技巧派"}:
+        chance += 0.02
+    if category == "助っ人外国人用":
+        chance += 0.03
+    elif category == "ドラフト候補用":
+        chance -= 0.04
+    return max(0.08, min(0.22, chance))
+
+
+def make_breaking_ball(name: str, movement: int, is_second_pitch: bool, slot: int) -> dict[str, Any]:
+    master = BREAKING_BY_NAME[name]
+    movement = max(1, min(7, movement))
+    return {
+        "name": name,
+        "direction": master["direction"],
+        "movement": movement,
+        "level": movement,
+        "is_second_pitch": is_second_pitch,
+        "slot": slot,
+    }
+
+
+def generate_breaking_balls(rng: random.Random, player_type: str, category: str, aptitudes: dict[str, str]) -> list[dict[str, Any]]:
+    count_weights = [(1, 28), (2, 50), (3, 20), (4, 2)]
+    if category == "ドラフト候補用":
+        count_weights = [(1, 30), (2, 50), (3, 18), (4, 2)]
+    elif category == "助っ人外国人用":
+        count_weights = [(1, 20), (2, 52), (3, 25), (4, 3)]
+    count = weighted_choice(rng, count_weights) + (1 if player_type == "変化球派" and rng.random() < 0.30 else 0)
+    names_by_direction: dict[str, list[str]] = {}
+    for ball in BREAKING_BALL_MASTER:
+        names_by_direction.setdefault(ball["direction"], []).append(ball["name"])
+    primary_directions = rng.sample(list(names_by_direction), min(count, len(names_by_direction)))
+    primary = [rng.choice(names_by_direction[direction]) for direction in primary_directions]
+    balls = []
+    for index, name in enumerate(primary, start=1):
+        movement = weighted_choice(rng, [(1, 13), (2, 24), (3, 30), (4, 23), (5, 10)]) + (1 if player_type == "変化球派" and rng.random() < 0.35 else 0)
+        balls.append(make_breaking_ball(name, movement, False, index))
+    if balls and rng.random() < second_pitch_chance(player_type, category, aptitudes):
+        candidates = [ball for ball in balls if SECOND_PITCH_PAIRS.get(ball["name"])]
+        if candidates:
+            base = max(candidates, key=lambda b: (b["movement"], rng.random()))
+            second_name = rng.choice(SECOND_PITCH_PAIRS[base["name"]])
+            second_movement = min(base["movement"], weighted_choice(rng, [(1, 45), (2, 35), (3, 16), (4, 4)]))
+            balls.append(make_breaking_ball(second_name, second_movement, True, 2))
+    return balls
 
 
 FOREIGN_NATIONS = ["アメリカ", "ドミニカ共和国", "ベネズエラ", "キューバ", "メキシコ", "韓国", "台湾"]
@@ -752,7 +835,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     player_type = weighted_choice(rng, type_weights)
     abilities = generate_pitcher_abilities(rng, age, player_type, category, pitcher_aptitudes) if role == "投手" else generate_fielder_abilities(rng, age, position, player_type, category)
     batting_throwing = generate_batting_throwing(rng, role, position)
-    breaking_balls = generate_breaking_balls(rng, player_type) if role == "投手" else []
+    breaking_balls = generate_breaking_balls(rng, player_type, category, pitcher_aptitudes) if role == "投手" else []
     special_abilities = generate_specials(rng, master, role, player_type, position, age, abilities, breaking_balls, category)
     return {
         "seed": seed, "role": role, "category": category, "name": choose_name(rng, master.names, nationality), "age": age,
@@ -1122,7 +1205,7 @@ def render_card(p: dict[str, Any]) -> None:
                 render_ability_item(k, v)
         if p["breaking_balls"]:
             st.markdown("#### 変化球")
-            st.write(" / ".join(f"{b['name']} {b['level']}" for b in p["breaking_balls"]))
+            st.write(" / ".join(f"{'第2 ' if b.get('is_second_pitch') else ''}{b['name']}({b.get('direction', b['name'])}) {pitch_movement(b)}" for b in p["breaking_balls"]))
         ranked_specials = p.get("abilities", {}).get("ranked_specials", {})
         st.markdown("#### ランク系特殊能力")
         st.write("、".join(ranked_specials.values()) if ranked_specials else "なし")
@@ -1167,6 +1250,10 @@ def main() -> None:
     st.dataframe(history, use_container_width=True, hide_index=True)
     if not history.empty:
         st.download_button("CSV出力", data=history.to_csv(index=False).encode("utf-8-sig"), file_name="pawapuro_players.csv", mime="text/csv")
+        excel_buffer = BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+            history.to_excel(writer, sheet_name="players", index=False)
+        st.download_button("Excel出力", data=excel_buffer.getvalue(), file_name="pawapuro_players.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         st.info("同じseedを使うことで、同条件の再生成に利用できるデータ構造です。")
 
 

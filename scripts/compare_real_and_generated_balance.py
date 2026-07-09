@@ -103,10 +103,16 @@ def normalize_generated_players(df: pd.DataFrame) -> pd.DataFrame:
     for col in [*FIELDER_ABILITIES, "球速", "コントロール", "スタミナ", "変化球数", "総変化量"]:
         if col in out:
             out[col] = pd.to_numeric(out[col], errors="coerce")
-    if "変化球数" in out and "球種数" not in out:
+    if "pitch_type_count_including_second" in out:
+        out["球種数"] = pd.to_numeric(out["pitch_type_count_including_second"], errors="coerce")
+    elif "変化球数" in out and "球種数" not in out:
         out["球種数"] = out["変化球数"]
-    if "第二球種数" not in out:
-        out["第二球種数"] = pd.NA
+    if "total_movement_including_second" in out:
+        out["総変化量"] = pd.to_numeric(out["total_movement_including_second"], errors="coerce")
+    if "second_pitch_count" in out:
+        out["第二球種数"] = pd.to_numeric(out["second_pitch_count"], errors="coerce").fillna(0)
+    elif "第二球種数" not in out:
+        out["第二球種数"] = 0
     if "position" in out:
         out["position"] = out["position"].map(normalize_position)
     if "category" not in out:
@@ -229,6 +235,10 @@ def breaking_compare(real: pd.DataFrame, gen: pd.DataFrame, real_breaking: pd.Da
                 rows.append({"カテゴリ": cat, "比較軸": label, "値": val, "件数": int(cnt), "割合%": round(cnt / max(1, len(gp)) * 100, 2)})
     real_second = int((real[real["role"].eq("投手")]["第二球種数"] > 0).sum())
     rows.append({"カテゴリ": "実在12球団", "比較軸": "第二球種あり", "値": "あり", "件数": real_second, "割合%": round(real_second / max(1, len(real[real['role'].eq('投手')])) * 100, 2)})
+    for cat in [c for c in CATEGORY_PRIORITY if c in set(gen.get("category", []))]:
+        gp = gen[(gen["role"].eq("投手")) & (gen["category"].eq(cat))]
+        gen_second = int((pd.to_numeric(gp.get("第二球種数", pd.Series(dtype=float)), errors="coerce").fillna(0) > 0).sum())
+        rows.append({"カテゴリ": cat, "比較軸": "第二球種あり", "値": "あり", "件数": gen_second, "割合%": round(gen_second / max(1, len(gp)) * 100, 2)})
     if not real_breaking.empty:
         for axis, col in [("方向別出現数", "direction"), ("変化量別出現数", "movement")]:
             for val, cnt in real_breaking[col].value_counts(dropna=False).items() if col in real_breaking else []:
