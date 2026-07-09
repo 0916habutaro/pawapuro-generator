@@ -162,34 +162,58 @@ def role_label(text: Any) -> str | None:
     return t
 
 
-def assign_pitcher_usage(df: pd.DataFrame, source_columns: list[str]) -> pd.Series:
+def aptitude_usage(row: pd.Series) -> str | None:
+    if not {"starter_aptitude", "reliever_aptitude", "closer_aptitude"}.issubset(row.index):
+        return None
+    starter = row.get("starter_aptitude")
+    reliever = row.get("reliever_aptitude")
+    closer = row.get("closer_aptitude")
+    if pd.isna(starter) and pd.isna(reliever) and pd.isna(closer):
+        return None
+    if closer == "◎":
+        return "抑え"
+    if starter == "◎":
+        return "先発"
+    if reliever == "◎":
+        return "中継ぎ"
+    if starter == "○":
+        return "先発"
+    if reliever == "○":
+        return "中継ぎ"
+    if closer == "○":
+        return "抑え"
+    return "比較対象外"
+
+
+def assign_pitcher_usage(df: pd.DataFrame, source_columns: list[str], prefer_aptitudes: bool = False) -> pd.Series:
     usage = pd.Series([None] * len(df), index=df.index, dtype="object")
+    if prefer_aptitudes:
+        usage = df.apply(aptitude_usage, axis=1)
     for column in source_columns:
         if column in df.columns:
             normalized = df[column].map(role_label)
             usage = usage.where(usage.notna(), normalized)
-    return usage
+    return usage.fillna("比較対象外")
 
 
 def pitcher_role_compare(real: pd.DataFrame, gen: pd.DataFrame) -> pd.DataFrame:
     real_pitchers = real[real["role"].eq("投手")].copy()
     gen_pitchers = gen[gen["role"].eq("投手")].copy()
     real_pitchers["起用"] = assign_pitcher_usage(real_pitchers, ["pitcher_role", "起用", "usage", "position"])
-    gen_pitchers["起用"] = assign_pitcher_usage(gen_pitchers, ["pitcher_role", "起用", "usage", "position"])
-    real_pitchers = real_pitchers[real_pitchers["起用"].isin(["先発", "中継ぎ", "抑え"])]
-    gen_pitchers = gen_pitchers[gen_pitchers["起用"].isin(["先発", "中継ぎ", "抑え"])]
+    gen_pitchers["起用"] = assign_pitcher_usage(gen_pitchers, ["pitcher_role", "起用", "usage", "position"], prefer_aptitudes=True)
+    real_pitchers = real_pitchers[real_pitchers["起用"].isin(["先発", "中継ぎ", "抑え", "比較対象外"])]
+    gen_pitchers = gen_pitchers[gen_pitchers["起用"].isin(["先発", "中継ぎ", "抑え", "比較対象外"])]
     rows = []
     for cat in [c for c in CATEGORY_PRIORITY if c in set(gen_pitchers.get("category", []))]:
         cat_gen = gen_pitchers[gen_pitchers["category"].eq(cat)]
-        for usage in ["先発", "中継ぎ", "抑え"]:
+        for usage in ["先発", "中継ぎ", "抑え", "比較対象外"]:
             real_usage = real_pitchers[real_pitchers["起用"].eq(usage)]
             gen_usage = cat_gen[cat_gen["起用"].eq(usage)]
-            if real_usage.empty or gen_usage.empty:
-                continue
             for ability in ["球速", "コントロール", "スタミナ", "球種数", "総変化量"]:
-                rs = describe(real_usage.get(ability, pd.Series(dtype=float)))
-                gs = describe(gen_usage.get(ability, pd.Series(dtype=float)))
-                rows.append({"カテゴリ": cat, "起用": usage, "能力": ability, "実在平均": rs["平均"], "生成平均": gs["平均"], "平均差分": round(gs["平均"] - rs["平均"], 3), "実在人数": rs["人数"], "生成人数": gs["人数"]})
+                rs = describe(real_usage.get(ability, pd.Series(dtype=float))) if not real_usage.empty else {"人数": 0, "平均": None}
+                gs = describe(gen_usage.get(ability, pd.Series(dtype=float))) if not gen_usage.empty else {"人数": 0, "平均": None}
+                diff = None if rs["平均"] is None or gs["平均"] is None else round(gs["平均"] - rs["平均"], 3)
+                rows.append({"カテゴリ": cat, "起用": usage, "能力": ability, "実在平均": rs["平均"], "生成平均": gs["平均"], "平均差分": diff, "実在人数": rs["人数"], "生成人数": gs["人数"]})
     return pd.DataFrame(rows)
 
 

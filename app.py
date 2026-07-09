@@ -594,22 +594,66 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
     return result
 
 
-def generate_pitcher_abilities(rng: random.Random, age: int, position: str, player_type: str, category: str) -> dict[str, Any]:
+PITCHER_APTITUDE_KEYS = ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]
+PITCHER_APTITUDE_LABELS = {"starter_aptitude": "先発", "reliever_aptitude": "中継ぎ", "closer_aptitude": "抑え"}
+
+
+def choose_pitcher_aptitudes(rng: random.Random, category: str) -> dict[str, str]:
+    patterns = [
+        ({"starter_aptitude": "◎", "reliever_aptitude": "-", "closer_aptitude": "-"}, 27),
+        ({"starter_aptitude": "◎", "reliever_aptitude": "○", "closer_aptitude": "-"}, 22),
+        ({"starter_aptitude": "○", "reliever_aptitude": "◎", "closer_aptitude": "-"}, 16),
+        ({"starter_aptitude": "-", "reliever_aptitude": "◎", "closer_aptitude": "-"}, 16),
+        ({"starter_aptitude": "-", "reliever_aptitude": "◎", "closer_aptitude": "○"}, 8),
+        ({"starter_aptitude": "-", "reliever_aptitude": "◎", "closer_aptitude": "◎"}, 7),
+        ({"starter_aptitude": "○", "reliever_aptitude": "◎", "closer_aptitude": "◎"}, 2),
+        ({"starter_aptitude": "○", "reliever_aptitude": "◎", "closer_aptitude": "-"}, 2),
+    ]
+    if category == "助っ人外国人用":
+        patterns = [(pattern, weight + (5 if pattern["closer_aptitude"] == "◎" else 0)) for pattern, weight in patterns]
+    return weighted_choice(rng, patterns).copy()
+
+
+def primary_pitcher_role(aptitudes: dict[str, str]) -> str:
+    for key in ("closer_aptitude", "starter_aptitude", "reliever_aptitude"):
+        if aptitudes.get(key) == "◎":
+            return PITCHER_APTITUDE_LABELS[key]
+    for key in ("starter_aptitude", "reliever_aptitude", "closer_aptitude"):
+        if aptitudes.get(key) == "○":
+            return PITCHER_APTITUDE_LABELS[key]
+    return "中継ぎ"
+
+
+def pitcher_aptitude_text(player: dict[str, Any]) -> str:
+    abilities = player.get("abilities", {}) if isinstance(player.get("abilities"), dict) else {}
+    values = {key: player.get(key) or abilities.get(key) for key in PITCHER_APTITUDE_KEYS}
+    if not any(values.values()):
+        pos = str(player.get("position", ""))
+        values = {"starter_aptitude": "◎" if pos == "先発" else "-", "reliever_aptitude": "◎" if pos == "中継ぎ" else "-", "closer_aptitude": "◎" if pos == "抑え" else "-"}
+    return " / ".join(f"{PITCHER_APTITUDE_LABELS[key]}{values.get(key, '-') or '-'}" for key in PITCHER_APTITUDE_KEYS)
+
+
+def generate_pitcher_abilities(rng: random.Random, age: int, player_type: str, category: str, aptitudes: dict[str, str]) -> dict[str, Any]:
     veteran_keep = age >= 35 and (player_type == "技巧派" or rng.random() < 0.12)
     prime = 1 if 24 <= age <= 32 else -1 if age <= 19 or (age >= 35 and not veteran_keep) else 0
     speed = rng.randint(138, 149) + prime * 2 + (6 if player_type == "速球派" else 0) - (3 if player_type == "技巧派" else 0)
-    speed += 1 if position == "中継ぎ" else 3 if position == "抑え" else 0
     speed += {"架空球団用": 4, "ドラフト候補用": 3, "助っ人外国人用": 6}.get(category, 0)
-    if position == "抑え":
-        speed += 2
-    control = 48 + rng.randint(-14, 16) + (16 if player_type == "技巧派" else 0) + (4 if position == "抑え" else 0)
-    stamina = 48 + rng.randint(-14, 16) + (15 if position == "先発" else 18 if player_type == "スタミナ型" else -8 if position == "抑え" else 0)
+    reliever = aptitudes.get("reliever_aptitude", "-")
+    closer = aptitudes.get("closer_aptitude", "-")
+    starter = aptitudes.get("starter_aptitude", "-")
+    speed += 1 if reliever == "◎" else 0
+    speed += 2 if closer == "◎" else 1 if closer == "○" else 0
+    speed += 1 if reliever == "○" or starter == "○" else 0
+    control = 48 + rng.randint(-14, 16) + (16 if player_type == "技巧派" else 0) + (2 if closer == "◎" else 1 if closer == "○" else 0)
+    stamina = 48 + rng.randint(-14, 16) + (18 if player_type == "スタミナ型" else 0)
+    stamina += 12 if starter == "◎" else 5 if starter == "○" else 0
+    stamina -= 5 if closer == "◎" else 2 if closer == "○" else 0
     if age >= 35:
         speed -= rng.randint(2, 5) if not veteran_keep else rng.randint(0, 2)
         stamina -= rng.randint(4, 9) if not veteran_keep else rng.randint(0, 3)
         if player_type == "技巧派":
             control += 5
-    return {"球速": f"{max(125, min(165, speed))} km/h", "コントロール": ability(control), "スタミナ": ability(stamina)}
+    return {"球速": f"{max(125, min(165, speed))} km/h", "コントロール": ability(control), "スタミナ": ability(stamina), **aptitudes}
 
 
 def generate_breaking_balls(rng: random.Random, player_type: str) -> list[dict[str, Any]]:
@@ -696,16 +740,17 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     rng = random.Random(seed)
     age = age_for(rng, category)
     nationality = choose_nationality(rng, category)
+    pitcher_aptitudes: dict[str, str] = {}
     if role == "投手":
-        position_weights = [("先発", 40), ("中継ぎ", 52), ("抑え", 8)] if category == "架空球団用" else [("先発", 38), ("中継ぎ", 42), ("抑え", 20)]
-        position = weighted_choice(rng, position_weights)
+        pitcher_aptitudes = choose_pitcher_aptitudes(rng, category)
+        position = primary_pitcher_role(pitcher_aptitudes)
         type_weights = [("本格派", 34), ("技巧派", 18), ("速球派", 26), ("変化球派", 14), ("スタミナ型", 8)] if category == "助っ人外国人用" else TYPE_WEIGHTS[role]
     else:
         position_weights = [("捕手", 8), ("一塁手", 20), ("二塁手", 9), ("三塁手", 18), ("遊撃手", 10), ("外野手", 35)] if category == "助っ人外国人用" else [("捕手", 12), ("一塁手", 14), ("二塁手", 14), ("三塁手", 14), ("遊撃手", 16), ("外野手", 30)]
         position = weighted_choice(rng, position_weights)
         type_weights = [("バランス型", 16), ("巧打型", 16), ("長距離砲", 28), ("俊足型", 8), ("守備職人", 12), ("強肩型", 20)] if category == "助っ人外国人用" else TYPE_WEIGHTS[role]
     player_type = weighted_choice(rng, type_weights)
-    abilities = generate_pitcher_abilities(rng, age, position, player_type, category) if role == "投手" else generate_fielder_abilities(rng, age, position, player_type, category)
+    abilities = generate_pitcher_abilities(rng, age, player_type, category, pitcher_aptitudes) if role == "投手" else generate_fielder_abilities(rng, age, position, player_type, category)
     batting_throwing = generate_batting_throwing(rng, role, position)
     breaking_balls = generate_breaking_balls(rng, player_type) if role == "投手" else []
     special_abilities = generate_specials(rng, master, role, player_type, position, age, abilities, breaking_balls, category)
@@ -717,6 +762,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         "height": rng.randint(168, 196) + (3 if role == "投手" else 0), "weight": rng.randint(68, 105),
         "abilities": {**abilities, "ranked_specials": generate_ranked_specials(rng, master, role, position, player_type, abilities, age)}, "special_abilities": special_abilities,
         "breaking_balls": breaking_balls,
+        **pitcher_aptitudes,
     }
 
 
@@ -749,7 +795,12 @@ def apply_history_filters(df: pd.DataFrame, categories: list[str], roles: list[s
 def load_history() -> pd.DataFrame:
     init_db()
     with sqlite3.connect(DB_PATH) as conn:
-        return pd.read_sql_query("SELECT id, created_at, seed, role, category, name, age, nationality, birthplace, position, player_type, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, breaking_balls_json FROM players ORDER BY id DESC", conn)
+        history = pd.read_sql_query("SELECT id, created_at, seed, role, category, name, age, nationality, birthplace, position, player_type, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, breaking_balls_json FROM players ORDER BY id DESC", conn)
+    if not history.empty:
+        abilities = history["abilities_json"].apply(lambda value: parse_json_column(value, {}))
+        for key in PITCHER_APTITUDE_KEYS:
+            history[key] = abilities.apply(lambda item: item.get(key) if isinstance(item, dict) else None)
+    return history
 
 
 def parse_json_column(value: Any, fallback: Any) -> Any:
@@ -1063,6 +1114,8 @@ def render_card(p: dict[str, Any]) -> None:
         cols[0].metric("利き腕", p["handedness"])
         cols[1].metric("投打", p["batting_throwing"])
         cols[2].metric("種別", p["role"])
+        if p["role"] == "投手":
+            st.markdown(f"**投手適正** {pitcher_aptitude_text(p)}")
         st.markdown("#### 能力")
         for k, v in p["abilities"].items():
             if k != "ranked_specials":
