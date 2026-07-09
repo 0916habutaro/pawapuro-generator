@@ -269,19 +269,23 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
     name = str(row.get("name", ""))
     kind = str(row.get("kind", ""))
     power = str(row.get("power", "normal"))
-    base_scale = 0.52 if kind == "green" or name in PERSONALITY_SPECIALS else 0.70
+    base_scale = 0.98 if kind == "green" or name in PERSONALITY_SPECIALS else 0.70
     chance = 0.35 if power == "gold" or kind == "gold" else float(base_chance) * base_scale
     if power == "strong" or name in STRONG_SPECIALS:
         chance *= 0.70
     if kind == "red":
-        chance *= 1.00
+        chance *= 1.28
     if kind == "mixed":
         chance *= 0.90
 
     if category == "ドラフト候補用":
         chance *= 0.86
+        if kind == "green" or name in PERSONALITY_SPECIALS:
+            chance *= 1.20
     elif category == "助っ人外国人用":
         chance *= 1.18
+        if kind == "green" or name in PERSONALITY_SPECIALS:
+            chance *= 1.18
         if role == "投手" and kind == "red":
             chance *= 0.86
 
@@ -365,7 +369,7 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
                 if isinstance(speed, int | float) and speed < 45: chance += 3
                 elif isinstance(speed, int | float) and speed < 55: chance += 1.5
                 if isinstance(power_v, int | float) and power_v >= 75: chance -= 1
-            chance -= 0.25
+            chance -= 0.05
     else:
         speed_v = pitcher_speed_value(abilities)
         control = ability_numeric_value(abilities, "コントロール")
@@ -429,7 +433,7 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
                 if isinstance(control, int | float) and control < 55: chance += 1
                 if isinstance(stamina, int | float) and stamina < 50: chance += 1
             if name == "スロースターター" and position == "先発" and isinstance(stamina, int | float) and stamina < 45: chance += 1
-            chance -= 0.2
+            chance -= 0.05
 
     max_chance = 8.0 if power == "strong" or name in STRONG_SPECIALS else 25.0
     return max(0.0, min(max_chance, float(chance)))
@@ -562,6 +566,21 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
         if player_type == "巧打型":
             mods["ミート"] += 4
         mods["パワー"] += 2
+    category_tune = {
+        "架空球団用": {"ミート": -5, "パワー": 0, "走力": 4, "肩力": 3, "守備力": -4, "捕球": -4},
+        "ドラフト候補用": {"ミート": -5, "パワー": 0, "走力": 5, "肩力": 2, "守備力": -5, "捕球": -3},
+        "助っ人外国人用": {"ミート": -6, "パワー": 0, "走力": 5, "肩力": 3, "守備力": -5, "捕球": -3},
+    }
+    position_tune = {
+        "捕手": {"ミート": -2, "守備力": -3, "捕球": -2},
+        "遊撃手": {"ミート": -2, "走力": 3, "守備力": -5, "捕球": -3},
+        "外野手": {"ミート": -2, "走力": 3, "肩力": 2},
+        "一塁手": {"パワー": 2, "走力": -1},
+        "三塁手": {"パワー": 1},
+    }
+    for tune in (category_tune.get(category, {}), position_tune.get(position, {})):
+        for k, v in tune.items():
+            mods[k] += v
     result = {k: ability(base + v) for k, v in mods.items()}
     if position == "捕手":
         result["肩力"] = ability(max(result["肩力"]["value"], 45))
@@ -571,17 +590,20 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
         result["守備力"] = ability(max(result["守備力"]["value"], 40))
         result["捕球"] = ability(max(result["捕球"]["value"], 36))
     power = result["パワー"]["value"]
-    result["弾道"] = 4 if power >= 78 else 3 if power >= 60 else 2 if power >= 42 else 1
+    result["弾道"] = 4 if power >= 76 else 3 if power >= 57 else 2 if power >= 38 else 1
     return result
 
 
-def generate_pitcher_abilities(rng: random.Random, age: int, position: str, player_type: str) -> dict[str, Any]:
+def generate_pitcher_abilities(rng: random.Random, age: int, position: str, player_type: str, category: str) -> dict[str, Any]:
     veteran_keep = age >= 35 and (player_type == "技巧派" or rng.random() < 0.12)
     prime = 1 if 24 <= age <= 32 else -1 if age <= 19 or (age >= 35 and not veteran_keep) else 0
     speed = rng.randint(138, 149) + prime * 2 + (6 if player_type == "速球派" else 0) - (3 if player_type == "技巧派" else 0)
-    speed += 1 if position == "中継ぎ" else 2 if position == "抑え" else 0
+    speed += 1 if position == "中継ぎ" else 3 if position == "抑え" else 0
+    speed += {"架空球団用": 4, "ドラフト候補用": 3, "助っ人外国人用": 6}.get(category, 0)
+    if position == "抑え":
+        speed += 2
     control = 48 + rng.randint(-14, 16) + (16 if player_type == "技巧派" else 0) + (4 if position == "抑え" else 0)
-    stamina = 48 + rng.randint(-14, 16) + (18 if position == "先発" or player_type == "スタミナ型" else -8 if position == "抑え" else 0)
+    stamina = 48 + rng.randint(-14, 16) + (15 if position == "先発" else 18 if player_type == "スタミナ型" else -8 if position == "抑え" else 0)
     if age >= 35:
         speed -= rng.randint(2, 5) if not veteran_keep else rng.randint(0, 2)
         stamina -= rng.randint(4, 9) if not veteran_keep else rng.randint(0, 3)
@@ -683,7 +705,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         position = weighted_choice(rng, position_weights)
         type_weights = [("バランス型", 16), ("巧打型", 16), ("長距離砲", 28), ("俊足型", 8), ("守備職人", 12), ("強肩型", 20)] if category == "助っ人外国人用" else TYPE_WEIGHTS[role]
     player_type = weighted_choice(rng, type_weights)
-    abilities = generate_pitcher_abilities(rng, age, position, player_type) if role == "投手" else generate_fielder_abilities(rng, age, position, player_type, category)
+    abilities = generate_pitcher_abilities(rng, age, position, player_type, category) if role == "投手" else generate_fielder_abilities(rng, age, position, player_type, category)
     batting_throwing = generate_batting_throwing(rng, role, position)
     breaking_balls = generate_breaking_balls(rng, player_type) if role == "投手" else []
     special_abilities = generate_specials(rng, master, role, player_type, position, age, abilities, breaking_balls, category)
