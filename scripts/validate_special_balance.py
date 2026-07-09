@@ -92,15 +92,22 @@ def main():
 
     normal_avg = sum(len(p["special_abilities"]) for p in players) / len(players)
     ranked_avg = sum(len(p["abilities"].get("ranked_specials", {})) for p in players) / len(players)
+    ranked_values = [name for p in players for name in p["abilities"].get("ranked_specials", {}).values()]
+    ranked_non_d_avg = sum(1 for name in ranked_values if not str(name).endswith("D")) / len(players)
+    ranked_non_d_distribution = Counter(str(name)[-1] for name in ranked_values if str(name)[-1] in {"A", "B", "C", "E", "F", "G"})
     max_normal = max(len(p["special_abilities"]) for p in players)
     six_plus = sum(1 for p in players if len(p["special_abilities"]) >= 6)
     strong_count = sum(normal_counts.get(name, 0) for name in STRONG_SPECIALS)
+    strong_counts = {name: normal_counts.get(name, 0) for name in sorted(STRONG_SPECIALS)}
+    red_top = Counter(name for p in players for name in p["special_abilities"] if kind_by_name.get(name) == "赤特")
     green_top = Counter(name for p in players for name in p["special_abilities"] if kind_by_name.get(name) == "緑特")
     personality_count = sum(normal_counts.get(name, 0) for name in PERSONALITY_SPECIALS)
 
     print(f"players={len(players)} pitchers={SAMPLE_PER_ROLE} fielders={SAMPLE_PER_ROLE}")
     print(f"normal_avg={normal_avg:.3f}")
     print(f"ranked_avg={ranked_avg:.3f}")
+    print(f"ranked_non_d_avg={ranked_non_d_avg:.3f}")
+    print(f"ranked_non_d_distribution={dict(sorted(ranked_non_d_distribution.items()))}")
     print(f"normal_distribution={distribution(players)}")
     print(f"six_plus_players={six_plus}")
     print(f"max_normal_count={max_normal}")
@@ -109,11 +116,15 @@ def main():
     print(f"role_distribution={grouped_distribution(players, lambda p: p['role'])}")
     print(f"type_avg={grouped_average(players, lambda p: f'{p['role']}:{p['player_type']}')}")
     kind_rates = {k: round(v / total_specials * 100, 2) for k, v in kind_counts.items()}
+    red_rate = kind_rates.get("赤特", 0.0)
+    mixed_rate = kind_rates.get("青赤特", 0.0)
+    green_rate = kind_rates.get("緑特", 0.0)
     print(f"kind_rate={kind_rates} counts={dict(kind_counts)}")
     print(f"top30={normal_counts.most_common(30)}")
+    print(f"red_top={red_top.most_common(20)}")
     print(f"green_top={green_top.most_common(20)}")
     print(f"personality_count={personality_count}")
-    print(f"strong_count={strong_count}")
+    print(f"strong_count={strong_count} counts={strong_counts}")
     print("target_rates=")
     for values in targeted_special_rates(players):
         print(f"  {values['label']}: {values['hits']}/{values['players']} ({values['rate']:.2f}%)")
@@ -121,7 +132,17 @@ def main():
     print(f"role_mix={role_mix}")
     print(f"group_dup={group_dup}")
     print(f"inappropriate_count={inappropriate_special_count(pd.DataFrame(players), master)}")
-    ok = 1.5 <= normal_avg <= 2.4 and ranked_mix == 0 and role_mix == 0 and group_dup == 0 and max_normal <= 12
+    ok = (
+        2.0 <= normal_avg <= 2.3
+        and 12.0 <= red_rate <= 16.0
+        and 5.0 <= mixed_rate <= 7.0
+        and 8.0 <= green_rate <= 13.0
+        and 3.2 <= ranked_non_d_avg <= 3.8
+        and ranked_mix == 0
+        and role_mix == 0
+        and group_dup == 0
+        and max_normal <= 12
+    )
     raise SystemExit(0 if ok else 1)
 
 
