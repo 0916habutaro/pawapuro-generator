@@ -112,3 +112,42 @@ python scripts/import_real_powerpro_players.py \
   --output-dir /tmp/powerpro_sample_report \
   --excel
 ```
+
+### 実ZIPでのスモークテスト
+
+ローカルに1球団分のZIPを置いた状態で、以下のコマンドを実行して取り込み結果を確認します。実データZIPはGitHubに含めず、必要な人だけがローカルで配置してください。
+
+```bash
+python scripts/import_real_powerpro_players.py \
+  --input-dir data/raw/powerpro_2026_2027 \
+  --output-dir reports/real_powerpro_players_hanshin \
+  --excel
+```
+
+実行後、コンソールのサマリーで以下を確認してください。
+
+- 入力HTML数
+- 選手数
+- 投手数
+- 野手数
+- 変化球数
+- 特殊能力数
+- 未解釈class数
+- unknown変化球数
+- 取得失敗/要確認選手数
+- 出力先
+
+あわせて、出力先に以下の確認用CSV/Excelが作成されていることを確認してください。
+
+- `players.csv`
+- `breaking_balls.csv`
+- `special_abilities.csv`
+- `position_summary.csv`
+- `pitcher_role_summary.csv`
+- `breaking_ball_summary.csv`
+- `unknown_classes.csv`: `ball.css` 等に定義が見つからなかった `v52` などのclass一覧
+- `unknown_breaking_balls.csv`: classは読めたが球種名を特定できなかった変化球一覧
+- `failed_players.csv`: ZIP/HTML読み込み失敗、必須項目不足など、取得失敗または要確認の選手・HTML一覧
+- `real_powerpro_players.xlsx`: `--excel` 指定時のみ作成
+
+実ZIPで失敗した場合は、`unknown_classes.csv` / `unknown_breaking_balls.csv` / `failed_players.csv` の `source`、`team`、`name`、`source_class`、`detail` を確認してください。`source` には `ZIP名:HTMLファイル名` の形式で入力元が記録されるため、どのHTMLファイル・どの選手・どのclassで失敗したかを追跡できます。
