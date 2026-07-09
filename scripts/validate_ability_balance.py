@@ -90,6 +90,7 @@ def generate_samples(count: int, base_seed: int) -> list[dict[str, Any]]:
     offset = 0
     for role in ROLES:
         for category in CATEGORIES:
+            print(f"{role} / {category} 生成中", flush=True)
             for _ in range(count):
                 players.append(generate_player(role, category, master, base_seed + offset))
                 offset += 1
@@ -553,9 +554,11 @@ def detect_anomalies(df: pd.DataFrame) -> pd.DataFrame:
 
 def write_reports(tables: dict[str, pd.DataFrame], output_dir: Path, excel: bool) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    print("CSV出力中", flush=True)
     for key, table in tables.items():
         table.to_csv(output_dir / REPORT_FILENAMES[key], index=False, encoding="utf-8-sig")
     if excel:
+        print("Excel出力中", flush=True)
         with pd.ExcelWriter(output_dir / "ability_balance_report.xlsx") as writer:
             for key, table in tables.items():
                 table.to_excel(writer, sheet_name=key[:31], index=False)
@@ -683,6 +686,7 @@ def main() -> None:
     }
     write_reports(tables, args.output_dir, args.excel)
     print_console_summary(tables, args.output_dir)
+    print("完了", flush=True)
 
 
 if __name__ == "__main__":
