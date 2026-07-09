@@ -41,6 +41,27 @@ UNKNOWN_BREAKING_COLUMNS = ["source", "team", "name", "source_class", "slot", "m
 FAILED_PLAYER_COLUMNS = ["source", "team", "name", "reason", "detail"]
 INPUT_ERROR_COLUMNS = ["source", "reason", "detail"]
 
+
+POSITION_ALIASES = {
+    "捕": "捕手", "捕手": "捕手", "キャッチャー": "捕手",
+    "一": "一塁手", "一塁": "一塁手", "一塁手": "一塁手", "ファースト": "一塁手",
+    "二": "二塁手", "二塁": "二塁手", "二塁手": "二塁手", "セカンド": "二塁手",
+    "三": "三塁手", "三塁": "三塁手", "三塁手": "三塁手", "サード": "三塁手",
+    "遊": "遊撃手", "遊撃": "遊撃手", "遊撃手": "遊撃手", "ショート": "遊撃手",
+    "外": "外野手", "外野": "外野手", "外野手": "外野手",
+    "左": "左翼手", "左翼": "左翼手", "左翼手": "左翼手", "レフト": "左翼手",
+    "中堅": "中堅手", "中堅手": "中堅手", "センター": "中堅手",
+    "右": "右翼手", "右翼": "右翼手", "右翼手": "右翼手", "ライト": "右翼手",
+}
+POSITION_PATTERN = re.compile("捕手|一塁手|二塁手|三塁手|遊撃手|外野手|左翼手|中堅手|右翼手|キャッチャー|ファースト|セカンド|サード|ショート|レフト|センター|ライト|捕|一|二|三|遊|外")
+PITCH_TYPE_NAMES = [
+    "スライダー", "Hスライダー", "Vスライダー", "カットボール", "カーブ", "スローカーブ", "ドロップ", "ドロップカーブ",
+    "ナックルカーブ", "パワーカーブ", "フォーク", "SFF", "パーム", "ナックル", "縦スライダー", "チェンジアップ",
+    "サークルチェンジ", "シンカー", "Hシンカー", "スクリュー", "シュート", "Hシュート", "シンキングツーシーム",
+    "ツーシーム", "ムービングファスト", "超スローボール", "オリジナル変化球",
+]
+PITCH_TYPE_RE = re.compile("|".join(re.escape(name) for name in sorted(PITCH_TYPE_NAMES, key=len, reverse=True)))
+
 LABEL_ALIASES = {
     "球団名": "team", "球団": "team", "チーム": "team",
     "選手名": "name", "名前": "name", "氏名": "name",
@@ -155,6 +176,13 @@ def decode_text_file(raw: bytes) -> str:
     return raw.decode("utf-8", errors="ignore")
 
 
+
+def decode_zip_member_name(name: str) -> str:
+    try:
+        return name.encode("cp437").decode("cp932")
+    except Exception:  # noqa: BLE001
+        return name
+
 def read_sources(input_dir: Path) -> tuple[list[SourceDoc], list[dict[str, str]]]:
     docs: list[SourceDoc] = []
     failures: list[dict[str, str]] = []
@@ -163,17 +191,17 @@ def read_sources(input_dir: Path) -> tuple[list[SourceDoc], list[dict[str, str]]
             with zipfile.ZipFile(path) as zf:
                 html_names = [n for n in zf.namelist() if n.lower().endswith((".html", ".htm", ".mhtml", ".mht"))]
                 css_names = [n for n in zf.namelist() if n.lower().endswith(".css")]
-                css_texts = {n: decode_text_file(zf.read(n)) for n in css_names}
+                css_texts = {decode_zip_member_name(n): decode_text_file(zf.read(n)) for n in css_names}
                 if not html_names:
                     failures.append({"source": path.name, "reason": "html_not_found", "detail": "ZIP内にHTML/MHTMLがありません"})
                 for name in html_names:
                     try:
                         text, enc, warn = decode_html(zf.read(name))
-                        docs.append(SourceDoc(f"{path.name}:{name}", text, enc, css_texts))
+                        docs.append(SourceDoc(f"{path.name}:{decode_zip_member_name(name)}", text, enc, css_texts))
                         if warn:
-                            failures.append({"source": f"{path.name}:{name}", "reason": "decode_warning", "detail": warn})
+                            failures.append({"source": f"{path.name}:{decode_zip_member_name(name)}", "reason": "decode_warning", "detail": warn})
                     except Exception as exc:  # noqa: BLE001
-                        failures.append({"source": f"{path.name}:{name}", "reason": "html_read_failed", "detail": f"{type(exc).__name__}: {exc}"})
+                        failures.append({"source": f"{path.name}:{decode_zip_member_name(name)}", "reason": "html_read_failed", "detail": f"{type(exc).__name__}: {exc}"})
         except Exception as exc:  # noqa: BLE001
             failures.append({"source": path.name, "reason": "zip_read_failed", "detail": f"{type(exc).__name__}: {exc}"})
     for path in sorted(input_dir.glob("*.htm*")) + sorted(input_dir.glob("*.mht*")):
@@ -223,6 +251,53 @@ def extract_class_text(block: str, class_name: str) -> str:
     return clean_text(m.group(1)) if m else ""
 
 
+def html_text_with_attrs(block: str) -> str:
+    attr_texts = re.findall(r'\b(?:alt|title|aria-label)=["\']([^"\']+)["\']', block, re.I)
+    return clean_text(block + " " + " ".join(attr_texts))
+
+
+def normalize_position(value: str) -> str:
+    return POSITION_ALIASES.get(value.strip(), value.strip())
+
+
+def extract_positions_from_text(value: str) -> list[str]:
+    found: list[str] = []
+    for token in POSITION_PATTERN.findall(value or ""):
+        pos = normalize_position(token)
+        if pos and pos not in found:
+            found.append(pos)
+    return found
+
+
+
+def extract_fielder_positions_from_ability_block(block: str) -> list[str]:
+    """野手能力ブロック内の c8 w から守備位置略称を取得します。"""
+    class_re = r'(?=[^"]*\bc8\b)(?=[^"]*\bw\b)[^"]*'
+    for m in re.finditer(rf'<b\b[^>]*class="{class_re}"[^>]*>(.*?)</b>\s*</b>', block, re.I | re.S):
+        inner = m.group(1)
+        nested = re.findall(r'<b\b[^>]*>(.*?)</b>', inner, re.I | re.S)
+        candidates = [clean_text(value) for value in nested if clean_text(value)]
+        candidates.append(clean_text(inner))
+        for candidate in reversed(candidates):
+            positions = extract_positions_from_text(candidate)
+            if positions:
+                return positions
+    m = re.search(rf'<b\b[^>]*class="{class_re}"[^>]*>(.*?)(?=<b\b[^>]*class=|</p>|<a\s+name=|\Z)', block, re.I | re.S)
+    if m:
+        return extract_positions_from_text(clean_text(m.group(1)))
+    return []
+
+def extract_pitch_names(value: str) -> list[str]:
+    names: list[str] = []
+    for name in PITCH_TYPE_RE.findall(value or ""):
+        if name not in names:
+            names.append(name)
+    if names:
+        return names
+    cleaned = re.sub(r"v\d{2,3}|\d+|変化球|球種|方向|第[一二１２]球種|[：:]", " ", value or "", flags=re.I)
+    return [v for v in split_values(cleaned.replace(" ", "、")) if japanese_score(v) > 0]
+
+
 def inner_by_id(block: str, tag_id: str) -> str:
     m = re.search(rf'<b\b[^>]*id="{re.escape(tag_id)}"[^>]*>(.*?)(?=<b\b[^>]*id="|</p>|<a\s+name=|\Z)', block, re.I | re.S)
     return m.group(1) if m else ""
@@ -254,6 +329,7 @@ def parse_real_blocks(doc: SourceDoc) -> ParseResult:
         ft = clean_text(field)
         tb = re.search(r"[左右]投[左右両]打", ft)
         row["throws_bats"] = tb.group(0) if tb else ""
+        ability_block = inner_by_id(block, f"p{num_id}") if role == "投手" else inner_by_id(block, f"b{num_id}")
         posblock = inner_by_id(block, f"pr{num_id}") if role == "投手" else inner_by_id(block, f"br{num_id}")
         post = clean_text(posblock)
         if role == "投手":
@@ -261,10 +337,15 @@ def parse_real_blocks(doc: SourceDoc) -> ParseResult:
             row["main_position"] = "投手"
             row["pitcher_roles"] = m.group(0) if m else ""
         else:
-            pos = re.findall(r"[捕一二三遊外]", post)
-            row["main_position"] = pos[0] if pos else ""
-            row["sub_positions"] = " / ".join(pos[1:])
-        ability_block = inner_by_id(block, f"p{num_id}") if role == "投手" else inner_by_id(block, f"b{num_id}")
+            detail_block = inner_by_id(block, f"d{num_id}")
+            positions = (
+                extract_fielder_positions_from_ability_block(ability_block)
+                or extract_fielder_positions_from_ability_block(detail_block)
+                or extract_positions_from_text(post)
+                or extract_positions_from_text(html_text_with_attrs(posblock))
+            )
+            row["main_position"] = positions[0] if positions else ""
+            row["sub_positions"] = ";".join(positions[1:])
         vals = [clean_text(x) for x in re.findall(r'<(?:b|i)\b[^>]*>(\d+)</(?:b|i)>', ability_block, re.I | re.S)]
         if role == "投手":
             for key, val in zip(["top_speed", "control", "stamina"], vals[:3]): row[key] = val
@@ -287,12 +368,13 @@ def parse_breaking_from_block(block: str, current: dict[str, str], source: str, 
     for m in re.finditer(r'<b\b[^>]*class="[^"]*\bv(\d{2,3})\b[^"]*"[^>]*>(.*?)</b>', block, re.I | re.S):
         code = m.group(1)
         text = clean_text(m.group(2)).replace(" / ", " ").strip()
-        names = split_values(text.replace(" ", "、")) or ["unknown"] * (len(code) - 1)
+        context = html_text_with_attrs(block[max(0, m.start() - 500): min(len(block), m.end() + 500)])
+        names = extract_pitch_names(text) or extract_pitch_names(context) or ["unknown"] * (len(code) - 1)
         for idx, amount in enumerate(code[1:], start=1):
             pitch_type = names[idx - 1] if idx - 1 < len(names) and names[idx - 1] else "unknown"
             row = {"source": source, "team": current.get("team", "unknown"), "name": current.get("name", "unknown"), "direction_code": code[0], "direction": DIRECTION_NAMES.get(code[0], "unknown"), "slot": idx, "pitch_type": pitch_type, "movement": int(amount), "source_class": f"v{code}", "status": "ok" if pitch_type != "unknown" else "unknown"}
             if pitch_type == "unknown":
-                result.unknown_breaking.append({"source": source, "team": row["team"], "name": row["name"], "source_class": row["source_class"], "slot": idx, "movement": int(amount), "detail": "class内テキストから球種名を特定できません"})
+                result.unknown_breaking.append({"source": source, "team": row["team"], "name": row["name"], "source_class": row["source_class"], "slot": idx, "movement": int(amount), "detail": "class内/周辺要素から球種名を特定できません"})
             out.append(row)
     return out
 
@@ -358,8 +440,13 @@ def parse_breaking_ball_row(cells: list[tuple[str, str]], current: dict[str, str
     matches = V_CLASS_RE.findall(row_html)
     if not matches:
         return out
-    texts = [clean_text(c[1]) for c in cells]
-    pitch_names = [t for t in texts if t and not V_CLASS_RE.search(t) and normalize_label(t) not in LABEL_ALIASES]
+    texts = [html_text_with_attrs(c[1]) for c in cells]
+    pitch_names = []
+    for text in texts:
+        if text and normalize_label(text) not in LABEL_ALIASES:
+            pitch_names.extend(name for name in extract_pitch_names(text) if name not in pitch_names)
+    if not pitch_names:
+        pitch_names = extract_pitch_names(html_text_with_attrs(row_html))
     for code in matches:
         source_class = f"v{code}"
         if code not in css_classes:
@@ -396,6 +483,64 @@ def combine_results(results: list[ParseResult], source_failures: list[dict[str, 
     return combined
 
 
+
+def numeric_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for col in columns:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+    return out
+
+
+def average_by(df: pd.DataFrame, key: str, columns: list[str]) -> pd.DataFrame:
+    present = [col for col in columns if col in df.columns]
+    if df.empty or key not in df.columns or not present:
+        return pd.DataFrame(columns=[key, "count", *[f"avg_{col}" for col in present]])
+    work = numeric_columns(df, present).fillna({key: ""})
+    grouped = work.groupby(key, dropna=False)
+    counts = grouped.size().reset_index(name="count")
+    avgs = grouped[present].mean().round(2).add_prefix("avg_").reset_index()
+    return counts.merge(avgs, on=key, how="left").sort_values("count", ascending=False)
+
+
+def team_roster_summary(players: pd.DataFrame) -> pd.DataFrame:
+    if players.empty:
+        return pd.DataFrame(columns=["team", "players", "pitchers", "fielders"])
+    work = players.copy()
+    work["is_pitcher"] = work["role"].fillna("").eq("投手")
+    work["is_fielder"] = work["role"].fillna("").eq("野手")
+    out = work.groupby("team", dropna=False).agg(players=("name", "count"), pitchers=("is_pitcher", "sum"), fielders=("is_fielder", "sum")).reset_index()
+    return out.sort_values("players", ascending=False)
+
+
+def pitcher_breaking_metrics(players: pd.DataFrame, breaking: pd.DataFrame) -> pd.DataFrame:
+    pitchers = players[players.get("role", pd.Series(dtype=str)).eq("投手")].copy() if not players.empty else pd.DataFrame()
+    if pitchers.empty:
+        return pitchers
+    if not breaking.empty:
+        b = breaking.copy()
+        b["movement"] = pd.to_numeric(b["movement"], errors="coerce").fillna(0)
+        per = b.groupby(["source", "team", "name"], dropna=False).agg(breaking_ball_count=("pitch_type", "count"), total_movement=("movement", "sum"), has_second_pitch=("slot", lambda x: (pd.to_numeric(x, errors="coerce") >= 2).any())).reset_index()
+        pitchers = pitchers.merge(per, on=["source", "team", "name"], how="left")
+    else:
+        pitchers["breaking_ball_count"] = 0
+        pitchers["total_movement"] = 0
+        pitchers["has_second_pitch"] = False
+    pitchers[["breaking_ball_count", "total_movement"]] = pitchers[["breaking_ball_count", "total_movement"]].fillna(0)
+    pitchers["has_second_pitch"] = pitchers["has_second_pitch"].fillna(False).astype(bool)
+    return pitchers
+
+
+def distribution(df: pd.DataFrame, column: str) -> pd.DataFrame:
+    if df.empty or column not in df.columns:
+        return pd.DataFrame(columns=[column, "count"])
+    return df.groupby(column, dropna=False).size().reset_index(name="count").sort_values(column)
+
+
+def ratio_summary(label: str, numerator: int, denominator: int) -> pd.DataFrame:
+    ratio = round(numerator / denominator * 100, 2) if denominator else 0.0
+    return pd.DataFrame([{"item": label, "count": numerator, "total": denominator, "ratio_percent": ratio}])
+
 def write_outputs(result: ParseResult, output_dir: Path, excel: bool) -> dict[str, pd.DataFrame]:
     output_dir.mkdir(parents=True, exist_ok=True)
     dfs = {
@@ -421,9 +566,28 @@ def write_outputs(result: ParseResult, output_dir: Path, excel: bool) -> dict[st
             dfs[name] = pd.DataFrame(columns=columns)
         else:
             dfs[name] = dfs[name].reindex(columns=columns)
-    dfs["position_summary"] = summarize(dfs["players"], "main_position")
-    dfs["pitcher_role_summary"] = summarize(dfs["players"], "pitcher_roles")
+    players = dfs["players"]
+    pitchers = players[players["role"].fillna("").eq("投手")] if not players.empty else pd.DataFrame(columns=players.columns)
+    fielders = players[players["role"].fillna("").eq("野手")] if not players.empty else pd.DataFrame(columns=players.columns)
+    pitcher_metrics = pitcher_breaking_metrics(players, dfs["breaking_balls"])
+    dfs["position_summary"] = summarize(players, "main_position")
+    dfs["pitcher_role_summary"] = summarize(pitchers[pitchers["pitcher_roles"].fillna("").ne("")], "pitcher_roles")
     dfs["breaking_ball_summary"] = summarize(dfs["breaking_balls"], "pitch_type", numeric="movement")
+    dfs["team_roster_summary"] = team_roster_summary(players)
+    dfs["team_pitcher_ability_average"] = average_by(pitchers, "team", ["top_speed", "control", "stamina"])
+    dfs["team_fielder_ability_average"] = average_by(fielders, "team", ["trajectory", "contact", "power", "run_speed", "arm_strength", "fielding", "catching"])
+    dfs["position_ability_average"] = average_by(fielders, "main_position", ["trajectory", "contact", "power", "run_speed", "arm_strength", "fielding", "catching"])
+    dfs["pitcher_role_ability_average"] = average_by(pitcher_metrics[pitcher_metrics["pitcher_roles"].fillna("").ne("")], "pitcher_roles", ["top_speed", "control", "stamina", "breaking_ball_count", "total_movement"])
+    dfs["breaking_ball_count_distribution"] = distribution(pitcher_metrics, "breaking_ball_count")
+    dfs["second_pitch_summary"] = ratio_summary("第二球種あり投手", int(pitcher_metrics.get("has_second_pitch", pd.Series(dtype=bool)).sum()), len(pitcher_metrics))
+    dfs["total_movement_distribution"] = distribution(pitcher_metrics, "total_movement")
+    subpos_count = int(fielders["sub_positions"].fillna("").ne("").sum()) if "sub_positions" in fielders else 0
+    dfs["fielder_sub_position_summary"] = ratio_summary("サブポジあり野手", subpos_count, len(fielders))
+    dfs["special_kind_summary"] = summarize(dfs["special_abilities"], "special_kind")
+    normal_specials = dfs["special_abilities"][dfs["special_abilities"].get("special_kind", pd.Series(dtype=str)).eq("normal")] if not dfs["special_abilities"].empty else pd.DataFrame(columns=SPECIAL_COLUMNS)
+    rank_specials = dfs["special_abilities"][dfs["special_abilities"].get("special_kind", pd.Series(dtype=str)).eq("rank")] if not dfs["special_abilities"].empty else pd.DataFrame(columns=SPECIAL_COLUMNS)
+    dfs["normal_special_summary"] = summarize(normal_specials, "special")
+    dfs["ranked_special_summary"] = summarize(rank_specials, "special")
     for name, df in dfs.items():
         df.to_csv(output_dir / f"{name}.csv", index=False, encoding="utf-8-sig")
     if excel:
