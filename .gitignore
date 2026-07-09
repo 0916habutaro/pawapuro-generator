@@ -39,4 +39,4 @@ Thumbs.db
 
 # Locally supplied real PowerPro source archives and generated reports
 data/raw/powerpro_2026_2027/*.zip
-reports/real_powerpro_players/
+reports/
