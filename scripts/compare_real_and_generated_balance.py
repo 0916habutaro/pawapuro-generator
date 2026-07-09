@@ -14,10 +14,11 @@ PITCHER_ABILITIES = ["球速", "コントロール", "スタミナ", "球種数"
 POSITIONS = ["捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手"]
 PERCENTILES = [0.10, 0.25, 0.75, 0.90]
 CATEGORY_PRIORITY = ["架空球団用", "ドラフト候補用", "助っ人外国人用"]
-SPECIAL_CATEGORY_ORDER = ["青特", "赤特", "金特", "緑特", "ランク系", "不明"]
+SPECIAL_CATEGORY_ORDER = ["青特", "赤特", "金特", "緑特", "ランク系", "usage", "不明"]
 RANK_SUFFIX_RE = re.compile(r"(?:[A-GＡ-ＧＳ])$")
 RED_SPECIAL_NAMES = {"三振", "四球", "一発", "乱調", "スロースターター", "エラー", "併殺", "負け運", "寸前", "抜け球", "軽い球", "シュート回転", "リリース×", "キレ×", "ノビF", "ノビG", "対左打者F", "対左打者G", "対ピンチF", "対ピンチG", "打たれ強さF", "打たれ強さG"}
-GREEN_SPECIAL_NAMES = {"積極打法", "慎重打法", "積極走塁", "慎重盗塁", "積極盗塁", "選球眼", "積極守備", "チームプレイ○", "チームプレイ×", "テンポ○", "速球中心", "変化球中心", "投球位置左", "投球位置右", "強振多用", "ミート多用"}
+GREEN_SPECIAL_NAMES = {"積極打法", "慎重打法", "積極走塁", "慎重走塁", "慎重盗塁", "積極盗塁", "選球眼", "積極守備", "チームプレイ○", "チームプレイ×", "テンポ○", "速球中心", "変化球中心", "投球位置左", "投球位置右", "強振多用", "ミート多用"}
+USAGE_SPECIAL_NAMES = {"勝利投手", "調子次第", "代打要員", "守備要員", "代走要員", "途中交代", "スタミナ限界", "接戦時", "ビハインドでも", "リード時", "中継ぎエース", "守護神", "セーブ狙い", "おまかせ", "完投", "完封"}
 GOLD_SPECIAL_KEYWORDS = ("怪童", "怪物", "精密機械", "鉄腕", "走者釘付", "驚異", "変幻自在", "強心臓", "終盤力", "勝利の星", "アーチスト", "安打製造機", "電光石火", "魔術師", "球界の頭脳", "左キラー", "広角砲", "勝負師", "高速レーザー", "ストライク送球")
 
 REAL_PLAYER_COLS = {
@@ -230,6 +231,8 @@ def normalize_special_category(kind: Any, name: Any = "") -> str:
         return "赤特"
     if t in {"green", "緑特"} or n in GREEN_SPECIAL_NAMES:
         return "緑特"
+    if t in {"usage"} or n in USAGE_SPECIAL_NAMES:
+        return "usage"
     if t in {"gold", "金特"} or any(keyword in n for keyword in GOLD_SPECIAL_KEYWORDS):
         return "金特"
     if t in {"blue", "normal", "neutral", "mixed", "青特"}:
@@ -248,10 +251,13 @@ def special_tables(real_specials: pd.DataFrame, gen: pd.DataFrame) -> tuple[pd.D
         cat_rows.append({"データ": "実在12球団", "カテゴリ": cat, "出現数": int(cnt), "出現率%": round(cnt / real_total * 100, 2)})
     name_rows = []
     rank_rows = []
-    for name, cnt in (rs[rs.get("カテゴリ正規化", pd.Series(dtype=str)).ne("ランク系")]["special"].value_counts() if "special" in rs else pd.Series(dtype=int)).items():
-        name_rows.append({"データ": "実在12球団", "特殊能力": name, "出現数": int(cnt), "出現率%": round(cnt / real_total * 100, 2)})
-    for name, cnt in (rs[rs.get("カテゴリ正規化", pd.Series(dtype=str)).eq("ランク系")]["special"].value_counts() if "special" in rs else pd.Series(dtype=int)).items():
-        rank_rows.append({"データ": "実在12球団", "ランク系特殊能力": name, "出現数": int(cnt), "出現率%": round(cnt / real_total * 100, 2)})
+    if "special" in rs and "カテゴリ正規化" in rs:
+        normal_rs = rs[rs["カテゴリ正規化"].ne("ランク系")].copy()
+        for (category, name), cnt in normal_rs.groupby(["カテゴリ正規化", "special"], dropna=False).size().items():
+            name_rows.append({"データ": "実在12球団", "特殊能力": name, "カテゴリ": category if pd.notna(category) else "不明", "出現数": int(cnt), "出現率%": round(cnt / real_total * 100, 2)})
+        rank_rs = rs[rs["カテゴリ正規化"].eq("ランク系")].copy()
+        for name, cnt in rank_rs["special"].value_counts(dropna=False).items():
+            rank_rows.append({"データ": "実在12球団", "ランク系特殊能力": name, "カテゴリ": "ランク系", "出現数": int(cnt), "出現率%": round(cnt / real_total * 100, 2)})
     for cat in [c for c in CATEGORY_PRIORITY if c in set(gen.get("category", []))]:
         sub = gen[gen["category"].eq(cat)]
         total = max(1, len(sub))
@@ -260,7 +266,7 @@ def special_tables(real_specials: pd.DataFrame, gen: pd.DataFrame) -> tuple[pd.D
             exploded = sub["特殊能力"].fillna("").astype(str).str.split(",").explode().str.strip()
             exploded = exploded[exploded.ne("")]
             for name, cnt in exploded.value_counts().items():
-                category = special_kind_by_name.get(str(name), normalize_special_category("", name))
+                category = special_kind_by_name.get(str(name), normalize_special_category("", name)) or "不明"
                 generated_category_counts[category] = generated_category_counts.get(category, 0) + int(cnt)
                 name_rows.append({"データ": cat, "特殊能力": name, "カテゴリ": category, "出現数": int(cnt), "出現率%": round(cnt / total * 100, 2)})
         if "ランク系特殊能力" in sub:
@@ -311,6 +317,10 @@ def build_warnings(fielder: pd.DataFrame, pitcher: pd.DataFrame, pos: pd.DataFra
         gen_rate = category_rate(special_cat, "架空球団用", category)
         if abs(gen_rate - real_rate) >= 10:
             rows.append({"警告": f"{category}出現率が実在より大幅に高い/低い", "詳細": f"実在={real_rate:.2f}% 生成={gen_rate:.2f}%"})
+    unknown = special_cat[special_cat["カテゴリ"].eq("不明")].copy() if "カテゴリ" in special_cat else pd.DataFrame()
+    unknown_count = int(pd.to_numeric(unknown.get("出現数", pd.Series(dtype=int)), errors="coerce").fillna(0).sum()) if not unknown.empty else 0
+    if unknown_count:
+        rows.append({"警告": "カテゴリ不明の特殊能力があります", "詳細": f"不明={unknown_count}件"})
     return pd.DataFrame(rows or [{"警告": "警告なし", "詳細": "主要しきい値内です"}])
 
 
