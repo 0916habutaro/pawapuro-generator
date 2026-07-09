@@ -772,18 +772,19 @@ def weighted_breaking_names(rng: random.Random, direction_code: str, player_type
     return weighted_choice(rng, choices)
 
 def second_pitch_chance(player_type: str, category: str, aptitudes: dict[str, str]) -> float:
-    chance = 0.18
+    if category == "ドラフト候補用":
+        chance = 0.17
+    elif category == "助っ人外国人用":
+        chance = 0.74
+    else:
+        chance = 0.44
     if aptitudes.get("starter_aptitude") == "◎":
         chance += 0.025
     if aptitudes.get("closer_aptitude") == "◎":
         chance -= 0.025
     if player_type in {"変化球派", "技巧派"}:
         chance += 0.015
-    if category == "助っ人外国人用":
-        chance += 0.055
-    elif category == "ドラフト候補用":
-        chance -= 0.075
-    return max(0.07, min(0.30, chance))
+    return max(0.05, min(0.85, chance))
 
 
 def make_breaking_ball(name: str, movement: int, is_second_pitch: bool, slot: int) -> dict[str, Any]:
@@ -871,7 +872,12 @@ def generate_breaking_balls(rng: random.Random, player_type: str, category: str,
         name = weighted_breaking_names(rng, direction_code, player_type, category, batting_throwing)
         movement = weighted_choice(rng, movement_weights(player_type, category, aptitudes, count))
         balls.append(make_breaking_ball(name, movement, False, 1))
-    if balls and len(balls) < 4 and rng.random() < second_pitch_chance(player_type, category, aptitudes):
+    chance = second_pitch_chance(player_type, category, aptitudes)
+    if category == "助っ人外国人用" and len(balls) == 3:
+        chance = min(chance, 0.07)
+    elif len(balls) >= 3:
+        chance = 0
+    if balls and rng.random() < chance:
         candidates = []
         for ball in balls:
             names = allowed_pitch_names_for_generation(str(ball["direction_code"]), batting_throwing) - {ball["name"]}
