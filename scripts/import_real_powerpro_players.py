@@ -24,6 +24,8 @@ DIRECTION_NAMES = {
     "4": "シンカー方向",
     "5": "シュート方向",
 }
+RIGHT_THROW_LOGICAL_DIRECTION_CODE = {"5": "1", "4": "2", "3": "3", "2": "4", "1": "5"}
+LEFT_THROW_LOGICAL_DIRECTION_CODE = {"1": "1", "2": "2", "3": "3", "4": "4", "5": "5"}
 ALLOWED_PITCHES_BY_DIRECTION_RIGHT = {
     "1": {"スライダー", "Hスライダー", "カットボール"},
     "2": {"カーブ", "スローカーブ", "ドロップカーブ", "スラーブ", "ナックルカーブ", "パワーカーブ", "Dスライダー"},
@@ -47,7 +49,7 @@ PLAYER_COLUMNS = [
     "trajectory", "contact", "power", "run_speed", "arm_strength", "fielding", "catching",
 ]
 BREAKING_BALL_COLUMNS = [
-    "source", "team", "name", "throws_bats", "direction_code", "direction", "slot", "raw_pitch_type", "pitch_type", "canonical_pitch_type", "movement", "source_class", "status", "kind", "raw_text", "normalized_text", "raw_neighbor_text", "detail",
+    "source", "team", "name", "throws_bats", "source_direction_code", "logical_direction_code", "direction_code", "direction", "slot", "raw_pitch_type", "pitch_type", "canonical_pitch_type", "movement", "source_class", "status", "kind", "raw_text", "normalized_text", "raw_neighbor_text", "detail",
 ]
 SPECIAL_COLUMNS = ["source", "team", "name", "special", "special_kind"]
 UNKNOWN_CLASS_COLUMNS = ["source", "team", "name", "source_class", "detail"]
@@ -145,6 +147,12 @@ def clean_text(value: str) -> str:
 
 def normalize_pitch_text(value: str) -> str:
     return unicodedata.normalize("NFKC", value or "")
+
+
+def logical_direction_code(source_direction_code: str, throws_bats: str) -> str:
+    if str(throws_bats).startswith("右投"):
+        return RIGHT_THROW_LOGICAL_DIRECTION_CODE.get(str(source_direction_code), str(source_direction_code))
+    return LEFT_THROW_LOGICAL_DIRECTION_CODE.get(str(source_direction_code), str(source_direction_code))
 
 
 def allowed_pitches_for(direction_code: str, throws_bats: str) -> set[str]:
@@ -492,19 +500,20 @@ def classify_pitch(direction_code: str, pitch_type: str, throws_bats: str) -> tu
     return "invalid_direction", "breaking"
 
 
-def make_breaking_row(source: str, current: dict[str, str], direction_code: str, slot: int | None, amount: str | int, source_class: str, pitch_type: str, raw_text: str, normalized_text: str, raw_neighbor_text: str = "", detail: str = "") -> dict[str, str]:
+def make_breaking_row(source: str, current: dict[str, str], source_direction_code: str, slot: int | None, amount: str | int, source_class: str, pitch_type: str, raw_text: str, normalized_text: str, raw_neighbor_text: str = "", detail: str = "") -> dict[str, str]:
     throws_bats = current.get("throws_bats", "")
-    status, kind = classify_pitch(direction_code, pitch_type, throws_bats)
+    logical_code = logical_direction_code(source_direction_code, throws_bats)
+    status, kind = classify_pitch(logical_code, pitch_type, throws_bats)
     if status == "invalid_direction" and not detail:
-        detail = "球種候補は見つかりましたが方向コードと一致しません"
+        detail = "球種候補は見つかりましたが投げ手補正後の方向コードと一致しません"
     return {
         "source": source, "team": current.get("team", "unknown"), "name": current.get("name", "unknown"), "throws_bats": throws_bats,
-        "direction_code": direction_code, "direction": DIRECTION_NAMES.get(direction_code, "unknown"), "slot": slot,
+        "source_direction_code": source_direction_code, "logical_direction_code": logical_code, "direction_code": logical_code,
+        "direction": DIRECTION_NAMES.get(logical_code, "unknown"), "slot": slot,
         "raw_pitch_type": pitch_type, "pitch_type": pitch_type, "canonical_pitch_type": canonical_pitch_type(pitch_type),
         "movement": int(amount), "source_class": source_class, "status": status, "kind": kind,
         "raw_text": raw_text, "normalized_text": normalized_text, "raw_neighbor_text": raw_neighbor_text, "detail": detail,
     }
-
 
 def unique_pitch_names(*texts: str) -> list[str]:
     names: list[str] = []
@@ -515,30 +524,34 @@ def unique_pitch_names(*texts: str) -> list[str]:
     return names
 
 
-def select_pitch_names_for_code(raw_text: str, raw_neighbor_text: str, direction_code: str, throws_bats: str, slot_count: int) -> tuple[list[str], str, str]:
+def select_pitch_names_for_code(raw_text: str, raw_neighbor_text: str, logical_code: str, throws_bats: str, slot_count: int) -> tuple[list[str], str, str]:
     raw_names = unique_pitch_names(raw_text)
+    raw_allowed = [name for name in raw_names if is_pitch_allowed_for_direction(logical_code, name, throws_bats)]
+    if len(raw_allowed) >= slot_count:
+        return raw_allowed[:slot_count], "ok", "raw_textから投げ手補正後の方向一致候補を採用"
+
     neighbor_names = unique_pitch_names(raw_neighbor_text)
     names = []
     for name in [*raw_names, *neighbor_names]:
         if name not in names:
             names.append(name)
-    allowed = [name for name in names if is_pitch_allowed_for_direction(direction_code, name, throws_bats)]
+    allowed = [name for name in names if is_pitch_allowed_for_direction(logical_code, name, throws_bats)]
     if len(allowed) >= slot_count:
-        return allowed[:slot_count], "ok", "raw_text/neighbor_textから方向一致候補を採用"
-    if len(allowed) == 1:
-        return allowed * slot_count, "ok", "raw_text/neighbor_textから唯一の方向一致候補を採用"
+        return allowed[:slot_count], "ok", "raw_text/neighbor_textから投げ手補正後の方向一致候補を採用"
+    if len(allowed) == 1 and slot_count == 1:
+        return allowed, "ok", "raw_text/neighbor_textから唯一の方向一致候補を採用"
+
     direction_mismatches = [name for name in names if name not in SECOND_FASTBALL_TYPES and name not in FIXED_FASTBALL_TYPES]
     if direction_mismatches:
-        return direction_mismatches[:slot_count] or [direction_mismatches[0]] * slot_count, "invalid_direction", "球種候補は見つかりましたが方向コードと一致しません"
+        return direction_mismatches[:slot_count] or [direction_mismatches[0]] * slot_count, "invalid_direction", "球種候補は見つかりましたが投げ手補正後の方向コードと一致しません"
     if names:
         return names[:slot_count] or [names[0]] * slot_count, "unknown", "候補球種は通常変化球ではありません"
     return ["unknown"] * slot_count, "unknown", "球種候補を特定できません"
 
-
 def make_second_fastball_row(source: str, current: dict[str, str], pitch_type: str, raw_text: str) -> dict[str, str]:
     return {
         "source": source, "team": current.get("team", "unknown"), "name": current.get("name", "unknown"), "throws_bats": current.get("throws_bats", ""),
-        "direction_code": "", "direction": "ストレート系第二種", "slot": "",
+        "source_direction_code": "", "logical_direction_code": "", "direction_code": "", "direction": "ストレート系第二種", "slot": "",
         "raw_pitch_type": pitch_type, "pitch_type": pitch_type, "canonical_pitch_type": pitch_type,
         "movement": 0, "source_class": "", "status": "second_fastball", "kind": "second_fastball",
         "raw_text": raw_text, "normalized_text": normalize_pitch_text(raw_text), "raw_neighbor_text": raw_text, "detail": "投手能力ブロック全体から検出",
@@ -558,15 +571,16 @@ def parse_breaking_from_block(block: str, current: dict[str, str], source: str, 
     block_text = html_text_with_attrs(block)
     for m in re.finditer(r'<b\b[^>]*class="[^"]*\bv(\d{2,3})\b[^"]*"[^>]*>(.*?)</b>', block, re.I | re.S):
         code = m.group(1)
-        direction_code = code[0]
+        source_direction_code = code[0]
+        logical_code = logical_direction_code(source_direction_code, current.get("throws_bats", ""))
         amounts = list(code[1:])
         raw_text = clean_text(m.group(2)).replace(" / ", " ").strip()
         raw_neighbor_text = html_text_with_attrs(block[max(0, m.start() - 180): min(len(block), m.end() + 180)]) or block_text
         normalized_text = normalize_pitch_text(raw_text)
-        names, selection_status, detail = select_pitch_names_for_code(raw_text, raw_neighbor_text or block_text, direction_code, current.get("throws_bats", ""), len(amounts))
+        names, selection_status, detail = select_pitch_names_for_code(raw_text, raw_neighbor_text or block_text, logical_code, current.get("throws_bats", ""), len(amounts))
         for idx, amount in enumerate(amounts, start=1):
             pitch_type = names[idx - 1] if idx - 1 < len(names) else (names[0] if names else "unknown")
-            row = make_breaking_row(source, current, direction_code, idx, amount, f"v{code}", pitch_type, raw_text, normalized_text, raw_neighbor_text, detail)
+            row = make_breaking_row(source, current, source_direction_code, idx, amount, f"v{code}", pitch_type, raw_text, normalized_text, raw_neighbor_text, detail)
             if selection_status == "invalid_direction":
                 row["status"] = "invalid_direction"
                 row["kind"] = "breaking"
@@ -645,12 +659,13 @@ def parse_breaking_ball_row(cells: list[tuple[str, str]], current: dict[str, str
             detail = "ball.css等のCSSにclass定義が見つかりません"
             result.unknown_classes.append({"source": source, "team": current.get("team", "unknown"), "name": current.get("name", "unknown"), "source_class": source_class, "detail": detail})
             LOGGER.warning("CSSに定義がない変化球class: %s (%s / %s / %s)", source_class, current.get("name", "unknown"), current.get("team", "unknown"), source)
-        direction_code = code[0]
+        source_direction_code = code[0]
+        logical_code = logical_direction_code(source_direction_code, current.get("throws_bats", ""))
         amounts = list(code[1:])
-        names, selection_status, detail = select_pitch_names_for_code(raw_text, normalized_text, direction_code, current.get("throws_bats", ""), len(amounts))
+        names, selection_status, detail = select_pitch_names_for_code(raw_text, normalized_text, logical_code, current.get("throws_bats", ""), len(amounts))
         for idx, amount in enumerate(amounts, start=1):
             pitch_type = names[idx - 1] if idx - 1 < len(names) else "unknown"
-            row = make_breaking_row(source, current, direction_code, idx, amount, source_class, pitch_type, raw_text, normalized_text, normalized_text, detail)
+            row = make_breaking_row(source, current, source_direction_code, idx, amount, source_class, pitch_type, raw_text, normalized_text, normalized_text, detail)
             if selection_status == "invalid_direction":
                 row["status"] = "invalid_direction"
                 row["kind"] = "breaking"
@@ -801,7 +816,7 @@ def write_outputs(result: ParseResult, output_dir: Path, excel: bool) -> dict[st
     dfs["canonical_pitch_type_summary"] = summarize(normal_breaking, "canonical_pitch_type", numeric="movement")
     dfs["raw_vs_canonical_pitch_summary"] = normal_breaking.groupby(["raw_pitch_type", "canonical_pitch_type"], dropna=False).size().reset_index(name="count") if not normal_breaking.empty else pd.DataFrame(columns=["raw_pitch_type", "canonical_pitch_type", "count"])
     dfs["invalid_pitch_direction_summary"] = summarize(invalid_directions, "pitch_type")
-    dfs["direction_code_pitch_type_crosstab"] = pd.crosstab(normal_breaking["direction_code"], normal_breaking["pitch_type"]).reset_index() if not normal_breaking.empty else pd.DataFrame()
+    dfs["direction_code_pitch_type_crosstab"] = pd.crosstab(normal_breaking["logical_direction_code"], normal_breaking["pitch_type"]).reset_index().rename(columns={"logical_direction_code": "direction_code"}) if not normal_breaking.empty else pd.DataFrame()
     dfs["total_movement_distribution"] = distribution(pitcher_metrics, "total_movement")
     subpos_count = int(fielders["sub_positions"].fillna("").ne("").sum()) if "sub_positions" in fielders else 0
     dfs["fielder_sub_position_summary"] = ratio_summary("サブポジあり野手", subpos_count, len(fielders))
