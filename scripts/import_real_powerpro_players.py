@@ -62,6 +62,25 @@ PITCH_TYPE_NAMES = [
 ]
 PITCH_TYPE_RE = re.compile("|".join(re.escape(name) for name in sorted(PITCH_TYPE_NAMES, key=len, reverse=True)))
 
+
+GREEN_USAGE_SPECIALS = {
+    "積極打法",
+    "慎重打法",
+    "積極走塁",
+    "積極盗塁",
+    "積極守備",
+    "強振多用",
+    "ミート多用",
+    "速球中心",
+    "変化球中心",
+    "テンポ○",
+    "選球眼",
+    "チームプレイ○",
+    "チームプレイ×",
+}
+
+USAGE_HEADER_LABELS = {"起用法"}
+
 LABEL_ALIASES = {
     "球団名": "team", "球団": "team", "チーム": "team",
     "選手名": "name", "名前": "name", "氏名": "name",
@@ -251,6 +270,62 @@ def extract_class_text(block: str, class_name: str) -> str:
     return clean_text(m.group(1)) if m else ""
 
 
+def extract_b_class_blocks(block: str, class_name: str) -> list[str]:
+    """指定classを持つ <b> の内側HTMLを、ネストした <b> を考慮して取得します。"""
+    start_re = re.compile(rf'<b\b[^>]*class="[^"]*\b{re.escape(class_name)}\b[^"]*"[^>]*>', re.I)
+    tag_re = re.compile(r"</?b\b[^>]*>", re.I)
+    blocks: list[str] = []
+    search_pos = 0
+    while True:
+        start = start_re.search(block, search_pos)
+        if not start:
+            break
+        depth = 1
+        inner_start = start.end()
+        for tag in tag_re.finditer(block, inner_start):
+            if tag.group(0).lower().startswith("</"):
+                depth -= 1
+                if depth == 0:
+                    blocks.append(block[inner_start:tag.start()])
+                    search_pos = tag.end()
+                    break
+            else:
+                depth += 1
+        else:
+            search_pos = start.end()
+    return blocks
+
+
+def extract_nested_b_texts(block: str) -> list[str]:
+    values: list[str] = []
+    for text in re.findall(r"<b\b[^>]*>([^<>]*)</b>", block, re.I | re.S):
+        cleaned = clean_text(text)
+        if cleaned and cleaned not in values:
+            values.append(cleaned)
+    if not values:
+        fallback = clean_text(block)
+        for value in split_values(fallback):
+            if value and value not in values:
+                values.append(value)
+    return values
+
+
+def parse_usage_block_specials(block: str) -> tuple[list[str], list[str]]:
+    """class=y の起用法ブロックから、緑特と起用法を分離します。"""
+    green: list[str] = []
+    usage: list[str] = []
+    for usage_block in extract_b_class_blocks(block, "y"):
+        for value in extract_nested_b_texts(usage_block):
+            if value in USAGE_HEADER_LABELS:
+                continue
+            if value in GREEN_USAGE_SPECIALS:
+                if value not in green:
+                    green.append(value)
+            elif value not in usage:
+                usage.append(value)
+    return green, usage
+
+
 def html_text_with_attrs(block: str) -> str:
     attr_texts = re.findall(r'\b(?:alt|title|aria-label)=["\']([^"\']+)["\']', block, re.I)
     return clean_text(block + " " + " ".join(attr_texts))
@@ -357,8 +432,13 @@ def parse_real_blocks(doc: SourceDoc) -> ParseResult:
         specials_block = (inner_by_id(block, f"pa{num_id}") if role == "投手" else inner_by_id(block, f"ba{num_id}"))
         ranked = [clean_text(a + b) for a, b in re.findall(r'<b\b[^>]*class="[^"]*[PNM][^"]*"[^>]*>\s*<b>(.*?)</b>\s*<b>(.*?)</b>', specials_block, re.I | re.S)]
         normals = [clean_text(x) for x in re.findall(r'<b\b[^>]*class="[^"]*[PNM][^"]*"[^>]*>([^<][^<>]*?)</b>', specials_block, re.I | re.S)]
+        green_specials, usage_values = parse_usage_block_specials(specials_block)
         current["ranked_specials"] = "、".join(ranked)
         current["specials"] = "、".join([n for n in normals if n not in {"起用法"}])
+        current["green_specials"] = "、".join(green_specials)
+        current["usage_specials"] = "、".join(usage_values)
+        if usage_values:
+            current["usage"] = "、".join([*split_values(current.get("usage", "")), *usage_values])
         flush_player(current, result, doc.source_name)
     return result
 
@@ -429,7 +509,7 @@ def flush_player(current: dict[str, str], result: ParseResult, source: str) -> N
         val = to_int(str(row.get(col, "")))
         row[col] = val if val is not None else ""
     result.players.append(row)
-    for key, kind in [("specials", "normal"), ("ranked_specials", "rank")]:
+    for key, kind in [("specials", "normal"), ("ranked_specials", "rank"), ("green_specials", "green"), ("usage_specials", "usage")]:
         for sp in split_values(current.get(key, "")):
             result.specials.append({"source": source, "team": row["team"], "name": row["name"], "special": sp, "special_kind": kind})
 
@@ -586,8 +666,12 @@ def write_outputs(result: ParseResult, output_dir: Path, excel: bool) -> dict[st
     dfs["special_kind_summary"] = summarize(dfs["special_abilities"], "special_kind")
     normal_specials = dfs["special_abilities"][dfs["special_abilities"].get("special_kind", pd.Series(dtype=str)).eq("normal")] if not dfs["special_abilities"].empty else pd.DataFrame(columns=SPECIAL_COLUMNS)
     rank_specials = dfs["special_abilities"][dfs["special_abilities"].get("special_kind", pd.Series(dtype=str)).eq("rank")] if not dfs["special_abilities"].empty else pd.DataFrame(columns=SPECIAL_COLUMNS)
+    green_specials = dfs["special_abilities"][dfs["special_abilities"].get("special_kind", pd.Series(dtype=str)).eq("green")] if not dfs["special_abilities"].empty else pd.DataFrame(columns=SPECIAL_COLUMNS)
+    usage_specials = dfs["special_abilities"][dfs["special_abilities"].get("special_kind", pd.Series(dtype=str)).eq("usage")] if not dfs["special_abilities"].empty else pd.DataFrame(columns=SPECIAL_COLUMNS)
     dfs["normal_special_summary"] = summarize(normal_specials, "special")
     dfs["ranked_special_summary"] = summarize(rank_specials, "special")
+    dfs["green_special_summary"] = summarize(green_specials, "special")
+    dfs["player_usage_summary"] = summarize(usage_specials, "special")
     for name, df in dfs.items():
         df.to_csv(output_dir / f"{name}.csv", index=False, encoding="utf-8-sig")
     if excel:
