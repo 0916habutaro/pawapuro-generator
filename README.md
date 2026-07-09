@@ -84,6 +84,18 @@ python scripts/import_real_powerpro_players.py \
 - `position_summary.csv`: ポジション別summary
 - `pitcher_role_summary.csv`: 投手役割別summary
 - `breaking_ball_summary.csv`: 変化球分布summary
+- `team_roster_summary.csv`: 球団別の選手数、投手数、野手数
+- `team_pitcher_ability_average.csv`: 球団別の投手能力平均
+- `team_fielder_ability_average.csv`: 球団別の野手能力平均
+- `position_ability_average.csv`: 野手ポジション別の能力平均
+- `pitcher_role_ability_average.csv`: 投手起用別の球速、コントロール、スタミナ、球種数、総変化量平均
+- `breaking_ball_count_distribution.csv`: 投手ごとの変化球数分布
+- `second_pitch_summary.csv`: 第二球種あり投手の人数と割合
+- `total_movement_distribution.csv`: 総変化量分布
+- `fielder_sub_position_summary.csv`: サブポジあり野手の人数と割合
+- `special_kind_summary.csv`: 特殊能力カテゴリ別出現数
+- `normal_special_summary.csv`: 通常特殊能力名別出現数
+- `ranked_special_summary.csv`: ランク系特殊能力別出現数
 - `real_powerpro_players.xlsx`: `--excel` 指定時のみ作成
 
 ### 変化球classの扱い
@@ -92,7 +104,7 @@ HTML内の `v52`, `v133`, `v543` のようなclassを解析します。
 
 - `vXY`: `X` を方向コード、`Y` を変化量として扱います。
 - `vXYZ`: `X` を方向コード、`Y/Z` を同方向の第1球種/第2球種の変化量として扱います。
-- 球種名が左右列にあり、中央列に変化量classがある表にも対応できるよう、同一行のテキストとclassを合わせて抽出します。
+- 球種名が左右列にあり、中央列に変化量classがある表にも対応できるよう、同一行、親要素、隣接要素相当の周辺テキスト、`alt`/`title` 属性とclassを合わせて抽出します。
 - CSSに定義がないclassや球種名が取れない場合はログへ出し、取得失敗箇所は `unknown` としてCSVへ残します。
 
 ### テスト用fixtureの作り方
@@ -145,6 +157,18 @@ python scripts/import_real_powerpro_players.py \
 - `position_summary.csv`
 - `pitcher_role_summary.csv`
 - `breaking_ball_summary.csv`
+- `team_roster_summary.csv`
+- `team_pitcher_ability_average.csv`
+- `team_fielder_ability_average.csv`
+- `position_ability_average.csv`
+- `pitcher_role_ability_average.csv`
+- `breaking_ball_count_distribution.csv`
+- `second_pitch_summary.csv`
+- `total_movement_distribution.csv`
+- `fielder_sub_position_summary.csv`
+- `special_kind_summary.csv`
+- `normal_special_summary.csv`
+- `ranked_special_summary.csv`
 - `unknown_classes.csv`: `ball.css` 等に定義が見つからなかった `v52` などのclass一覧
 - `unknown_breaking_balls.csv`: classは読めたが球種名を特定できなかった変化球一覧
 - `failed_players.csv`: ZIP/HTML読み込み失敗、必須項目不足など、取得失敗または要確認の選手・HTML一覧
