@@ -60,12 +60,12 @@ REAL_POSITION_AVERAGES = {
 }
 
 POSITION_WARNING_RULES = {
-    "捕手": [("ミート", ">", 42), ("守備力", ">", 53), ("肩力", "<", 68), ("肩力", ">", 78), ("走力", ">", 58)],
-    "一塁手": [("パワー", "<", 57), ("走力", ">", 58), ("守備力", ">", 53)],
-    "二塁手": [("走力", "<", 66), ("守備力", "<", 53), ("パワー", ">", 57)],
-    "三塁手": [("パワー", "<", 56), ("走力", ">", 66), ("守備力", ">", 54)],
-    "遊撃手": [("ミート", ">", 45), ("パワー", ">", 53), ("走力", "<", 66), ("守備力", "<", 50)],
-    "外野手": [("走力", "<", 65), ("パワー", "<", 52), ("肩力", "<", 60)],
+    "捕手": [("ミート", ">", 44), ("守備力", ">", 55), ("肩力", "<", 66), ("肩力", ">", 80), ("走力", "<", 43), ("走力", ">", 60)],
+    "一塁手": [("パワー", "<", 55), ("パワー", ">", 71), ("走力", ">", 60), ("守備力", ">", 55)],
+    "二塁手": [("走力", "<", 64), ("守備力", "<", 51), ("パワー", ">", 59), ("肩力", "<", 54)],
+    "三塁手": [("パワー", "<", 55), ("パワー", ">", 70), ("肩力", ">", 72), ("走力", ">", 68), ("守備力", ">", 56)],
+    "遊撃手": [("ミート", "<", 32), ("ミート", ">", 47), ("パワー", "<", 35), ("パワー", ">", 55), ("走力", "<", 64), ("守備力", "<", 49), ("守備力", ">", 64)],
+    "外野手": [("走力", "<", 63), ("パワー", "<", 50), ("肩力", "<", 58)],
 }
 
 
@@ -352,6 +352,17 @@ def position_balance_summary(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def warning_severity(diff: float | None, threshold_gap: float) -> str:
+    if diff is None:
+        return "info"
+    abs_diff = abs(diff)
+    if abs_diff >= 8 or threshold_gap >= 4:
+        return "high"
+    if abs_diff >= 5 or threshold_gap >= 2:
+        return "medium"
+    return "low"
+
+
 def position_balance_warnings(df: pd.DataFrame) -> pd.DataFrame:
     summary = position_balance_summary(df)
     rows = []
@@ -360,11 +371,14 @@ def position_balance_warnings(df: pd.DataFrame) -> pd.DataFrame:
             match = summary[(summary["ポジション"] == position) & (summary["能力"] == ability_name)]
             if match.empty:
                 continue
-            avg = float(match.iloc[0]["生成平均"])
+            item = match.iloc[0]
+            avg = float(item["生成平均"])
             triggered = avg > threshold if op == ">" else avg < threshold
             if triggered:
-                rows.append({"ポジション": position, "能力": ability_name, "平均": avg, "条件": f"{op}{threshold}", "警告": "警告"})
-    return pd.DataFrame(rows, columns=["ポジション", "能力", "平均", "条件", "警告"])
+                gap = avg - threshold if op == ">" else threshold - avg
+                diff = item.get("差分")
+                rows.append({"ポジション": position, "能力": ability_name, "平均": avg, "実在平均": item.get("実在平均"), "差分": diff, "条件": f"{op}{threshold}", "severity": warning_severity(float(diff) if pd.notna(diff) else None, float(gap)), "警告": "警告"})
+    return pd.DataFrame(rows, columns=["ポジション", "能力", "平均", "実在平均", "差分", "条件", "severity", "警告"])
 
 
 def position_high_ability_rates(df: pd.DataFrame) -> pd.DataFrame:
@@ -396,17 +410,24 @@ def position_distribution_diagnostics(df: pd.DataFrame) -> pd.DataFrame:
             values = pd.to_numeric(subset[key], errors="coerce").dropna()
             if values.empty:
                 continue
-            rows.append({
+            row = {
                 "カテゴリ": category,
                 "ポジション": position,
                 "能力": key,
                 "人数": int(len(values)),
                 "平均": round(values.mean(), 3),
                 "標準偏差": round(values.std(), 3) if len(values) > 1 else 0,
-                "下位割合_39以下%": round((values <= 39).sum() / total * 100, 2),
-                "上位割合_70以上%": round((values >= 70).sum() / total * 100, 2),
-                "極上位割合_80以上%": round((values >= 80).sum() / total * 100, 2),
-            })
+            }
+            if key == "弾道":
+                for trajectory in [1, 2, 3, 4]:
+                    row[f"弾道{trajectory}割合%"] = round((values == trajectory).sum() / total * 100, 2)
+            else:
+                row.update({
+                    "下位割合_39以下%": round((values <= 39).sum() / total * 100, 2),
+                    "上位割合_70以上%": round((values >= 70).sum() / total * 100, 2),
+                    "極上位割合_80以上%": round((values >= 80).sum() / total * 100, 2),
+                })
+            rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -431,14 +452,16 @@ def position_extreme_examples(df: pd.DataFrame) -> pd.DataFrame:
 
 def combination_warnings(df: pd.DataFrame) -> pd.DataFrame:
     f = df[df["role"] == "野手"].copy()
+    strict = f["category"].eq("架空球団用")
+    loose = f["category"].ne("架空球団用")
     rules = [
         ("捕手の打撃過多", (f["position"].eq("捕手")) & (f["ミート"] >= 65) & (f["パワー"] >= 70) & (f["守備力"] < 50)),
-        ("捕手の守備不足", (f["position"].eq("捕手")) & ((f["肩力"] < 50) | (f["守備力"] < 42) | (f["捕球"] < 38))),
-        ("一塁手の非力すぎ", (f["position"].eq("一塁手")) & (f["パワー"] < 42) & (f["守備力"] < 60)),
-        ("二塁手の守備走力不足", (f["position"].eq("二塁手")) & ((f["走力"] < 50) | (f["守備力"] < 48)) & (f["パワー"] < 60)),
-        ("三塁手の肩不足", (f["position"].eq("三塁手")) & (f["肩力"] < 48) & (f["パワー"] < 65)),
-        ("遊撃手の守備不足", (f["position"].eq("遊撃手")) & ((f["守備力"] < 48) | (f["肩力"] < 52) | (f["走力"] < 52))),
-        ("外野手の走肩守不足", (f["position"].eq("外野手")) & (f[["走力", "肩力", "守備力"]].max(axis=1) < 55) & (f["パワー"] < 65)),
+        ("捕手の守備不足", (f["position"].eq("捕手")) & (((strict) & ((f["肩力"] < 50) | (f["守備力"] < 42) | (f["捕球"] < 40))) | ((loose) & ((f["肩力"] < 46) | (f["守備力"] < 38) | (f["捕球"] < 35))))),
+        ("一塁手の非力すぎ", (f["position"].eq("一塁手")) & (f["パワー"] < 42) & (f[["ミート", "守備力", "捕球"]].max(axis=1) < 50) & strict),
+        ("二塁手の守備走力不足", (f["position"].eq("二塁手")) & (((f["走力"] < 46) | (f["守備力"] < 44) | (f["肩力"] < 40)) & (f["パワー"] < 58)) & strict),
+        ("三塁手の肩不足", (f["position"].eq("三塁手")) & (f["肩力"] < 48) & (f["パワー"] < 65) & strict),
+        ("遊撃手の守備不足", (f["position"].eq("遊撃手")) & (((f["守備力"] < 44) | (f["肩力"] < 48) | (f["走力"] < 48)) & strict)),
+        ("外野手の走肩守不足", (f["position"].eq("外野手")) & (f[["走力", "肩力", "守備力"]].max(axis=1) < 53) & (f["パワー"] < 65) & strict),
         ("高齢選手の走守肩過多", (f["age"] >= 35) & (f["走力"] >= 75) & (f["守備力"] >= 70) & (f["肩力"] >= 75)),
         ("若手の完成度過多", (f["age"] <= 22) & (f["総合スコア"] >= 455) & ~(f["category"].eq("ドラフト候補用") & (f[["パワー", "走力", "肩力"]].max(axis=1) >= 85))),
     ]
@@ -448,6 +471,7 @@ def combination_warnings(df: pd.DataFrame) -> pd.DataFrame:
         for _, row in subset.head(30).iterrows():
             rows.append({
                 "警告タイプ": name,
+                "severity": "medium" if row["category"] == "架空球団用" else "low",
                 "seed": row["seed"],
                 "カテゴリ": row["category"],
                 "ポジション": row["position"],

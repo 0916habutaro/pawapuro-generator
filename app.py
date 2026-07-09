@@ -545,11 +545,11 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
         spread = 18 if category in {"ドラフト候補用", "助っ人外国人用"} else 15
         mods[key] += rng.randint(-spread, spread)
     position_styles = {
-        "捕手": [("守備型捕手", 62), ("打撃型捕手", 9), ("平均型捕手", 29)],
-        "一塁手": [("強打一塁手", 62), ("守備型一塁手", 18), ("平均型一塁手", 20)],
+        "捕手": [("守備型捕手", 58), ("打撃型捕手", 13), ("平均型捕手", 29)],
+        "一塁手": [("強打一塁手", 54), ("守備型一塁手", 23), ("平均型一塁手", 23)],
         "二塁手": [("守備走塁二塁手", 62), ("打撃型二塁手", 10), ("平均型二塁手", 28)],
-        "三塁手": [("強打三塁手", 45), ("守備型三塁手", 27), ("平均型三塁手", 28)],
-        "遊撃手": [("守備走塁遊撃手", 68), ("強打遊撃手", 7), ("平均型遊撃手", 25)],
+        "三塁手": [("強打三塁手", 40), ("守備型三塁手", 31), ("平均型三塁手", 29)],
+        "遊撃手": [("守備走塁遊撃手", 58), ("強打遊撃手", 8), ("巧打遊撃手", 10), ("平均型遊撃手", 24)],
         "外野手": [("走攻守外野手", 26), ("俊足外野手", 25), ("強打外野手", 25), ("守備外野手", 24)],
     }
     style = weighted_choice(rng, position_styles.get(position, [("平均型", 1)]))
@@ -560,26 +560,27 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
     }
     pos_mods = {
         "捕手": {"ミート": -8, "肩力": 12, "守備力": -1, "捕球": -2, "走力": -8},
-        "遊撃手": {"ミート": -8, "パワー": -9, "走力": 16, "肩力": 8, "守備力": 9, "捕球": 1},
+        "遊撃手": {"ミート": -5, "パワー": -6, "走力": 14, "肩力": 8, "守備力": 7, "捕球": 1},
         "二塁手": {"パワー": -5, "走力": 17, "肩力": 2, "守備力": 9, "捕球": 5},
-        "三塁手": {"パワー": 6, "走力": -1, "肩力": 7, "守備力": -3, "捕球": -3},
-        "一塁手": {"パワー": 13, "走力": -9, "肩力": 0, "守備力": -6, "捕球": -2},
+        "三塁手": {"パワー": 4, "走力": -1, "肩力": 7, "守備力": -2, "捕球": -2},
+        "一塁手": {"パワー": 10, "走力": -6, "肩力": 2, "守備力": -3, "捕球": 0},
         "外野手": {"パワー": 3, "走力": 14, "肩力": 9, "守備力": -1, "捕球": -3},
     }
     for d in (type_mods.get(player_type, {}), pos_mods.get(position, {})):
         for k, v in d.items(): mods[k] += v
     style_mods = {
         "守備型捕手": {"肩力": 9, "守備力": 8, "捕球": 9, "走力": -5, "ミート": -5, "パワー": -4},
-        "打撃型捕手": {"ミート": 7, "パワー": 11, "肩力": 3, "守備力": -2},
+        "打撃型捕手": {"ミート": 11, "パワー": 10, "肩力": 2, "守備力": -1, "捕球": 1},
         "平均型捕手": {"肩力": 5, "捕球": 4, "守備力": 3, "走力": -3},
-        "強打一塁手": {"パワー": 11, "弾道": 1, "走力": -4, "守備力": -4},
-        "守備型一塁手": {"守備力": 8, "捕球": 8, "パワー": 3},
+        "強打一塁手": {"パワー": 8, "弾道": 1, "走力": -2, "肩力": 2, "守備力": -2},
+        "守備型一塁手": {"守備力": 10, "捕球": 9, "肩力": 4, "パワー": 1},
         "守備走塁二塁手": {"走力": 8, "守備力": 8, "捕球": 6, "パワー": -3},
         "打撃型二塁手": {"ミート": 7, "パワー": 8, "守備力": -3},
-        "強打三塁手": {"パワー": 9, "肩力": 5, "守備力": -2},
+        "強打三塁手": {"パワー": 7, "肩力": 5, "守備力": -1},
         "守備型三塁手": {"肩力": 7, "守備力": 8, "捕球": 6, "パワー": 1},
-        "守備走塁遊撃手": {"走力": 8, "肩力": 7, "守備力": 9, "捕球": 5, "パワー": -4, "ミート": -3},
-        "強打遊撃手": {"パワー": 12, "ミート": 4, "守備力": -2},
+        "守備走塁遊撃手": {"走力": 6, "肩力": 7, "守備力": 7, "捕球": 5, "パワー": -3, "ミート": -2},
+        "強打遊撃手": {"パワー": 13, "ミート": 5, "守備力": -2},
+        "巧打遊撃手": {"ミート": 11, "パワー": 4, "走力": -2, "守備力": -1},
         "走攻守外野手": {"ミート": 4, "パワー": 4, "走力": 5, "肩力": 4, "守備力": 3},
         "俊足外野手": {"走力": 12, "守備力": 4, "パワー": -5},
         "強打外野手": {"パワー": 12, "弾道": 1, "走力": -3, "守備力": -3},
@@ -641,10 +642,10 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
     position_tune = {
         "捕手": {"ミート": -3, "守備力": -4, "捕球": -2, "走力": -1},
         "二塁手": {"ミート": -1, "パワー": -1, "走力": 1, "守備力": 1, "捕球": 1},
-        "遊撃手": {"ミート": -3, "パワー": -2, "走力": 2, "守備力": -2, "捕球": -2},
+        "遊撃手": {"ミート": -1, "パワー": 0, "走力": 0, "守備力": -3, "捕球": -2},
         "外野手": {"ミート": -2, "パワー": 1, "走力": 3, "肩力": 2},
-        "一塁手": {"ミート": -2, "パワー": 4, "走力": -1},
-        "三塁手": {"ミート": -5, "パワー": 6, "守備力": -2, "捕球": -2},
+        "一塁手": {"ミート": -1, "パワー": 1, "走力": 1, "肩力": 1, "守備力": 1},
+        "三塁手": {"ミート": -4, "パワー": 3, "守備力": -1, "捕球": -1},
     }
     for tune in (category_tune.get(category, {}), position_tune.get(position, {})):
         for k, v in tune.items():
@@ -652,19 +653,36 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
     result = {k: ability(base + v) for k, v in mods.items()}
     if position == "捕手":
         result["肩力"] = ability(max(result["肩力"]["value"], 45))
-        result["守備力"] = ability(max(result["守備力"]["value"], 40))
-        result["捕球"] = ability(max(result["捕球"]["value"], 36))
+        result["守備力"] = ability(max(result["守備力"]["value"], 42))
+        result["捕球"] = ability(max(result["捕球"]["value"], 40))
+        if result["肩力"]["value"] >= 65:
+            result["守備力"] = ability(max(result["守備力"]["value"], 44))
+            result["捕球"] = ability(max(result["捕球"]["value"], 42))
     elif position == "遊撃手":
-        result["守備力"] = ability(max(result["守備力"]["value"], 40))
+        result["肩力"] = ability(max(result["肩力"]["value"], 48))
+        result["守備力"] = ability(max(result["守備力"]["value"], 42))
         result["捕球"] = ability(max(result["捕球"]["value"], 36))
+    elif position == "二塁手":
+        result["肩力"] = ability(max(result["肩力"]["value"], 42))
+    elif position == "三塁手":
+        result["肩力"] = ability(max(result["肩力"]["value"], 48))
+    elif position == "一塁手":
+        if result["パワー"]["value"] >= 62:
+            result["走力"] = ability(max(result["走力"]["value"], 38))
+            result["肩力"] = ability(max(result["肩力"]["value"], 45))
+            result["守備力"] = ability(max(result["守備力"]["value"], 36))
+        elif result["パワー"]["value"] < 42:
+            result["ミート"] = ability(max(result["ミート"]["value"], 45 if player_type in {"巧打型", "バランス型"} else result["ミート"]["value"]))
+            result["守備力"] = ability(max(result["守備力"]["value"], 48 if player_type in {"守備職人", "バランス型"} else 40))
+            result["捕球"] = ability(max(result["捕球"]["value"], 45))
     if position == "捕手":
         if player_type == "巧打型":
-            meet_cap = 64 if 24 <= age <= 31 and result["パワー"]["value"] >= 55 else 59
+            meet_cap = 66 if 24 <= age <= 31 and (result["パワー"]["value"] >= 52 or style == "打撃型捕手") else 60
             result["ミート"] = ability(min(result["ミート"]["value"], meet_cap))
         elif player_type in {"守備職人", "強肩型", "俊足型"} or age <= 22:
             result["ミート"] = ability(min(result["ミート"]["value"], 49))
         elif player_type == "長距離砲":
-            result["ミート"] = ability(min(result["ミート"]["value"], 49))
+            result["ミート"] = ability(min(result["ミート"]["value"], 56 if style == "打撃型捕手" else 49))
         else:
             result["ミート"] = ability(min(result["ミート"]["value"], 56))
     if position == "捕手" and player_type != "守備職人":
