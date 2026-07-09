@@ -37,6 +37,10 @@ REPORT_FILENAMES = {
     "anomalies": "anomalies.csv",
     "pitcher_aptitude_summary": "pitcher_aptitude_summary.csv",
     "second_pitch_summary": "second_pitch_summary.csv",
+    "breaking_pitch_summary": "breaking_pitch_summary.csv",
+    "breaking_direction_summary": "breaking_direction_summary.csv",
+    "pitch_count_distribution": "pitch_count_distribution.csv",
+    "total_movement_distribution": "total_movement_distribution.csv",
 }
 
 
@@ -101,6 +105,11 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
         row["has_second_pitch"] = bool(second_balls)
         row["second_pitch_directions"] = ",".join(str(ball.get("direction", "")) for ball in second_balls)
         row["second_pitch_movements"] = ",".join(str(pitch_movement(ball)) for ball in second_balls)
+        row["breaking_ball_names"] = ",".join(str(ball.get("name", "")) for ball in breaking_balls)
+        row["breaking_ball_directions"] = ",".join(str(ball.get("direction", "")) for ball in breaking_balls)
+        row["breaking_ball_movements"] = ",".join(str(pitch_movement(ball)) for ball in breaking_balls)
+        row["first_pitch_directions"] = ",".join(str(ball.get("direction", "")) for ball in breaking_balls if not bool(ball.get("is_second_pitch", False)))
+        row["first_pitch_names"] = ",".join(str(ball.get("name", "")) for ball in breaking_balls if not bool(ball.get("is_second_pitch", False)))
         row["変化球方向"] = ",".join(f"{ball.get('direction', ball.get('name', ''))}:{ball.get('name', '')}{'(第2)' if ball.get('is_second_pitch') else ''}" for ball in breaking_balls)
         row["特殊能力"] = ",".join(player["special_abilities"])
         row["ランク系特殊能力"] = ",".join(player["abilities"].get("ranked_specials", {}).values())
@@ -219,6 +228,53 @@ def second_pitch_summary(df: pd.DataFrame) -> pd.DataFrame:
         rows.append({"集計軸": "第二球種変化量", "値": movement, "人数": int(count), "割合%": None})
     return pd.DataFrame(rows)
 
+
+def aptitude_groups(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
+    pitchers = df[df["role"] == "投手"].copy()
+    groups: list[tuple[str, pd.DataFrame]] = [("全体", pitchers)]
+    for category, subset in pitchers.groupby("category", dropna=False):
+        groups.append((f"カテゴリ={category}", subset))
+    for key, label in [("starter_aptitude", "先発"), ("reliever_aptitude", "中継ぎ"), ("closer_aptitude", "抑え")]:
+        for value, subset in pitchers.groupby(key, dropna=False):
+            groups.append((f"{label}適正={value}", subset))
+    for (category, pattern), subset in pitchers.assign(適正パターン=pitchers.apply(aptitude_pattern, axis=1)).groupby(["category", "適正パターン"], dropna=False):
+        groups.append((f"カテゴリ={category} / {pattern}", subset))
+    return groups
+
+
+def breaking_pitch_summary(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for label, subset in aptitude_groups(df):
+        total_players = max(1, len(subset))
+        names = subset["breaking_ball_names"].fillna("").astype(str).str.split(",").explode().str.strip()
+        names = names[names.ne("")]
+        for name, count in names.value_counts().items():
+            rows.append({"集計軸": label, "球種": name, "出現数": int(count), "投手あたり出現率%": round(count / total_players * 100, 2)})
+    return pd.DataFrame(rows)
+
+
+def breaking_direction_summary(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for label, subset in aptitude_groups(df):
+        total_players = max(1, len(subset))
+        for kind, column in [("第一球種", "first_pitch_directions"), ("第二球種", "second_pitch_directions")]:
+            directions = subset[column].fillna("").astype(str).str.split(",").explode().str.strip()
+            directions = directions[directions.ne("")]
+            for direction, count in directions.value_counts().items():
+                rows.append({"集計軸": label, "種別": kind, "方向": direction, "出現数": int(count), "投手あたり出現率%": round(count / total_players * 100, 2)})
+    return pd.DataFrame(rows)
+
+
+def distribution_summary(df: pd.DataFrame, column: str, label: str) -> pd.DataFrame:
+    rows = []
+    for group_label, subset in aptitude_groups(df):
+        values = pd.to_numeric(subset[column], errors="coerce")
+        total = max(1, values.notna().sum())
+        for value, count in values.value_counts(dropna=False).sort_index().items():
+            rows.append({"集計軸": group_label, "分布": label, "値": value, "人数": int(count), "割合%": round(count / total * 100, 2)})
+        rows.append({"集計軸": group_label, "分布": f"{label}サマリー", "値": "平均", "人数": int(total), "割合%": round(values.mean(), 3) if total else None})
+    return pd.DataFrame(rows)
+
 def detect_anomalies(df: pd.DataFrame) -> pd.DataFrame:
     pitchers = df[df["role"] == "投手"]
     checks = [
@@ -244,6 +300,48 @@ def detect_anomalies(df: pd.DataFrame) -> pd.DataFrame:
         rows.append({"異常タイプ": name, "件数": len(subset), "割合%": round(len(subset) / len(df) * 100, 2), "例seed": ",".join(map(str, subset["seed"].head(10).tolist()))})
     if not direction.empty and direction.iloc[0] >= 0.35:
         rows.append({"異常タイプ": f"投手の球種方向が偏りすぎ: {direction.index[0]}", "件数": int(direction.iloc[0] * len(df[df['role'] == '投手'])), "割合%": round(direction.iloc[0] * 100, 2), "例seed": ""})
+    try:
+        from app import BREAKING_BY_NAME, BREAKING_DIRECTIONS
+        known_names = set(BREAKING_BY_NAME)
+        known_directions = set(BREAKING_DIRECTIONS)
+    except Exception:
+        known_names, known_directions = set(), set()
+    unknown_names = df[df["role"].eq("投手")]["breaking_ball_names"].fillna("").astype(str).str.split(",").explode().str.strip()
+    unknown_names = unknown_names[unknown_names.ne("") & ~unknown_names.isin(known_names)]
+    if not unknown_names.empty:
+        rows.append({"異常タイプ": "未登録球種", "件数": int(len(unknown_names)), "割合%": None, "例seed": ",".join(unknown_names.head(10).tolist())})
+    unknown_dirs = df[df["role"].eq("投手")]["breaking_ball_directions"].fillna("").astype(str).str.split(",").explode().str.strip()
+    unknown_dirs = unknown_dirs[unknown_dirs.ne("") & ~unknown_dirs.isin(known_directions)]
+    if not unknown_dirs.empty:
+        rows.append({"異常タイプ": "不明方向", "件数": int(len(unknown_dirs)), "割合%": None, "例seed": ",".join(unknown_dirs.head(10).tolist())})
+
+    def split_values(row: pd.Series, column: str) -> list[str]:
+        return [value for value in str(row.get(column, "") or "").split(",") if value]
+
+    second_alone_seeds = []
+    three_same_direction_seeds = []
+    second_excess_seeds = []
+    for _, row in pitchers.iterrows():
+        first_dirs = split_values(row, "first_pitch_directions")
+        second_dirs = split_values(row, "second_pitch_directions")
+        all_dirs = split_values(row, "breaking_ball_directions")
+        if any(direction not in first_dirs for direction in second_dirs):
+            second_alone_seeds.append(row["seed"])
+        if any(count >= 3 for count in Counter(all_dirs).values()):
+            three_same_direction_seeds.append(row["seed"])
+        first_max = Counter()
+        for direction, movement in zip(first_dirs, split_values(row, "breaking_ball_movements")[:len(first_dirs)], strict=False):
+            first_max[direction] = max(first_max[direction], int(movement or 0))
+        second_movements = split_values(row, "second_pitch_movements")
+        for direction, movement in zip(second_dirs, second_movements, strict=False):
+            if int(movement or 0) > first_max.get(direction, 0) + 1:
+                second_excess_seeds.append(row["seed"])
+                break
+    for anomaly_name, seeds in [("第二球種単独", second_alone_seeds), ("同一方向3球種以上", three_same_direction_seeds), ("第二球種変化量過大", second_excess_seeds)]:
+        rows.append({"異常タイプ": anomaly_name, "件数": len(seeds), "割合%": round(len(seeds) / max(1, len(df)) * 100, 2), "例seed": ",".join(map(str, seeds[:10]))})
+
+    bad_movements = pitchers[pitchers["breaking_ball_movements"].fillna("").astype(str).str.contains(r"(?:^|,)(?:0|8|9|10)(?:,|$)", regex=True)]
+    rows.append({"異常タイプ": "不明変化量", "件数": int(len(bad_movements)), "割合%": round(len(bad_movements) / max(1, len(df)) * 100, 2), "例seed": ",".join(map(str, bad_movements["seed"].head(10).tolist()))})
     return pd.DataFrame(rows)
 
 
@@ -284,6 +382,10 @@ def main() -> None:
         "anomalies": detect_anomalies(df),
         "pitcher_aptitude_summary": pitcher_aptitude_summary(df),
         "second_pitch_summary": second_pitch_summary(df),
+        "breaking_pitch_summary": breaking_pitch_summary(df),
+        "breaking_direction_summary": breaking_direction_summary(df),
+        "pitch_count_distribution": distribution_summary(df, "pitch_type_count_including_second", "球種数"),
+        "total_movement_distribution": distribution_summary(df, "total_movement_including_second", "総変化量"),
     }
     write_reports(tables, args.output_dir, args.excel)
     print_console_summary(tables, args.output_dir)
