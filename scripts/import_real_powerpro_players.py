@@ -39,6 +39,7 @@ SPECIAL_COLUMNS = ["source", "team", "name", "special", "special_kind"]
 UNKNOWN_CLASS_COLUMNS = ["source", "team", "name", "source_class", "detail"]
 UNKNOWN_BREAKING_COLUMNS = ["source", "team", "name", "source_class", "slot", "movement", "detail"]
 FAILED_PLAYER_COLUMNS = ["source", "team", "name", "reason", "detail"]
+INPUT_ERROR_COLUMNS = ["source", "reason", "detail"]
 
 LABEL_ALIASES = {
     "球団名": "team", "球団": "team", "チーム": "team",
@@ -64,6 +65,7 @@ LABEL_ALIASES = {
 class SourceDoc:
     source_name: str
     html_text: str
+    encoding: str = ""
     css_texts: dict[str, str] = field(default_factory=dict)
 
 
@@ -75,6 +77,7 @@ class ParseResult:
     unknown_classes: list[dict[str, str]] = field(default_factory=list)
     unknown_breaking: list[dict[str, str]] = field(default_factory=list)
     failed_players: list[dict[str, str]] = field(default_factory=list)
+    input_errors: list[dict[str, str]] = field(default_factory=list)
 
 
 def clean_text(value: str) -> str:
@@ -96,6 +99,62 @@ def split_values(value: str) -> list[str]:
     return [v.strip() for v in re.split(r"[,、/／|｜\n]+", value or "") if v.strip()]
 
 
+def meta_charset(raw: bytes) -> str | None:
+    head = raw[:4096].decode("ascii", errors="ignore")
+    m = re.search(r"<meta[^>]+charset=[\"']?([A-Za-z0-9_\-]+)", head, re.I)
+    if m:
+        enc = m.group(1).lower().replace("shift-jis", "shift_jis")
+        return "cp932" if enc in {"x-sjis", "windows-31j", "ms932"} else enc
+    return None
+
+
+def mojibake_score(text: str) -> int:
+    return sum(text.count(ch) for ch in "�□■?｣｣") + len(re.findall(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", text))
+
+
+def japanese_score(text: str) -> int:
+    return len(re.findall(r"[ぁ-んァ-ヶ一-龠ー]", text))
+
+
+def decode_html(raw: bytes) -> tuple[str, str, str | None]:
+    candidates: list[str] = []
+    meta = meta_charset(raw)
+    if meta:
+        candidates.append(meta)
+    candidates.extend(["cp932", "shift_jis", "utf-8", "utf-8-sig"])
+    seen: set[str] = set()
+    best: tuple[int, int, str, str] | None = None
+    errors: list[str] = []
+    for enc in candidates:
+        if enc in seen:
+            continue
+        seen.add(enc)
+        try:
+            text = raw.decode(enc)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{enc}: {type(exc).__name__}: {exc}")
+            continue
+        score = japanese_score(text)
+        bad = mojibake_score(text)
+        candidate = (score - bad * 20, score, enc, text)
+        if best is None or candidate[:2] > best[:2]:
+            best = candidate
+        if score >= 20 and bad <= max(5, score // 50):
+            return text, enc, None
+    if best and best[1] >= 5:
+        return best[3], best[2], "文字コード判定の妥当性が低い可能性があります: " + "; ".join(errors)
+    return raw.decode("utf-8", errors="replace"), "utf-8-replace", "HTMLを妥当にデコードできません: " + "; ".join(errors)
+
+
+def decode_text_file(raw: bytes) -> str:
+    for enc in ("utf-8", "cp932", "shift_jis"):
+        try:
+            return raw.decode(enc)
+        except Exception:  # noqa: BLE001
+            pass
+    return raw.decode("utf-8", errors="ignore")
+
+
 def read_sources(input_dir: Path) -> tuple[list[SourceDoc], list[dict[str, str]]]:
     docs: list[SourceDoc] = []
     failures: list[dict[str, str]] = []
@@ -104,24 +163,29 @@ def read_sources(input_dir: Path) -> tuple[list[SourceDoc], list[dict[str, str]]
             with zipfile.ZipFile(path) as zf:
                 html_names = [n for n in zf.namelist() if n.lower().endswith((".html", ".htm", ".mhtml", ".mht"))]
                 css_names = [n for n in zf.namelist() if n.lower().endswith(".css")]
-                css_texts = {n: zf.read(n).decode("utf-8", errors="ignore") for n in css_names}
+                css_texts = {n: decode_text_file(zf.read(n)) for n in css_names}
                 if not html_names:
-                    failures.append({"source": path.name, "team": "", "name": "", "reason": "html_not_found", "detail": "ZIP内にHTML/MHTMLがありません"})
+                    failures.append({"source": path.name, "reason": "html_not_found", "detail": "ZIP内にHTML/MHTMLがありません"})
                 for name in html_names:
                     try:
-                        docs.append(SourceDoc(f"{path.name}:{name}", zf.read(name).decode("utf-8", errors="ignore"), css_texts))
-                    except Exception as exc:  # noqa: BLE001 - diagnostics CSVに詳細を残す
-                        failures.append({"source": f"{path.name}:{name}", "team": "", "name": "", "reason": "html_read_failed", "detail": f"{type(exc).__name__}: {exc}"})
-        except Exception as exc:  # noqa: BLE001 - diagnostics CSVに詳細を残す
-            failures.append({"source": path.name, "team": "", "name": "", "reason": "zip_read_failed", "detail": f"{type(exc).__name__}: {exc}"})
+                        text, enc, warn = decode_html(zf.read(name))
+                        docs.append(SourceDoc(f"{path.name}:{name}", text, enc, css_texts))
+                        if warn:
+                            failures.append({"source": f"{path.name}:{name}", "reason": "decode_warning", "detail": warn})
+                    except Exception as exc:  # noqa: BLE001
+                        failures.append({"source": f"{path.name}:{name}", "reason": "html_read_failed", "detail": f"{type(exc).__name__}: {exc}"})
+        except Exception as exc:  # noqa: BLE001
+            failures.append({"source": path.name, "reason": "zip_read_failed", "detail": f"{type(exc).__name__}: {exc}"})
     for path in sorted(input_dir.glob("*.htm*")) + sorted(input_dir.glob("*.mht*")):
         try:
-            css_texts = {str(css): css.read_text(encoding="utf-8", errors="ignore") for css in input_dir.glob("**/*.css")}
-            docs.append(SourceDoc(path.name, path.read_text(encoding="utf-8", errors="ignore"), css_texts))
-        except Exception as exc:  # noqa: BLE001 - diagnostics CSVに詳細を残す
-            failures.append({"source": path.name, "team": "", "name": "", "reason": "html_read_failed", "detail": f"{type(exc).__name__}: {exc}"})
+            css_texts = {str(css): decode_text_file(css.read_bytes()) for css in input_dir.glob("**/*.css")}
+            text, enc, warn = decode_html(path.read_bytes())
+            docs.append(SourceDoc(path.name, text, enc, css_texts))
+            if warn:
+                failures.append({"source": path.name, "reason": "decode_warning", "detail": warn})
+        except Exception as exc:  # noqa: BLE001
+            failures.append({"source": path.name, "reason": "html_read_failed", "detail": f"{type(exc).__name__}: {exc}"})
     return docs, failures
-
 
 def parse_rows(body: str) -> list[list[tuple[str, str]]]:
     rows = []
@@ -153,7 +217,89 @@ def row_to_record(cells: list[tuple[str, str]], current_team: str) -> tuple[dict
     return record, current_team
 
 
+
+def extract_class_text(block: str, class_name: str) -> str:
+    m = re.search(rf'<b\b[^>]*class="[^"]*\b{re.escape(class_name)}\b[^"]*"[^>]*>(.*?)</b>', block, re.I | re.S)
+    return clean_text(m.group(1)) if m else ""
+
+
+def inner_by_id(block: str, tag_id: str) -> str:
+    m = re.search(rf'<b\b[^>]*id="{re.escape(tag_id)}"[^>]*>(.*?)(?=<b\b[^>]*id="|</p>|<a\s+name=|\Z)', block, re.I | re.S)
+    return m.group(1) if m else ""
+
+
+def parse_real_blocks(doc: SourceDoc) -> ParseResult:
+    result = ParseResult()
+    team = "unknown"
+    title = re.search(r"<title>(.*?)</title>", doc.html_text, re.I | re.S)
+    if title:
+        parts = [x.strip() for x in clean_text(title.group(1)).split("｜") if x.strip()]
+        if len(parts) >= 2:
+            team = parts[1]
+    anchors = list(re.finditer(r'<a\s+name="?(\d+)"?\s*>', doc.html_text, re.I))
+    if len(anchors) < 10:
+        return result
+    for i, a in enumerate(anchors):
+        num_id = a.group(1)
+        end = anchors[i + 1].start() if i + 1 < len(anchors) else len(doc.html_text)
+        block = doc.html_text[a.start():end]
+        name_m = re.search(r'<b\b[^>]*class="([^"]*\bnm\b[^"]*)"[^>]*>(.*?)</b>', block, re.I | re.S)
+        if not name_m:
+            continue
+        name = clean_text(name_m.group(2))
+        nm_classes = name_m.group(1).lower().split()
+        role = "投手" if any(c in {"p", "pr", "r", "rp"} for c in nm_classes) else "野手"
+        row: dict[str, str] = {"team": team, "name": name, "number": extract_class_text(block, "se"), "role": role}
+        field = inner_by_id(block, f"pf{num_id}") or inner_by_id(block, f"bf{num_id}")
+        ft = clean_text(field)
+        tb = re.search(r"[左右]投[左右両]打", ft)
+        row["throws_bats"] = tb.group(0) if tb else ""
+        posblock = inner_by_id(block, f"pr{num_id}") if role == "投手" else inner_by_id(block, f"br{num_id}")
+        post = clean_text(posblock)
+        if role == "投手":
+            m = re.search(r"(先|中|抑|先中|中抑|先中抑)+", post)
+            row["main_position"] = "投手"
+            row["pitcher_roles"] = m.group(0) if m else ""
+        else:
+            pos = re.findall(r"[捕一二三遊外]", post)
+            row["main_position"] = pos[0] if pos else ""
+            row["sub_positions"] = " / ".join(pos[1:])
+        ability_block = inner_by_id(block, f"p{num_id}") if role == "投手" else inner_by_id(block, f"b{num_id}")
+        vals = [clean_text(x) for x in re.findall(r'<(?:b|i)\b[^>]*>(\d+)</(?:b|i)>', ability_block, re.I | re.S)]
+        if role == "投手":
+            for key, val in zip(["top_speed", "control", "stamina"], vals[:3]): row[key] = val
+        else:
+            for key, val in zip(["trajectory", "contact", "power", "run_speed", "arm_strength", "fielding", "catching"], vals[:7]): row[key] = val
+        current = row.copy()
+        for bb in parse_breaking_from_block(ability_block, current, doc.source_name, result):
+            result.breaking.append(bb)
+        specials_block = (inner_by_id(block, f"pa{num_id}") if role == "投手" else inner_by_id(block, f"ba{num_id}"))
+        ranked = [clean_text(a + b) for a, b in re.findall(r'<b\b[^>]*class="[^"]*[PNM][^"]*"[^>]*>\s*<b>(.*?)</b>\s*<b>(.*?)</b>', specials_block, re.I | re.S)]
+        normals = [clean_text(x) for x in re.findall(r'<b\b[^>]*class="[^"]*[PNM][^"]*"[^>]*>([^<][^<>]*?)</b>', specials_block, re.I | re.S)]
+        current["ranked_specials"] = "、".join(ranked)
+        current["specials"] = "、".join([n for n in normals if n not in {"起用法"}])
+        flush_player(current, result, doc.source_name)
+    return result
+
+
+def parse_breaking_from_block(block: str, current: dict[str, str], source: str, result: ParseResult) -> list[dict[str, str]]:
+    out = []
+    for m in re.finditer(r'<b\b[^>]*class="[^"]*\bv(\d{2,3})\b[^"]*"[^>]*>(.*?)</b>', block, re.I | re.S):
+        code = m.group(1)
+        text = clean_text(m.group(2)).replace(" / ", " ").strip()
+        names = split_values(text.replace(" ", "、")) or ["unknown"] * (len(code) - 1)
+        for idx, amount in enumerate(code[1:], start=1):
+            pitch_type = names[idx - 1] if idx - 1 < len(names) and names[idx - 1] else "unknown"
+            row = {"source": source, "team": current.get("team", "unknown"), "name": current.get("name", "unknown"), "direction_code": code[0], "direction": DIRECTION_NAMES.get(code[0], "unknown"), "slot": idx, "pitch_type": pitch_type, "movement": int(amount), "source_class": f"v{code}", "status": "ok" if pitch_type != "unknown" else "unknown"}
+            if pitch_type == "unknown":
+                result.unknown_breaking.append({"source": source, "team": row["team"], "name": row["name"], "source_class": row["source_class"], "slot": idx, "movement": int(amount), "detail": "class内テキストから球種名を特定できません"})
+            out.append(row)
+    return out
+
 def parse_cards(doc: SourceDoc) -> ParseResult:
+    real = parse_real_blocks(doc)
+    if real.players:
+        return real
     result = ParseResult()
     current: dict[str, str] = {}
     current_team = "unknown"
@@ -173,12 +319,30 @@ def parse_cards(doc: SourceDoc) -> ParseResult:
     return result
 
 
+
+def looks_garbled(value: str) -> bool:
+    if not value:
+        return False
+    if mojibake_score(value) > 0:
+        return True
+    jp = japanese_score(value)
+    ascii_symbols = len(re.findall(r"[`@{}\\^~\[\]]", value))
+    return jp == 0 and ascii_symbols >= 1
+
+
+def ability_values(row: dict[str, str]) -> list[str]:
+    return [str(row.get(col, "")) for col in ["top_speed", "control", "stamina", "trajectory", "contact", "power", "run_speed", "arm_strength", "fielding", "catching"] if str(row.get(col, ""))]
+
 def flush_player(current: dict[str, str], result: ParseResult, source: str) -> None:
     row = {col: current.get(col, "") for col in PLAYER_COLUMNS}
     row["source"] = source
     missing = [col for col in ("name", "role") if not row.get(col)]
     if missing:
         result.failed_players.append({"source": source, "team": row.get("team", ""), "name": row.get("name", ""), "reason": "required_field_missing", "detail": ",".join(missing)})
+    if looks_garbled(str(row.get("name", ""))) or looks_garbled(str(row.get("main_position", ""))):
+        result.failed_players.append({"source": source, "team": row.get("team", ""), "name": row.get("name", ""), "reason": "mojibake_suspected", "detail": f"name={row.get('name', '')} main_position={row.get('main_position', '')}"})
+    if not ability_values(row):
+        result.failed_players.append({"source": source, "team": row.get("team", ""), "name": row.get("name", ""), "reason": "abilities_missing", "detail": "能力値がすべて空です"})
     for col in ["number", "top_speed", "control", "stamina", "trajectory", "contact", "power", "run_speed", "arm_strength", "fielding", "catching"]:
         val = to_int(str(row.get(col, "")))
         row[col] = val if val is not None else ""
@@ -220,7 +384,7 @@ def parse_breaking_ball_row(cells: list[tuple[str, str]], current: dict[str, str
 
 
 def combine_results(results: list[ParseResult], source_failures: list[dict[str, str]]) -> ParseResult:
-    combined = ParseResult(failed_players=list(source_failures))
+    combined = ParseResult(input_errors=list(source_failures))
     for result in results:
         combined.players.extend(result.players)
         combined.breaking.extend(result.breaking)
@@ -228,6 +392,7 @@ def combine_results(results: list[ParseResult], source_failures: list[dict[str, 
         combined.unknown_classes.extend(result.unknown_classes)
         combined.unknown_breaking.extend(result.unknown_breaking)
         combined.failed_players.extend(result.failed_players)
+        combined.input_errors.extend(result.input_errors)
     return combined
 
 
@@ -240,6 +405,7 @@ def write_outputs(result: ParseResult, output_dir: Path, excel: bool) -> dict[st
         "unknown_classes": pd.DataFrame(result.unknown_classes),
         "unknown_breaking_balls": pd.DataFrame(result.unknown_breaking),
         "failed_players": pd.DataFrame(result.failed_players),
+        "input_errors": pd.DataFrame(result.input_errors),
     }
     required_columns = {
         "players": PLAYER_COLUMNS + ["source"],
@@ -248,6 +414,7 @@ def write_outputs(result: ParseResult, output_dir: Path, excel: bool) -> dict[st
         "unknown_classes": UNKNOWN_CLASS_COLUMNS,
         "unknown_breaking_balls": UNKNOWN_BREAKING_COLUMNS,
         "failed_players": FAILED_PLAYER_COLUMNS,
+        "input_errors": INPUT_ERROR_COLUMNS,
     }
     for name, columns in required_columns.items():
         if dfs[name].empty:
@@ -292,6 +459,21 @@ def print_smoke_summary(docs: list[SourceDoc], dfs: dict[str, pd.DataFrame], out
     print(f"未解釈class数: {len(dfs['unknown_classes'])} -> {output_dir / 'unknown_classes.csv'}")
     print(f"unknown変化球数: {len(dfs['unknown_breaking_balls'])} -> {output_dir / 'unknown_breaking_balls.csv'}")
     print(f"取得失敗/要確認選手数: {len(dfs['failed_players'])} -> {output_dir / 'failed_players.csv'}")
+    print(f"入力エラー/警告数: {len(dfs['input_errors'])} -> {output_dir / 'input_errors.csv'}")
+    for doc in docs:
+        src_players = players[players["source"].eq(doc.source_name)] if "source" in players else pd.DataFrame()
+        src_roles = src_players["role"].fillna("") if "role" in src_players else pd.Series(dtype=str)
+        src_breaking = dfs["breaking_balls"][dfs["breaking_balls"].get("source", pd.Series(dtype=str)).eq(doc.source_name)] if "source" in dfs["breaking_balls"] else pd.DataFrame()
+        src_specials = dfs["special_abilities"][dfs["special_abilities"].get("source", pd.Series(dtype=str)).eq(doc.source_name)] if "source" in dfs["special_abilities"] else pd.DataFrame()
+        src_unknown = dfs["unknown_classes"][dfs["unknown_classes"].get("source", pd.Series(dtype=str)).eq(doc.source_name)] if "source" in dfs["unknown_classes"] else pd.DataFrame()
+        src_failed = dfs["failed_players"][dfs["failed_players"].get("source", pd.Series(dtype=str)).eq(doc.source_name)] if "source" in dfs["failed_players"] else pd.DataFrame()
+        print(f"- {doc.source_name} / encoding={doc.encoding} / 選手数={len(src_players)} / 投手数={int(src_roles.str.contains('投手', na=False).sum())} / 野手数={int(src_roles.str.contains('野手', na=False).sum())} / 変化球数={len(src_breaking)} / 特殊能力数={len(src_specials)} / unknown={len(src_unknown)} / failed={len(src_failed)}")
+    if len(players) < 10:
+        print("警告: 1入力あたりの選手数が10件未満です。選手ブロック抽出に失敗している可能性があります。")
+    if len(dfs["breaking_balls"]) == 0:
+        print("警告: breaking_balls が0件です。変化球解析に失敗している可能性があります。")
+    if len(dfs["special_abilities"]) == 0:
+        print("警告: special_abilities が0件です。特殊能力解析に失敗している可能性があります。")
     print(f"出力先: {output_dir}")
 
 
