@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+STANDARD_REAL_DIR = Path("reports/real_powerpro_players_12teams")
 
 FIELDER_ABILITIES = ["ミート", "パワー", "走力", "肩力", "守備力", "捕球", "弾道"]
 PITCHER_ABILITIES = ["球速", "コントロール", "スタミナ", "球種数", "総変化量", "第二球種数"]
@@ -29,10 +30,32 @@ REAL_PLAYER_COLS = {
 }
 GENERATED_PLAYER_COLS = {"role": "role", "category": "category", "position": "position", "trajectory": "弾道"}
 
+GENERATED_OPTIONAL_FILES = [
+    "position_balance_summary.csv", "position_balance_warnings.csv", "position_high_ability_rates.csv",
+    "position_distribution_diagnostics.csv", "position_extreme_examples.csv", "warnings.csv",
+    "pitcher_aptitude_summary.csv", "second_pitch_summary.csv", "breaking_pitch_summary.csv",
+    "breaking_direction_summary.csv", "pitch_count_distribution.csv", "total_movement_distribution.csv",
+    "sub_position_summary.csv",
+]
+REAL_OPTIONAL_FILES = [
+    "position_ability_average.csv", "team_fielder_ability_average.csv", "team_pitcher_ability_average.csv",
+    "pitcher_role_ability_average.csv", "pitcher_role_summary.csv", "breaking_ball_count_distribution.csv",
+    "total_movement_distribution.csv", "second_pitch_summary.csv", "fielder_sub_position_summary.csv",
+    "special_kind_summary.csv", "normal_special_summary.csv", "ranked_special_summary.csv",
+]
+POSITION_RATE_RULES = {
+    "捕手": [("ミート", 50), ("ミート", 60), ("守備力", 55), ("守備力", 65)],
+    "一塁手": [("パワー", 65), ("パワー", 70), ("パワー", 80)],
+    "二塁手": [("走力", 60), ("走力", 70), ("走力", 80), ("守備力", 60), ("守備力", 70)],
+    "三塁手": [("パワー", 65), ("パワー", 70), ("パワー", 80), ("肩力", 60), ("肩力", 70)],
+    "遊撃手": [("走力", 60), ("走力", 70), ("走力", 80), ("守備力", 60), ("守備力", 70), ("パワー", 60), ("パワー", 65)],
+    "外野手": [("パワー", 65), ("走力", 70), ("肩力", 70)],
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="実在パワプロ選手データと生成選手データの能力分布差分レポートを作成します。")
-    parser.add_argument("--real-dir", type=Path, help="実在データ取り込み結果ディレクトリ")
+    parser.add_argument("--real-dir", type=Path, default=STANDARD_REAL_DIR, help="実在データ取り込み結果ディレクトリ")
     parser.add_argument("--generated-dir", type=Path, help="生成データ検証結果ディレクトリ")
     parser.add_argument("--real-players", type=Path, help="実在 players CSV/Excel")
     parser.add_argument("--real-breaking", type=Path, help="実在 breaking_balls CSV/Excel")
@@ -51,7 +74,24 @@ def read_table(path: Path | None, sheet: str | int | None = 0) -> pd.DataFrame:
         return pd.DataFrame()
     if path.suffix.lower() in {".xlsx", ".xls"}:
         return pd.read_excel(path, sheet_name=sheet)
-    return pd.read_csv(path)
+    return pd.read_csv(path, low_memory=False)
+
+
+def load_optional_dir_tables(base_dir: Path | None, filenames: list[str]) -> tuple[dict[str, pd.DataFrame], list[str], list[str]]:
+    tables: dict[str, pd.DataFrame] = {}
+    loaded: list[str] = []
+    missing: list[str] = []
+    if base_dir is None:
+        return tables, loaded, filenames[:]
+    for filename in filenames:
+        path = base_dir / filename
+        if not path.exists():
+            missing.append(filename)
+            continue
+        df = read_table(path)
+        tables[Path(filename).stem] = df
+        loaded.append(filename)
+    return tables, loaded, missing
 
 
 def first_existing(*paths: Path | None) -> Path | None:
@@ -70,7 +110,9 @@ def resolve_inputs(args: argparse.Namespace) -> dict[str, pd.DataFrame]:
     real_breaking = read_table(args.real_breaking or first_existing(real_dir / "breaking_balls.csv" if real_dir else None, real_book), "breaking_balls" if real_book and not args.real_breaking else 0)
     real_specials = read_table(args.real_specials or first_existing(real_dir / "special_abilities.csv" if real_dir else None, real_book), "special_abilities" if real_book and not args.real_specials else 0)
     gen_players = read_table(args.generated_players or first_existing(gen_dir / "generated_players.csv" if gen_dir else None, gen_book), "players" if gen_book and not args.generated_players else 0)
-    return {"real_players": real_players, "real_breaking": real_breaking, "real_specials": real_specials, "generated_players": gen_players}
+    real_optional, real_loaded, real_missing = load_optional_dir_tables(real_dir, REAL_OPTIONAL_FILES)
+    gen_optional, gen_loaded, gen_missing = load_optional_dir_tables(gen_dir, GENERATED_OPTIONAL_FILES)
+    return {"real_players": real_players, "real_breaking": real_breaking, "real_specials": real_specials, "generated_players": gen_players, "_real_optional": real_optional, "_generated_optional": gen_optional, "_real_loaded_files": real_loaded, "_generated_loaded_files": gen_loaded, "_real_missing_files": real_missing, "_generated_missing_files": gen_missing}
 
 
 def normalize_position(value: Any) -> str:
@@ -410,10 +452,155 @@ def percentile_compare(fielder: pd.DataFrame, pitcher: pd.DataFrame) -> pd.DataF
     return pd.DataFrame(rows)
 
 
-def write_summary(tables: dict[str, pd.DataFrame], output_dir: Path) -> None:
-    lines = ["# 実在12球団 vs 生成選手 バランス比較サマリー", "", "## 重視カテゴリ", "- 架空球団用を実在12球団との主比較対象として扱います。", "- ドラフト候補用は低め、助っ人外国人用は尖りを許容して警告を解釈してください。", "", "## 警告", ""]
+def _available_categories(gen: pd.DataFrame) -> list[str]:
+    return [c for c in CATEGORY_PRIORITY if c in set(gen.get("category", []))]
+
+
+def trajectory_distribution_compare(real: pd.DataFrame, gen: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    datasets = [("実在12球団", real[real["role"].eq("野手")])]
+    datasets += [(cat, gen[(gen["role"].eq("野手")) & (gen["category"].eq(cat))]) for cat in _available_categories(gen)]
+    for label, df in datasets:
+        for pos in POSITIONS:
+            sub = df[df["position"].eq(pos)]
+            values = pd.to_numeric(sub.get("弾道", pd.Series(dtype=float)), errors="coerce")
+            total = max(1, int(values.notna().sum()))
+            for trajectory in [1, 2, 3, 4]:
+                cnt = int(values.eq(trajectory).sum())
+                rows.append({"データ": label, "ポジション": pos, "弾道": trajectory, "人数": cnt, "割合%": round(cnt / total * 100, 2)})
+            high = int(values.ge(3).sum())
+            rows.append({"データ": label, "ポジション": pos, "弾道": "3以上", "人数": high, "割合%": round(high / total * 100, 2)})
+    return pd.DataFrame(rows)
+
+
+def position_rate_compare(real: pd.DataFrame, gen: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    datasets = [("実在12球団", real[real["role"].eq("野手")])]
+    datasets += [(cat, gen[(gen["role"].eq("野手")) & (gen["category"].eq(cat))]) for cat in _available_categories(gen)]
+    for label, df in datasets:
+        for pos, rules in POSITION_RATE_RULES.items():
+            sub = df[df["position"].eq(pos)]
+            total = max(1, len(sub))
+            for ability, threshold in rules:
+                values = pd.to_numeric(sub.get(ability, pd.Series(dtype=float)), errors="coerce")
+                cnt = int(values.ge(threshold).sum())
+                rows.append({"データ": label, "ポジション": pos, "指標": f"{ability}{threshold}以上", "能力": ability, "しきい値": threshold, "人数": cnt, "母数": len(sub), "割合%": round(cnt / total * 100, 2)})
+    return pd.DataFrame(rows)
+
+
+def generated_warning_tables(optional: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    frames = []
+    for key in ["warnings", "position_balance_warnings"]:
+        df = optional.get(key, pd.DataFrame())
+        if not df.empty:
+            tmp = df.copy()
+            tmp["source_file"] = f"{key}.csv"
+            if "severity" not in tmp:
+                tmp["severity"] = "unknown"
+            frames.append(tmp)
+    all_warnings = pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame(columns=["severity", "source_file"])
+    summary = all_warnings["severity"].fillna("unknown").astype(str).value_counts().rename_axis("severity").reset_index(name="件数")
+    high = all_warnings[all_warnings["severity"].fillna("").astype(str).str.lower().eq("high")].copy()
+    return summary, high
+
+
+def sub_position_compare(real_optional: dict[str, pd.DataFrame], gen_optional: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    rows = []
+    mapping = [("実在12球団", real_optional.get("fielder_sub_position_summary", pd.DataFrame())), ("生成", gen_optional.get("sub_position_summary", pd.DataFrame()))]
+    for label, df in mapping:
+        if df.empty:
+            continue
+        for _, r in df.iterrows():
+            axis = r.get("集計軸", r.get("metric", ""))
+            value = r.get("値", r.get("value", ""))
+            rows.append({"データ": label, "集計軸": axis, "値": value, "人数": r.get("人数", r.get("count")), "割合%": r.get("割合%", r.get("rate%"))})
+    return pd.DataFrame(rows)
+
+
+def pitcher_aptitude_compare(real_optional: dict[str, pd.DataFrame], gen_optional: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    rows = []
+    for label, df in [("実在12球団", real_optional.get("pitcher_role_summary", real_optional.get("pitcher_role_ability_average", pd.DataFrame()))), ("生成", gen_optional.get("pitcher_aptitude_summary", pd.DataFrame()))]:
+        if df.empty:
+            continue
+        for _, r in df.iterrows():
+            rows.append({"データ": label, "集計軸": r.get("集計軸", r.get("pitcher_roles", r.get("role", ""))), "値": r.get("値", r.get("pitcher_roles", "")), "人数": r.get("人数", r.get("count")), "割合%": r.get("割合%", r.get("rate%")), "平均球速": r.get("平均球速", r.get("top_speed"))})
+    return pd.DataFrame(rows)
+
+
+def distribution_compare_from_optional(real_optional: dict[str, pd.DataFrame], gen_optional: dict[str, pd.DataFrame], real_key: str, gen_key: str, label: str) -> pd.DataFrame:
+    rows = []
+    for data_label, df in [("実在12球団", real_optional.get(real_key, pd.DataFrame())), ("生成", gen_optional.get(gen_key, pd.DataFrame()))]:
+        if df.empty:
+            continue
+        for _, r in df.iterrows():
+            rows.append({"データ": data_label, "分布": r.get("分布", label), "集計軸": r.get("集計軸", "全体"), "値": r.get("値", r.get("value")), "人数": r.get("人数", r.get("count")), "割合%": r.get("割合%", r.get("rate%"))})
+    return pd.DataFrame(rows)
+
+
+def second_pitch_compare(real_optional: dict[str, pd.DataFrame], gen_optional: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    rows = []
+    for data_label, df in [("実在12球団", real_optional.get("second_pitch_summary", pd.DataFrame())), ("生成", gen_optional.get("second_pitch_summary", pd.DataFrame()))]:
+        if df.empty:
+            continue
+        for _, r in df.iterrows():
+            rows.append({"データ": data_label, "集計軸": r.get("集計軸", r.get("metric", "")), "値": r.get("値", r.get("value", "")), "人数": r.get("人数", r.get("count")), "割合%": r.get("割合%", r.get("rate%"))})
+    return pd.DataFrame(rows)
+
+
+def _rate_lookup(df: pd.DataFrame, data: str, pos: str, key: Any, key_col: str) -> float | None:
+    if df.empty:
+        return None
+    m = df[(df["データ"].eq(data)) & (df["ポジション"].eq(pos)) & (df[key_col].astype(str).eq(str(key)))]
+    return None if m.empty else float(m["割合%"].iloc[0])
+
+
+def write_summary(tables: dict[str, pd.DataFrame], output_dir: Path, meta: dict[str, list[str]]) -> None:
+    lines = ["# 実在12球団 vs 生成選手 バランス比較サマリー", "", "## 重視カテゴリ", "- 架空球団用を実在12球団との主比較対象として扱います。", "- ドラフト候補用は低め、助っ人外国人用は尖りを許容して警告を解釈してください。", ""]
+    lines.extend(["## 使用データ", f"- 実在データ: `{meta.get('real_dir', [''])[0]}`", f"- 生成データ: `{meta.get('generated_dir', [''])[0]}`", ""])
+    lines.extend(["## 読み込み状況", "", "### 実在側で読み込んだ任意ファイル"])
+    lines.extend([f"- `{x}`" for x in meta.get("real_loaded", [])] or ["- なし"])
+    lines.append("### 生成側で読み込んだ任意ファイル")
+    lines.extend([f"- `{x}`" for x in meta.get("generated_loaded", [])] or ["- なし"])
+    lines.append("### 読み込めなかった任意ファイル")
+    missing = [f"実在: `{x}`" for x in meta.get("real_missing", [])] + [f"生成: `{x}`" for x in meta.get("generated_missing", [])]
+    lines.extend([f"- {x}" for x in missing] or ["- なし"])
+    lines.extend(["", "## 架空球団用と実在12球団の主要差分", ""])
+    for _, r in tables.get("fielder_ability_compare", pd.DataFrame()).query("カテゴリ == '架空球団用'").head(12).iterrows():
+        lines.append(f"- 野手 {r['能力']}: 実在平均 {r.get('実在_平均')} / 生成平均 {r.get('生成_平均')} / 差分 {r.get('平均差分')}")
+    for _, r in tables.get("pitcher_ability_compare", pd.DataFrame()).query("カテゴリ == '架空球団用'").head(8).iterrows():
+        lines.append(f"- 投手 {r['能力']}: 実在平均 {r.get('実在_平均')} / 生成平均 {r.get('生成_平均')} / 差分 {r.get('平均差分')}")
+    lines.extend(["", "## 弾道分布の要約", ""])
+    traj = tables.get("trajectory_distribution_compare", pd.DataFrame())
+    for pos in ["一塁手", "三塁手", "外野手", "捕手", "二塁手", "遊撃手"]:
+        real3, gen3 = _rate_lookup(traj, "実在12球団", pos, "3以上", "弾道"), _rate_lookup(traj, "架空球団用", pos, "3以上", "弾道")
+        real4, gen4 = _rate_lookup(traj, "実在12球団", pos, 4, "弾道"), _rate_lookup(traj, "架空球団用", pos, 4, "弾道")
+        lines.append(f"- {pos}: 弾道3以上 実在 {real3}% / 架空 {gen3}%、弾道4 実在 {real4}% / 架空 {gen4}%")
+    lines.extend(["", "## ポジション別上位割合の要約", ""])
+    pr = tables.get("position_rate_compare", pd.DataFrame())
+    for metric in ["ミート60以上", "パワー70以上", "走力70以上", "守備力70以上", "肩力70以上"]:
+        sub = pr[(pr["データ"].eq("架空球団用")) & (pr["指標"].eq(metric))].head(6) if not pr.empty else pd.DataFrame()
+        if not sub.empty:
+            lines.append("- " + " / ".join(f"{r['ポジション']} {r['割合%']}%" for _, r in sub.iterrows()))
+    lines.extend(["", "## severity 別 warning 件数", ""])
+    sev = tables.get("generated_warning_severity_summary", pd.DataFrame())
+    lines.extend([f"- {r['severity']}: {r['件数']}件" for _, r in sev.iterrows()] or ["- severity付き生成警告なし"])
+    high = tables.get("generated_high_warnings", pd.DataFrame())
+    if not high.empty:
+        lines.append("- high警告タイプ: " + ", ".join(sorted(set(high.get("警告タイプ", high.get("警告", pd.Series(dtype=str))).dropna().astype(str)))))
+        lines.append(f"- high代表例: {high.iloc[0].to_dict()}")
+    lines.extend(["", "## 第二球種・変化球分布の要約", ""])
+    sp = tables.get("second_pitch_compare", pd.DataFrame())
+    lines.extend([f"- {r['データ']} {r['集計軸']} {r['値']}: {r.get('割合%')}%" for _, r in sp.head(8).iterrows()] or ["- 任意サマリーなし（既存の breaking_ball_compare を参照）。"])
+    lines.extend(["", "## サブポジ比較の要約", ""])
+    subpos = tables.get("sub_position_compare", pd.DataFrame())
+    lines.extend([f"- {r['データ']} {r['集計軸']} {r['値']}: {r.get('割合%')}%" for _, r in subpos.head(12).iterrows()] or ["- サブポジ任意サマリーなし。"])
+    left_bad = subpos[subpos["値"].astype(str).str.contains("左投げ野手の二三遊サブ", na=False)] if not subpos.empty else pd.DataFrame()
+    if not left_bad.empty:
+        lines.append("- 左投げ野手の二三遊サブ警告あり: " + "; ".join(f"{r['データ']} {r.get('人数')}人" for _, r in left_bad.iterrows()))
+    lines.extend(["", "## 警告", ""])
     for _, row in tables["warnings"].iterrows():
         lines.append(f"- {row['警告']}: {row['詳細']}")
+    lines.extend(["", "## 残課題", "- 任意CSVが欠けている項目は従来の players / breaking_balls / special_abilities 由来の比較、またはスキップで後方互換運用しています。", "- 実在側に生成側と同じ粒度の詳細診断がない項目は参考比較として扱ってください。"])
     lines.extend(["", "## 出力CSV", ""])
     for name in tables:
         lines.append(f"- `{name}.csv`")
@@ -434,7 +621,28 @@ def main() -> int:
     pitch_role = pitcher_role_compare(real, gen)
     breaking = breaking_compare(real, gen, data["real_breaking"])
     special_cat, special_name, rank_name = special_tables(data["real_specials"], gen)
+    real_optional = data["_real_optional"]
+    generated_optional = data["_generated_optional"]
+    severity_summary, high_warnings = generated_warning_tables(generated_optional)
     tables = {"overall_compare": overall, "fielder_ability_compare": fielder, "pitcher_ability_compare": pitcher, "position_compare": position, "pitcher_role_compare": pitch_role, "breaking_ball_compare": breaking, "special_ability_category_compare": special_cat, "special_ability_name_compare": special_name, "rank_ability_compare": rank_name, "percentile_compare": percentile_compare(fielder, pitcher)}
+    tables.update({
+        "trajectory_distribution_compare": trajectory_distribution_compare(real, gen),
+        "position_rate_compare": position_rate_compare(real, gen),
+        "generated_warning_severity_summary": severity_summary,
+        "generated_high_warnings": high_warnings,
+        "sub_position_compare": sub_position_compare(real_optional, generated_optional),
+        "pitcher_aptitude_compare": pitcher_aptitude_compare(real_optional, generated_optional),
+        "second_pitch_compare": second_pitch_compare(real_optional, generated_optional),
+        "pitch_count_distribution_compare": distribution_compare_from_optional(real_optional, generated_optional, "breaking_ball_count_distribution", "pitch_count_distribution", "球種数分布"),
+        "total_movement_distribution_compare": distribution_compare_from_optional(real_optional, generated_optional, "total_movement_distribution", "total_movement_distribution", "総変化量分布"),
+    })
+    for key, axis in [("breaking_pitch_summary", "生成_球種名別詳細"), ("breaking_direction_summary", "生成_方向別詳細")]:
+        df = generated_optional.get(key, pd.DataFrame())
+        if not df.empty:
+            extra = df.copy()
+            extra.insert(0, "カテゴリ", "生成詳細")
+            extra.insert(1, "比較軸", axis)
+            tables["breaking_ball_compare"] = pd.concat([tables["breaking_ball_compare"], extra], ignore_index=True, sort=False)
     tables["warnings"] = build_warnings(fielder, pitcher, position, breaking, special_cat)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for name, df in tables.items():
@@ -443,7 +651,7 @@ def main() -> int:
         with pd.ExcelWriter(args.output_dir / "real_vs_generated_balance.xlsx") as writer:
             for name, df in tables.items():
                 df.to_excel(writer, sheet_name=name[:31], index=False)
-    write_summary(tables, args.output_dir)
+    write_summary(tables, args.output_dir, {"real_dir": [str(args.real_dir)], "generated_dir": [str(args.generated_dir)], "real_loaded": data["_real_loaded_files"], "generated_loaded": data["_generated_loaded_files"], "real_missing": data["_real_missing_files"], "generated_missing": data["_generated_missing_files"]})
     print(f"比較レポートを出力しました: {args.output_dir}")
     return 0
 
