@@ -567,7 +567,7 @@ def _normalize_aptitude_pattern(text: Any) -> str:
     return "".join(parts) or "比較不能"
 
 
-def pitcher_aptitude_compare(real_optional: dict[str, pd.DataFrame], gen_optional: dict[str, pd.DataFrame]) -> pd.DataFrame:
+def pitcher_aptitude_compare(real_optional: dict[str, pd.DataFrame], gen_optional: dict[str, pd.DataFrame], gen: pd.DataFrame | None = None) -> pd.DataFrame:
     rows = []
     real_df = real_optional.get("pitcher_role_summary", real_optional.get("pitcher_role_ability_average", pd.DataFrame()))
     if not real_df.empty:
@@ -579,20 +579,29 @@ def pitcher_aptitude_compare(real_optional: dict[str, pd.DataFrame], gen_optiona
                 rate = round(float(count) / total * 100, 2)
             pattern = _first_nonblank(r, ["値", "pitcher_roles", "role", "集計軸"], default="比較不能")
             rows.append({"データ": "実在12球団", "カテゴリ": "実在12球団", "集計軸": "適正パターン別", "比較用適正パターン": pattern, "詳細適正パターン": pattern, "人数": count, "割合%": rate if rate is not None else "比較不能", "平均球速": _first_nonblank(r, ["平均球速", "top_speed"], default="")})
-    gen_df = gen_optional.get("pitcher_aptitude_summary", pd.DataFrame())
-    if not gen_df.empty:
-        work = gen_df.copy()
-        work["カテゴリ"] = work["カテゴリ"] if "カテゴリ" in work else "生成（カテゴリ不明）"
-        for category, cdf in work.groupby("カテゴリ", dropna=False):
-            pattern_rows = cdf[cdf.get("集計軸", pd.Series(index=cdf.index, dtype=str)).astype(str).eq("適正パターン別")]
-            total = pd.to_numeric(pattern_rows.get("人数", pattern_rows.get("count")), errors="coerce").sum()
-            for _, r in pattern_rows.iterrows():
-                count = _first_nonblank(r, ["人数", "count"], default=None)
-                rate = _first_nonblank(r, ["割合%", "rate%"], default=None)
-                if (rate is None or pd.isna(rate)) and total:
-                    rate = round(float(count) / total * 100, 2)
-                detail = _first_nonblank(r, ["値", "pitcher_roles", "詳細適正パターン"], default="比較不能")
-                rows.append({"データ": "生成", "カテゴリ": category, "集計軸": "適正パターン別", "比較用適正パターン": _normalize_aptitude_pattern(detail), "詳細適正パターン": detail, "人数": count, "割合%": rate if rate is not None else "比較不能", "平均球速": _first_nonblank(r, ["平均球速", "top_speed"], default="")})
+    gen_pitchers = pd.DataFrame() if gen is None else gen[gen.get("role", pd.Series(dtype=str)).eq("投手")].copy()
+    if not gen_pitchers.empty and {"category", "starter_aptitude", "reliever_aptitude", "closer_aptitude"}.issubset(gen_pitchers.columns):
+        gen_pitchers["詳細適正パターン"] = gen_pitchers.apply(lambda r: f"先発{r.get('starter_aptitude', '-')} / 中継ぎ{r.get('reliever_aptitude', '-')} / 抑え{r.get('closer_aptitude', '-')}", axis=1)
+        for category, cdf in gen_pitchers.groupby("category", dropna=False):
+            total = len(cdf)
+            grouped = cdf.groupby("詳細適正パターン", dropna=False)
+            for detail, pdf in grouped:
+                rows.append({"データ": "生成", "カテゴリ": category, "集計軸": "適正パターン別", "比較用適正パターン": _normalize_aptitude_pattern(detail), "詳細適正パターン": detail, "人数": len(pdf), "割合%": round(len(pdf) / max(1, total) * 100, 2), "平均球速": round(pd.to_numeric(pdf.get("球速", pd.Series(dtype=float)), errors="coerce").mean(), 3)})
+    else:
+        gen_df = gen_optional.get("pitcher_aptitude_summary", pd.DataFrame())
+        if not gen_df.empty:
+            work = gen_df.copy()
+            work["カテゴリ"] = work["カテゴリ"] if "カテゴリ" in work else "生成（カテゴリ不明）"
+            for category, cdf in work.groupby("カテゴリ", dropna=False):
+                pattern_rows = cdf[cdf.get("集計軸", pd.Series(index=cdf.index, dtype=str)).astype(str).eq("適正パターン別")]
+                total = pd.to_numeric(pattern_rows.get("人数", pattern_rows.get("count")), errors="coerce").sum()
+                for _, r in pattern_rows.iterrows():
+                    count = _first_nonblank(r, ["人数", "count"], default=None)
+                    rate = _first_nonblank(r, ["割合%", "rate%"], default=None)
+                    if (rate is None or pd.isna(rate)) and total:
+                        rate = round(float(count) / total * 100, 2)
+                    detail = _first_nonblank(r, ["値", "pitcher_roles", "詳細適正パターン"], default="比較不能")
+                    rows.append({"データ": "生成", "カテゴリ": category, "集計軸": "適正パターン別", "比較用適正パターン": _normalize_aptitude_pattern(detail), "詳細適正パターン": detail, "人数": count, "割合%": rate if rate is not None else "比較不能", "平均球速": _first_nonblank(r, ["平均球速", "top_speed"], default="")})
     return pd.DataFrame(rows)
 
 
@@ -701,7 +710,7 @@ def main() -> int:
         "generated_warning_severity_summary": severity_summary,
         "generated_high_warnings": high_warnings,
         "sub_position_compare": sub_position_compare(real_optional, generated_optional),
-        "pitcher_aptitude_compare": pitcher_aptitude_compare(real_optional, generated_optional),
+        "pitcher_aptitude_compare": pitcher_aptitude_compare(real_optional, generated_optional, gen),
         "second_pitch_compare": second_pitch_compare(real_optional, generated_optional),
         "pitch_count_distribution_compare": distribution_compare_from_optional(real_optional, generated_optional, "breaking_ball_count_distribution", "pitch_count_distribution", "球種数分布"),
         "total_movement_distribution_compare": distribution_compare_from_optional(real_optional, generated_optional, "total_movement_distribution", "total_movement_distribution", "総変化量分布"),
