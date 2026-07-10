@@ -3,6 +3,7 @@ import json
 import random
 import re
 import sqlite3
+from html import escape
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -1811,45 +1812,321 @@ def sub_position_summary_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         "left_violation": fielders[fielders["handedness"].eq("左投") & fielders["sub_positions"].apply(lambda values: any(item["position"] in {"二塁手", "三塁手", "遊撃手"} for item in values))][["name", "position", "batting_throwing", "サブポジ" if "サブポジ" in fielders.columns else "sub_positions"]],
     }
 
-def render_ability_item(label: str, item: Any) -> None:
-    if isinstance(item, dict):
-        st.markdown(f"<span style='background:{RANK_COLORS[item['rank']]};color:#111;border-radius:999px;padding:0.15rem 0.55rem;font-weight:700'>{item['rank']}</span> **{label}** {item['value']}", unsafe_allow_html=True)
-    else:
-        st.markdown(f"**{label}** {item}")
 
 
-def render_card(p: dict[str, Any]) -> None:
-    with st.container(border=True):
-        st.subheader(f"{p['name']}（{p['position']} / {p['player_type']}）")
-        st.caption(f"seed: {p['seed']} / {p['category']} / {p['nationality']}・{p['birthplace']} / {p['age']}歳 / {p['height']}cm {p['weight']}kg")
-        cols = st.columns(3)
-        cols[0].metric("利き腕", p["handedness"])
-        cols[1].metric("投打", p["batting_throwing"])
-        cols[2].metric("種別", p["role"])
-        if p["role"] == "投手":
-            st.markdown(f"**投手適正** {pitcher_aptitude_text(p)}")
+def e(value: Any) -> str:
+    return escape(str(value if value is not None else ""), quote=True)
+
+
+def inject_powerpro_ui_css() -> None:
+    st.markdown("""
+    <style>
+    .stApp {background: radial-gradient(circle at 18% 22%, rgba(255,255,255,.48) 0 8%, transparent 9%), linear-gradient(135deg,#dff8f5 0%,#98ded8 42%,#087d91 100%);}
+    .stApp:before {content:""; position:fixed; inset:0; pointer-events:none; background: repeating-linear-gradient(135deg,rgba(255,255,255,.16) 0 2px,transparent 2px 34px); opacity:.5;}
+    .block-container {max-width:1680px; padding-top:3.5rem; padding-bottom:2rem;}
+    div[data-testid="stVerticalBlockBorderWrapper"] {background:rgba(255,255,255,.72); border-color:#0e7fbd!important;}
+    .pp-title {background:linear-gradient(90deg,rgba(255,255,255,.92),rgba(229,249,255,.55)); border-left:9px solid #e23d4f; border-bottom:3px solid #1b7fbd; padding:12px 20px; border-radius:4px 20px 20px 4px; color:#063d77; font-weight:900; font-size:29px; margin-bottom:10px;}
+    .pp-panel {background:#fff; border:4px solid #0876c9; border-radius:16px; padding:10px; box-shadow:0 7px 0 rgba(0,76,130,.18), inset 0 0 0 6px #e8f8ff;}
+    .pp-header {display:grid; grid-template-columns: 190px 104px 1fr; gap:9px; align-items:stretch; margin-bottom:6px;}
+    .pp-name {background:linear-gradient(#72ffff,#23dbe9); border:3px solid #078bc8; border-radius:8px; font-size:24px; font-weight:900; text-align:center; padding:7px; color:#022d55; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-face {background:#f7fbff; border:2px solid #c8e7ff; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:96px;}
+    .pp-info {display:grid; grid-template-columns:1.2fr .8fr 1fr; gap:6px;}
+    .pp-chip {background:#f7fbff; border:2px solid #d5edff; border-radius:9px; padding:5px 9px; color:#0a69b0; font-weight:800; font-size:15px; min-width:0; overflow:hidden; text-overflow:ellipsis;}
+    .pp-score {background:#0368b8; color:white; border-radius:7px; padding:1px 8px; display:inline-block; font-weight:900;}
+    .pp-tabs {display:flex; gap:3px; align-items:flex-end; margin:2px 0 0 0;}
+    .pp-tab {display:block; flex:1; border-radius:10px 10px 0 0; color:white!important; text-decoration:none!important; font-weight:900; padding:.48rem .45rem .42rem; box-shadow:inset 0 -5px rgba(0,0,0,.18); font-size:15px; text-align:center; filter:brightness(.72); border:2px solid rgba(255,255,255,.25); border-bottom:0;}
+    .pp-tab-active {filter:brightness(1.05); transform:translateY(2px); position:relative; z-index:2; padding-top:.56rem; box-shadow:0 -2px 0 rgba(255,255,255,.75), inset 0 -2px rgba(255,255,255,.18);}
+    .pp-body {display:grid; grid-template-columns:34% 66%; gap:9px; background:#edf9fc; border:3px solid #d5edff; border-radius:0 0 13px 13px; padding:9px; height:430px; overflow:hidden; align-items:stretch;}
+    .pp-body-pitcher {height:500px; overflow:visible;}
+    .pp-overview {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px;}
+    .pp-mini-card {background:#f8fcff; border:2px solid #cce8ff; border-radius:10px; padding:9px; color:#0a69b0; font-weight:900; min-height:58px;}
+    .pp-mini-label {font-size:12px; opacity:.75; display:block; margin-bottom:4px;}
+    .pp-ability-row {display:grid; grid-template-columns: 40% 18% 1fr; align-items:center; margin:6px 0; background:#fff; border:2px solid #cfe9ff; border-radius:9px; min-height:42px; overflow:hidden; box-shadow:inset 0 2px rgba(255,255,255,.8);}
+    .pp-label {background:#fff; border-radius:7px; margin-left:6px; padding:4px 8px; color:#126bb0; font-weight:900; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-rank {font-size:28px; font-weight:950; text-align:center; text-shadow:1px 1px white; line-height:1;}
+    .pp-value {font-size:22px; color:#0b72bd; font-weight:950; text-align:right; padding-right:12px; overflow-wrap:anywhere;}
+    .pp-special-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:5px;}
+    .pp-special {height:43px; min-width:0; border-radius:8px; border:3px solid #86dff4; background:linear-gradient(#f7feff,#d9f8ff); color:#0870b6; font-weight:950; display:grid; grid-template-columns:minmax(0,1fr) 28px; align-items:center; gap:3px; padding:0 8px; font-size:16px; box-shadow:inset 0 2px rgba(255,255,255,.8), inset 0 -2px rgba(83,202,232,.12);}
+    .pp-special-name {overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;}
+    .pp-special-rank {font-size:19px; text-align:right; color:#07629c; font-weight:950;}
+    .pp-special.red {background:linear-gradient(#fff8f8,#ffe0e0); border-color:#f29a9a; color:#bd1624;}
+    .pp-special.red .pp-special-rank {color:#bd1624;}
+    .pp-special.green {background:linear-gradient(#f8fff9,#dcf8e2); border-color:#73d58a; color:#15833d;}
+    .pp-special.green .pp-special-rank {color:#15833d;}
+    .pp-special.gold {background:linear-gradient(#fffdf1,#fff0ad); border-color:#e0be3c; color:#836200;}
+    .pp-special.gold .pp-special-rank {color:#836200;}
+    .pp-special.empty {height:43px; background:linear-gradient(#f8feff,#e6f9fd); border-color:#bfeaf5; color:transparent;}
+    .pp-section-title {color:#075f9e; font-weight:900; font-size:17px; margin:2px 0 7px;}
+    .pp-help {position:static; background:#062247; color:white; padding:11px 18px; font-size:18px; font-weight:800; border-top:4px solid #0b4f8c; border-radius:8px; margin:16px 0;}
+    .pp-list-note {color:#0a4773; font-weight:800; margin-bottom:8px;}
+    .pp-player-row {width:100%; text-align:left; margin-bottom:4px;}
+    div[data-testid="stButton"] > button {min-height:2.2rem; opacity:1!important;}
+    div[data-testid="stButton"] > button:disabled {opacity:.45!important;}
+    @media (max-width: 980px) {
+      .pp-header {grid-template-columns:1fr;}
+      .pp-info {grid-template-columns:1fr;}
+      .pp-body {grid-template-columns:1fr;}
+      .pp-overview {grid-template-columns:1fr 1fr;}
+      .pp-special-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
+    }
+    .pp-aptitude-line {background:#f9fdff; border:2px solid #cfe9ff; border-radius:9px; color:#0a69b0; font-weight:900; padding:5px 9px; margin-bottom:6px; white-space:nowrap; font-size:15px;}
+    .pp-chart-wrap {height:270px; margin-top:6px; overflow:visible;}
+    .pp-list-selected button {background:#e6f8ff!important; border:2px solid #0876c9!important; color:#063d77!important;}
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def player_from_history_row(row: pd.Series) -> dict[str, Any]:
+    abilities = parse_json_column(row.get("abilities_json"), {})
+    ranked = parse_json_column(row.get("ranked_special_abilities_json"), {})
+    if ranked and isinstance(abilities, dict):
+        abilities["ranked_specials"] = ranked
+    player = row.to_dict()
+    player.update({
+        "abilities": abilities,
+        "special_abilities": parse_json_column(row.get("special_abilities_json"), []),
+        "breaking_balls": parse_json_column(row.get("breaking_balls_json"), []),
+        "sub_positions": normalize_sub_positions(row.get("sub_positions_json", row.get("sub_positions", []))),
+    })
+    if isinstance(row.get("pitcher_aptitudes_json"), str):
+        player.update(parse_json_column(row.get("pitcher_aptitudes_json"), {}))
+    return player
+
+
+def overall_score(p: dict[str, Any]) -> int:
+    abilities = p.get("abilities", {}) if isinstance(p.get("abilities"), dict) else {}
+    keys = ["コントロール", "スタミナ"] if p.get("role") == "投手" else ["ミート", "パワー", "走力", "肩力", "守備力", "捕球"]
+    values = [ability_numeric_value(abilities, key) for key in keys]
+    speed = pitcher_speed_value(abilities)
+    if p.get("role") == "投手" and speed:
+        values.append(max(1, min(99, int((speed - 120) * 2))))
+    numeric_values = [int(value) for value in values if isinstance(value, int | float)]
+    return round(sum(numeric_values) / max(1, len(numeric_values)))
+
+
+def render_player_icon_svg(p: dict[str, Any]) -> str:
+    initial = e(str(p.get("name", "選"))[:1])
+    cap = "#e83b4f" if p.get("role") == "投手" else "#0a76c9"
+    return f'<svg width="96" height="96" viewBox="0 0 116 116" role="img" aria-label="選手アイコン"><circle cx="58" cy="62" r="34" fill="#ffd9b3" stroke="#8b5a32" stroke-width="3"/><path d="M20 54 Q58 12 96 54 Z" fill="{cap}" stroke="#fff" stroke-width="4"/><rect x="34" y="72" width="48" height="30" rx="8" fill="#fff" stroke="#b8d7ee"/><text x="58" y="47" text-anchor="middle" font-size="32" font-weight="900" fill="#fff">{initial}</text><circle cx="46" cy="62" r="4" fill="#073b6b"/><circle cx="70" cy="62" r="4" fill="#073b6b"/></svg>'
+
+
+
+def ui_rank_color(rank_text: str) -> str:
+    return {
+        "S": "#f3b400",
+        "A": "#ff3bbd",
+        "B": "#ff315d",
+        "C": "#ff9d00",
+        "D": "#d7c900",
+        "E": "#5fcbff",
+        "F": "#63a4ff",
+        "G": "#9aa4af",
+    }.get(rank_text, "#cbd5e1")
+
+def render_ability_rows(items: list[tuple[str, Any]]) -> str:
+    rows = []
+    for label, item in items:
+        if isinstance(item, dict):
+            rank_text = e(item.get("rank", "-"))
+            value = e(item.get("value", "-"))
+            color = ui_rank_color(str(item.get("rank", "")))
         else:
-            st.markdown(f"**サブポジ** {format_sub_positions(p.get('sub_positions', []))}")
-        st.markdown("#### 能力")
-        for k, v in p["abilities"].items():
-            if k != "ranked_specials":
-                render_ability_item(k, v)
-        if p["breaking_balls"]:
-            st.markdown("#### 変化球")
-            st.write(" / ".join(f"{'第2 ' if b.get('is_second_pitch') else ''}{b['name']}({b.get('direction', b['name'])}) {pitch_movement(b)}" for b in p["breaking_balls"]))
-        ranked_specials = p.get("abilities", {}).get("ranked_specials", {})
-        st.markdown("#### ランク系特殊能力")
-        st.write("、".join(ranked_specials.values()) if ranked_specials else "なし")
-        st.markdown("#### 通常特殊能力")
-        st.write("、".join(p["special_abilities"]) if p["special_abilities"] else "なし")
+            rank_text = ""
+            value = e(item)
+            color = "#cbd5e1"
+        rows.append(f'<div class="pp-ability-row"><div class="pp-label">{e(label)}</div><div class="pp-rank" style="color:{color}">{rank_text}</div><div class="pp-value">{value}</div></div>')
+    return "".join(rows)
 
+
+def special_kind(name: str, master: MasterData) -> str:
+    return next((str(row.get("kind", "blue")) for row in master.abilities if row.get("name") == name), "blue")
+
+
+def split_special_rank(name: str) -> tuple[str, str]:
+    match = re.search(r"([A-G])$", name)
+    if not match:
+        return name, ""
+    return name[: match.start()], match.group(1)
+
+
+def render_special_grid_html(p: dict[str, Any], master: MasterData, cell_count: int = 32) -> str:
+    ranked = p.get("abilities", {}).get("ranked_specials", {}) if isinstance(p.get("abilities"), dict) else {}
+    entries = [(str(value), "blue") for value in ranked.values()]
+    order = {"gold": 1, "blue": 2, "mixed": 2, "neutral": 2, "green": 3, "red": 4}
+    normal_entries = [(str(name), special_kind(str(name), master)) for name in p.get("special_abilities", [])]
+    entries.extend(sorted(normal_entries, key=lambda item: order.get(item[1], 9)))
+    visible_ability_count = cell_count - 1 if len(entries) > cell_count else cell_count
+    display_entries = entries[:visible_ability_count]
+    hidden_count = max(0, len(entries) - visible_ability_count)
+    if hidden_count:
+        display_entries.append((f"ほか{hidden_count}件", "blue"))
+    cells = []
+    for name, kind in display_entries:
+        base_name, rank_text = split_special_rank(name)
+        cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else ""
+        cells.append(f'<div class="pp-special {cls}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span><span class="pp-special-rank">{e(rank_text)}</span></div>')
+    while len(cells) < cell_count:
+        cells.append('<div class="pp-special empty"><span></span><span></span></div>')
+    return '<div class="pp-special-grid">' + "".join(cells) + "</div>"
+
+
+def pitch_display_name(name: Any) -> str:
+    text = str(name or "")
+    aliases = {
+        "ツーシームファスト": "ツーシーム",
+        "ムービングファスト": "ムービング",
+        "シンキングツーシーム": "Sツーシーム",
+        "ドロップカーブ": "Dカーブ",
+        "ナックルカーブ": "ナックルC",
+        "サークルチェンジ": "サークル",
+        "シンキングスプリット": "Sスプリット",
+    }
+    return aliases.get(text, text if len(text) <= 8 else text[:7] + "…")
+
+
+def block_points(x1: int, y1: int, x2: int, y2: int, lane: int, movement: int) -> list[tuple[float, float, float]]:
+    dx, dy = x2 - x1, y2 - y1
+    length = max((dx * dx + dy * dy) ** 0.5, 1)
+    nx, ny = -dy / length, dx / length
+    points = []
+    for step in range(1, min(7, max(0, movement)) + 1):
+        t = 0.18 + step * 0.085
+        points.append((x1 + dx * t + nx * lane * 8, y1 + dy * t + ny * lane * 8, length))
+    return points
+
+
+def render_pitch_chart_svg(balls: list[dict[str, Any]], batting_throwing: str = "") -> str:
+    right_map = {"1": (205, 78), "2": (64, 150), "3": (120, 190), "4": (52, 185), "5": (188, 185)}
+    directions = {code: (240 - x, y) for code, (x, y) in right_map.items()} if str(batting_throwing).startswith("左投") else right_map
+    label_positions = {"1": (194, 58), "2": (49, 132), "3": (120, 204), "4": (50, 202), "5": (190, 202)}
+    if str(batting_throwing).startswith("左投"):
+        label_positions = {code: (240 - x, y) for code, (x, y) in label_positions.items()}
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    second_fastballs = []
+    for ball in balls or []:
+        if ball.get("kind") == "breaking":
+            grouped.setdefault(str(ball.get("direction_code")), []).append(ball)
+        elif ball.get("kind") == "second_fastball":
+            second_fastballs.append(ball)
+    lines = [
+        '<svg viewBox="0 0 240 218" width="100%" height="100%" role="img" aria-label="変化球方向図">',
+        '<rect x="5" y="5" width="230" height="208" rx="12" fill="#f7fcff" stroke="#cce8ff" stroke-width="4"/>',
+        '<text x="120" y="26" text-anchor="middle" fill="#126bb0" font-size="14" font-weight="800">ストレート</text>',
+        '<circle cx="120" cy="72" r="13" fill="#fff" stroke="#118ee8" stroke-width="4"/>',
+        '<text x="120" y="77" text-anchor="middle" fill="#ff4a2d" font-size="16" font-weight="900">⚾</text>',
+    ]
+    for code, (x2, y2) in directions.items():
+        lines.append(f'<line x1="120" y1="72" x2="{x2}" y2="{y2}" stroke="#19a6ee" stroke-width="8" stroke-linecap="round" opacity=".32"/>')
+        lines.append(f'<line x1="120" y1="72" x2="{x2}" y2="{y2}" stroke="#0b8fe0" stroke-width="2" stroke-linecap="round" opacity=".45"/>')
+    if second_fastballs:
+        names = " / ".join(e(pitch_display_name(ball.get("name"))) for ball in second_fastballs)
+        lines.append(f'<text x="120" y="43" text-anchor="middle" fill="#126bb0" font-size="12" font-weight="800">{names}</text>')
+        lines.append('<rect x="112" y="50" width="6" height="11" rx="2" fill="#ff9b19"/><rect x="122" y="50" width="6" height="11" rx="2" fill="#ff9b19"/>')
+    for code, balls_in_direction in grouped.items():
+        x2, y2 = directions.get(code, (120, 190))
+        lx, ly = label_positions.get(code, (x2, y2))
+        for lane_index, ball in enumerate(balls_in_direction[:2]):
+            lane = -1 if lane_index == 0 else 1
+            color = "#0fa8f5" if lane_index == 0 else "#ff9518"
+            stroke = "#0788d0" if lane_index == 0 else "#d67500"
+            for bx, by, _ in block_points(120, 72, x2, y2, lane, pitch_movement(ball)):
+                lines.append(f'<rect x="{bx - 4:.1f}" y="{by - 4:.1f}" width="8" height="8" rx="1.5" fill="{color}" stroke="{stroke}" stroke-width="1"/>')
+            name_y = ly + lane_index * 14
+            lines.append(f'<text x="{lx}" y="{name_y}" text-anchor="middle" fill="#126bb0" font-size="12" font-weight="800">{e(pitch_display_name(ball.get("name")))}</text>')
+    return "".join(lines) + "</svg>"
+
+
+def compact_pitcher_aptitude_text(player: dict[str, Any]) -> str:
+    abilities = player.get("abilities", {}) if isinstance(player.get("abilities"), dict) else {}
+    values = {key: player.get(key) or abilities.get(key) for key in PITCHER_APTITUDE_KEYS}
+    if not any(values.values()):
+        pos = str(player.get("position", ""))
+        values = {"starter_aptitude": "◎" if pos == "先発" else "－", "reliever_aptitude": "◎" if pos == "中継ぎ" else "－", "closer_aptitude": "◎" if pos == "抑え" else "－"}
+    labels = [("starter_aptitude", "先"), ("reliever_aptitude", "中"), ("closer_aptitude", "抑")]
+    return " ".join(f"{label}{(values.get(key) or '－').replace('-', '－')}" for key, label in labels)
+
+def set_selected_tab(tab_key: str, label: str) -> None:
+    st.session_state[tab_key] = label
+
+
+def unavailable_panel_html(message: str) -> str:
+    return f'<div class="pp-section-title">能力データ</div><div class="pp-mini-card" style="min-height:120px; display:flex; align-items:center; justify-content:center; text-align:center;">{e(message)}</div>'
+
+
+def render_detail_panel(p: dict[str, Any], master: MasterData, key_prefix: str) -> None:
+    tab_key = f"{key_prefix}_selected_player_tab"
+    tab = st.session_state.get(tab_key, "選手能力")
+    score = overall_score(p)
+    st.markdown(f"""<div class="pp-panel"><div class="pp-header"><div><div class="pp-name">{e(p.get('name'))}</div><div class="pp-chip" style="margin-top:7px">★ <span class="pp-score">{score}</span>　{e(p.get('position'))}</div></div><div class="pp-face">{render_player_icon_svg(p)}</div><div class="pp-info"><div class="pp-chip">投打　{e(p.get('batting_throwing'))}</div><div class="pp-chip">年齢　{e(p.get('age'))}歳</div><div class="pp-chip">区分　{e(p.get('category'))}</div><div class="pp-chip">タイプ　{e(p.get('player_type'))}</div><div class="pp-chip">フォーム　スタンダード1</div><div class="pp-chip">成績　率---- 本-- 点--</div></div></div></div>""", unsafe_allow_html=True)
+    tabs = [("選手能力", "#075fbd"), ("投手能力", "#d7193f"), ("野手能力", "#0876c9"), ("守備・起用", "#d49a00"), ("プロフィール", "#087d23")]
+    tab_cols = st.columns(len(tabs), gap="small")
+    for col, (label, _color) in zip(tab_cols, tabs):
+        with col:
+            st.button(
+                label,
+                key=f"{key_prefix}_tab_button_{label}",
+                use_container_width=True,
+                type="primary" if tab == label else "secondary",
+                on_click=set_selected_tab,
+                args=(tab_key, label),
+            )
+    abilities = p.get("abilities", {}) if isinstance(p.get("abilities"), dict) else {}
+    effective_tab = "投手能力" if tab == "選手能力" and p.get("role") == "投手" else "野手能力" if tab == "選手能力" else tab
+    if effective_tab == "投手能力":
+        if p.get("role") == "投手":
+            left = f'<div class="pp-section-title">投手能力</div><div class="pp-aptitude-line">適性　{e(compact_pitcher_aptitude_text(p))}</div>' + render_ability_rows([("球速", abilities.get("球速")), ("コントロール", abilities.get("コントロール")), ("スタミナ", abilities.get("スタミナ"))]) + f'<div class="pp-chart-wrap">{render_pitch_chart_svg(p.get("breaking_balls", []), str(p.get("batting_throwing", "")))}</div>'
+        else:
+            left = unavailable_panel_html("この選手には投手能力データがありません。")
+    elif effective_tab == "野手能力":
+        if p.get("role") == "野手":
+            left = '<div class="pp-section-title">野手能力</div>' + render_ability_rows([("守備位置", p.get("position")), ("弾道", abilities.get("弾道")), ("ミート", abilities.get("ミート")), ("パワー", abilities.get("パワー")), ("走力", abilities.get("走力")), ("肩力", abilities.get("肩力")), ("守備力", abilities.get("守備力")), ("捕球", abilities.get("捕球"))])
+        else:
+            left = unavailable_panel_html("この選手には野手能力データがありません。")
+    elif effective_tab == "守備・起用":
+        positions = ["捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手"]
+        aptitude_rows = "".join(f'<div class="pp-ability-row"><div class="pp-label">{position}</div><div></div><div class="pp-value">{"◎" if p.get("position") == position else next((item["aptitude"] for item in normalize_sub_positions(p.get("sub_positions")) if item["position"] == position), "--")}</div></div>' for position in positions)
+        left = '<div class="pp-section-title">守備・起用</div>' + (render_ability_rows([("メイン", p.get("position")), ("投手適性", compact_pitcher_aptitude_text(p))]) if p.get("role") == "投手" else aptitude_rows)
+    else:
+        left = '<div class="pp-section-title">プロフィール</div>' + render_ability_rows([("名前", p.get("name")), ("年齢", f"{p.get('age')}歳"), ("国籍", p.get("nationality")), ("出身地", p.get("birthplace")), ("身長", f"{p.get('height')}cm"), ("体重", f"{p.get('weight')}kg"), ("カテゴリ", p.get("category")), ("タイプ", p.get("player_type")), ("seed", p.get("seed"))])
+    body_class = "pp-body pp-body-pitcher" if effective_tab == "投手能力" and p.get("role") == "投手" else "pp-body"
+    st.markdown(f'<div class="pp-panel" style="margin-top:0; border-top-left-radius:0"><div class="{body_class}"><div>{left}</div><div><div class="pp-section-title">特殊能力</div>{render_special_grid_html(p, master)}</div></div></div>', unsafe_allow_html=True)
+
+
+def select_player(index_key: str, selected_index: int) -> None:
+    st.session_state[index_key] = selected_index
+
+
+def render_player_browser(players: list[dict[str, Any]], master: MasterData, key_prefix: str) -> None:
+    if not players:
+        st.info("表示する選手がまだありません。左の条件で生成してください。")
+        return
+    index_key = f"{key_prefix}_selected_index"
+    st.session_state[index_key] = min(max(int(st.session_state.get(index_key, 0)), 0), len(players) - 1)
+    left, right = st.columns([0.22, 0.78], gap="large")
+    with left:
+        st.markdown('<div class="pp-list-note">選手一覧から詳細表示する選手を選択</div>', unsafe_allow_html=True)
+        for index, player in enumerate(players):
+            is_selected = index == st.session_state[index_key]
+            label = f"{'●' if is_selected else '○'} {player.get('name')}｜{player.get('position')}｜{player.get('player_type')}｜{player.get('age')}歳｜{player.get('batting_throwing')}"
+            st.button(label, key=f"{key_prefix}_player_{index}", use_container_width=True, type="primary" if is_selected else "secondary", on_click=select_player, args=(index_key, index))
+        selected = st.session_state[index_key]
+        col_prev, col_next = st.columns(2)
+        if col_prev.button("前の選手", use_container_width=True, disabled=selected <= 0, key=f"{key_prefix}_prev"):
+            st.session_state[index_key] = selected - 1
+            st.rerun()
+        if col_next.button("次の選手", use_container_width=True, disabled=selected >= len(players) - 1, key=f"{key_prefix}_next"):
+            st.session_state[index_key] = selected + 1
+            st.rerun()
+    with right:
+        render_detail_panel(players[st.session_state[index_key]], master, key_prefix)
 
 def main() -> None:
     st.set_page_config(page_title="パワプロ風 架空選手生成", page_icon="⚾", layout="wide")
     init_db()
     master = load_master_data()
-    st.title("⚾ パワプロ風 架空選手生成ツール")
-    st.write("投手/野手、カテゴリ、生成人数だけを選ぶMVPです。その他の項目は重み付きランダムで自動生成します。")
+    inject_powerpro_ui_css()
+    st.markdown('<div class="pp-title">⚾ 選手能力詳細ジェネレーター</div>', unsafe_allow_html=True)
+    st.write("投手/野手、カテゴリ、生成人数だけを選ぶと、ゲーム風の能力詳細画面で確認できます。")
     with st.sidebar:
         st.header("画面")
         page = st.radio("表示する画面", ["選手生成", "バランス確認"], label_visibility="collapsed")
@@ -1873,20 +2150,36 @@ def main() -> None:
         saved_count = save_players(players)
         progress.empty()
         st.session_state["latest_players"] = players
+        st.session_state["latest_selected_index"] = 0
+        st.session_state["latest_selected_player_tab"] = "選手能力"
         st.success(f"{len(players)}人の選手を生成し、SQLiteに{saved_count}件保存しました。")
-    for player in st.session_state.get("latest_players", []):
-        render_card(player)
+    render_player_browser(st.session_state.get("latest_players", []), master, "latest")
+    latest_tab = st.session_state.get("latest_selected_player_tab", "選手能力")
+    latest_players = st.session_state.get("latest_players", [])
+    latest_index = min(max(int(st.session_state.get("latest_selected_index", 0)), 0), max(0, len(latest_players) - 1)) if latest_players else 0
+    latest_role = latest_players[latest_index].get("role") if latest_players else "投手"
+    role_help = "球速、制球、スタミナ、変化球と投手特殊能力を確認します。" if latest_role == "投手" else "打撃、走塁、守備の基礎能力と野手特殊能力を確認します。"
+    help_messages = {
+        "選手能力": role_help,
+        "投手能力": "球速、制球、スタミナ、変化球と投手特殊能力を確認します。",
+        "野手能力": "打撃、走塁、守備の基礎能力と野手特殊能力を確認します。",
+        "守備・起用": "メインポジション、サブポジション、起用適性を確認します。",
+        "プロフィール": "年齢、国籍、出身地、体格、生成カテゴリを確認します。",
+    }
+    st.markdown(f'<div class="pp-help">{e(help_messages.get(latest_tab, role_help))}</div>', unsafe_allow_html=True)
     st.divider()
-    st.header("過去生成選手")
     history = load_history()
-    st.dataframe(history, use_container_width=True, hide_index=True)
-    if not history.empty:
-        st.download_button("CSV出力", data=history.to_csv(index=False).encode("utf-8-sig"), file_name="pawapuro_players.csv", mime="text/csv")
-        excel_buffer = BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-            history.to_excel(writer, sheet_name="players", index=False)
-        st.download_button("Excel出力", data=excel_buffer.getvalue(), file_name="pawapuro_players.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        st.info("同じseedを使うことで、同条件の再生成に利用できるデータ構造です。")
+    history_players = [player_from_history_row(row) for _, row in history.head(100).iterrows()] if not history.empty else []
+    with st.expander("過去生成選手", expanded=False):
+        render_player_browser(history_players, master, "history")
+        st.dataframe(history, use_container_width=True, hide_index=True)
+        if not history.empty:
+            st.download_button("CSV出力", data=history.to_csv(index=False).encode("utf-8-sig"), file_name="pawapuro_players.csv", mime="text/csv")
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+                history.to_excel(writer, sheet_name="players", index=False)
+            st.download_button("Excel出力", data=excel_buffer.getvalue(), file_name="pawapuro_players.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.info("同じseedを使うことで、同条件の再生成に利用できるデータ構造です。")
 
 
 if __name__ == "__main__":
