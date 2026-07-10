@@ -1830,8 +1830,9 @@ def inject_powerpro_ui_css() -> None:
     .pp-header {display:grid; grid-template-columns: 190px 104px minmax(0,1fr); gap:9px; align-items:stretch; margin-bottom:6px;}
     .pp-name {background:linear-gradient(#72ffff,#23dbe9); border:3px solid #078bc8; border-radius:8px; font-size:24px; font-weight:900; text-align:center; padding:7px; color:#022d55; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
     .pp-face {background:#f7fbff; border:2px solid #c8e7ff; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:96px;}
-    .pp-info {display:grid; grid-template-columns:minmax(120px,1fr) minmax(90px,.75fr) minmax(160px,1.15fr); gap:6px;}
+    .pp-info {display:grid; grid-template-columns:minmax(120px,.8fr) minmax(150px,1.15fr) minmax(190px,1.35fr); gap:6px;}
     .pp-chip {background:#f7fbff; border:2px solid #d5edff; border-radius:9px; padding:5px 9px; color:#0a69b0; font-weight:800; font-size:15px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-chip-wide {font-size:14px; letter-spacing:-.01em;}
     .pp-score {background:#0368b8; color:white; border-radius:7px; padding:1px 8px; display:inline-block; font-weight:900;}
     .pp-body {display:grid; grid-template-columns:34% 66%; gap:9px; background:#edf9fc; border:3px solid #d5edff; border-radius:0 0 13px 13px; padding:9px; min-height:430px; overflow:hidden; align-items:stretch;}
     .pp-body-pitcher {height:500px; overflow:visible;}
@@ -1844,6 +1845,10 @@ def inject_powerpro_ui_css() -> None:
     .pp-special-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:5px;}
     .pp-special {height:43px; min-width:0; border-radius:8px; border:3px solid #86dff4; background:linear-gradient(#f7feff,#d9f8ff); color:#0870b6; font-weight:950; display:grid; grid-template-columns:minmax(0,1fr) 28px; align-items:center; gap:3px; padding:0 8px; font-size:16px; box-shadow:inset 0 2px rgba(255,255,255,.8), inset 0 -2px rgba(83,202,232,.12);}
     .pp-special-name {overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;}
+    .pp-special.no-rank {grid-template-columns:minmax(0,1fr);}
+    .pp-special.no-rank .pp-special-rank {display:none;}
+    .pp-special.long .pp-special-name {font-size:14px; letter-spacing:-.04em;}
+    .pp-special.xlong .pp-special-name {font-size:12.5px; letter-spacing:-.06em;}
     .pp-special-rank {font-size:19px; text-align:right; color:#07629c; font-weight:950;}
     .pp-special.red {background:linear-gradient(#fff8f8,#ffe0e0); border-color:#f29a9a; color:#bd1624;}
     .pp-special.red .pp-special-rank {color:#bd1624;}
@@ -1868,7 +1873,7 @@ def inject_powerpro_ui_css() -> None:
     .pp-chart-wrap {height:270px; margin-top:6px; overflow:visible;}
     .pp-defense-grid,.pp-profile-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px;}
     .pp-profile-grid .wide {grid-column:1 / -1;}
-    .pp-seed-note {font-size:12px; color:#5b7f99; margin-top:8px; word-break:break-all;}
+    .pp-seed-note {font-size:11px; color:#7892a5; margin-top:8px; word-break:break-all; opacity:.72;}
     div[class*="st-key-latest_tab_"] button, div[class*="st-key-history_tab_"] button {background:#06396f!important; color:white!important; border-color:#052e5a!important; font-weight:900;}
     div[class*="st-key-latest_tab_player"] button[kind="primary"], div[class*="st-key-history_tab_player"] button[kind="primary"] {background:#075fbd!important; border-color:#075fbd!important;}
     div[class*="st-key-latest_tab_pitcher"] button[kind="primary"], div[class*="st-key-history_tab_pitcher"] button[kind="primary"] {background:#d7193f!important; border-color:#d7193f!important;}
@@ -1956,12 +1961,35 @@ def special_target_for_name(name: str, master: MasterData) -> str:
     return next((special_target_role(row) for row in master.abilities if row.get("name") == name), "共通")
 
 
+def fixed_rank_slots(player: dict[str, Any], mode: str) -> list[str | None]:
+    ranked = filtered_ranked_specials(player, mode)
+    if mode == "pitcher":
+        order = ["対ピンチ", "対左打者", "打たれ強さ", "ケガしにくさ", "ノビ", "クイック", None, "回復"]
+    elif mode == "fielder":
+        order = ["チャンス", "対左投手", "キャッチャー", "ケガしにくさ", "盗塁", "走塁", "送球", "回復"]
+    else:
+        return []
+    return [ranked.get(name) if name else None for name in order]
+
+
+def special_cell_html(name: str | None, kind: str = "blue") -> str:
+    if not name:
+        return '<div class="pp-special empty"><span></span><span></span></div>'
+    base_name, rank_text = split_special_rank(name)
+    cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else ""
+    length_cls = "xlong" if len(base_name) >= 11 else "long" if len(base_name) >= 8 else ""
+    rank_cls = "" if rank_text else "no-rank"
+    classes = " ".join(part for part in [cls, length_cls, rank_cls] if part)
+    return f'<div class="pp-special {classes}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span><span class="pp-special-rank">{e(rank_text)}</span></div>'
+
+
 def render_special_grid_html(p: dict[str, Any], master: MasterData, mode: str = "fielder", cell_count: int = 32) -> str:
-    ranked = filtered_ranked_specials(p, mode)
-    entries = [(str(value), "blue") for value in ranked.values()]
+    cells: list[str] = []
+    if mode in ("pitcher", "fielder"):
+        cells.extend(special_cell_html(name) for name in fixed_rank_slots(p, mode))
     order = {"gold": 1, "blue": 2, "mixed": 2, "neutral": 2, "green": 3, "red": 4}
     normal_entries = []
-    usage_names = {"調子次第", "ミート多用", "強振多用", "積極打法", "慎重打法", "積極盗塁", "慎重盗塁", "積極走塁", "積極守備", "チームプレイ○", "チームプレイ×", "速球中心", "変化球中心", "投球位置左", "投球位置右", "テンポ○", "人気者", "ムード○", "ムード×", "選球眼"}
+    usage_names = {"調子次第", "ミート多用", "強振多用", "積極打法", "慎重打法", "積極盗塁", "慎重盗塁", "積極走塁", "積極守備", "チームプレイ○", "チームプレイ×", "速球中心", "変化球中心", "投球位置左", "投球位置右", "テンポ○"}
     for raw_name in p.get("special_abilities", []):
         name = str(raw_name)
         kind = special_kind(name, master)
@@ -1970,23 +1998,20 @@ def render_special_grid_html(p: dict[str, Any], master: MasterData, mode: str = 
             continue
         if mode == "fielder" and target not in ("野手", "共通"):
             continue
-        if mode == "usage" and not (kind == "green" or name in usage_names):
+        if mode == "usage" and name not in usage_names:
             continue
         normal_entries.append((name, kind))
-    entries.extend(sorted(normal_entries, key=lambda item: order.get(item[1], 9)))
-    visible_ability_count = cell_count - 1 if len(entries) > cell_count else cell_count
-    display_entries = entries[:visible_ability_count]
-    hidden_count = max(0, len(entries) - visible_ability_count)
-    if hidden_count:
-        display_entries.append((f"ほか{hidden_count}件", "blue"))
-    cells = []
-    for name, kind in display_entries:
-        base_name, rank_text = split_special_rank(name)
-        cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else ""
-        cells.append(f'<div class="pp-special {cls}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span><span class="pp-special-rank">{e(rank_text)}</span></div>')
+    display_entries = sorted(normal_entries, key=lambda item: order.get(item[1], 9))
+    max_normal = max(0, cell_count - len(cells))
+    hidden_count = max(0, len(display_entries) - max_normal)
+    if hidden_count and max_normal > 0:
+        display_entries = display_entries[: max_normal - 1] + [(f"ほか{hidden_count}件", "blue")]
+    else:
+        display_entries = display_entries[:max_normal]
+    cells.extend(special_cell_html(name, kind) for name, kind in display_entries)
     while len(cells) < cell_count:
-        cells.append('<div class="pp-special empty"><span></span><span></span></div>')
-    return '<div class="pp-special-grid">' + "".join(cells) + "</div>"
+        cells.append(special_cell_html(None))
+    return '<div class="pp-special-grid">' + "".join(cells[:cell_count]) + "</div>"
 
 def pitch_display_name(name: Any) -> str:
     text = str(name or "")
@@ -2052,10 +2077,19 @@ def render_pitch_chart_svg(balls: list[dict[str, Any]], batting_throwing: str = 
             dx, dy = x2 - 120, y2 - 72
             length = max((dx * dx + dy * dy) ** 0.5, 1)
             nx, ny = -dy / length, dx / length
-            offset = -8 if lane_index == 0 else 10
-            name_x = lx + nx * offset
-            name_y = min(206, max(42, ly + ny * offset))
-            lines.append(f'<text x="{name_x:.1f}" y="{name_y:.1f}" text-anchor="middle" fill="#126bb0" font-size="12" font-weight="800">{e(pitch_display_name(ball.get("name")))}</text>')
+            offset = -10 if lane_index == 0 else 12
+            raw_x = lx + nx * offset
+            raw_y = ly + ny * offset
+            name_x = min(215, max(25, raw_x))
+            name_y = min(202, max(40, raw_y))
+            anchor = "middle"
+            if name_x < 84:
+                anchor = "start"
+                name_x = max(25, name_x - 4)
+            elif name_x > 156:
+                anchor = "end"
+                name_x = min(215, name_x + 4)
+            lines.append(f'<text x="{name_x:.1f}" y="{name_y:.1f}" text-anchor="{anchor}" fill="#126bb0" font-size="12" font-weight="800">{e(pitch_display_name(ball.get("name")))}</text>')
     return "".join(lines) + "</svg>"
 
 
@@ -2075,6 +2109,8 @@ def pitcher_fallback_abilities() -> dict[str, Any]:
 
 
 def derive_pitcher_fielding_abilities(player: dict[str, Any]) -> dict[str, Any]:
+    # 表示専用の野手補助能力です。バランス集計やCSVには含めず、SQLite保存形式も変更しません。
+    # 同じseed（と選手名）から毎回同じ値を算出し、再描画やタブ移動で変化しないようにします。
     base = player.get("abilities", {}) if isinstance(player.get("abilities"), dict) else {}
     rng = random.Random(f"fielder-fallback:{player.get('seed', 0)}:{player.get('name', '')}")
     speed = pitcher_speed_value(base) or 135
@@ -2121,20 +2157,49 @@ def filtered_ranked_specials(player: dict[str, Any], mode: str) -> dict[str, str
     return {}
 
 
+
+def ability_value_text(item: Any) -> str:
+    if isinstance(item, dict):
+        return f"{item.get('rank', '')} {item.get('value', '')}".strip()
+    return str(item if item is not None else "－－")
+
+def display_position_defense_value(player: dict[str, Any], full_position: str, mark: str, base_fielding: int | float | None) -> str:
+    if mark == "－－" or not isinstance(base_fielding, int | float):
+        return ""
+    if mark == "◎" and player.get("position") == full_position:
+        rate_min, rate_max = 1.0, 1.0
+    elif mark == "◎":
+        rate_min, rate_max = 0.90, 1.0
+    elif mark == "○":
+        rate_min, rate_max = 0.75, 0.90
+    else:
+        rate_min, rate_max = 0.55, 0.75
+    rng = random.Random(f"defense-table:{player.get('seed', 0)}:{full_position}:{mark}")
+    value = int(round(base_fielding * rng.uniform(rate_min, rate_max)))
+    return str(max(1, min(99, value)))
+
+
 def render_defense_usage_left(player: dict[str, Any]) -> str:
     f = displayed_fielder_abilities(player)
-    common = render_ability_rows([("走力", f.get("走力")), ("肩力", f.get("肩力"))])
+    title = '<div class="pp-section-title">守備・起用</div>'
     if player.get("role") == "投手":
-        return '<div class="pp-section-title">守備・起用</div>' + common + render_ability_rows([("守備力", f.get("守備力")), ("捕球", f.get("捕球")), ("守備位置", "投"), ("起用適性", compact_pitcher_aptitude_text(player))])
+        return title + render_ability_rows([
+            ("走力", f.get("走力")),
+            ("肩力", f.get("肩力")),
+            ("守備力", f"投 {ability_value_text(f.get('守備力'))}"),
+            ("捕球", f.get("捕球")),
+            ("起用適性", compact_pitcher_aptitude_text(player)),
+        ])
     sub = {i["position"]: i["aptitude"] for i in normalize_sub_positions(player.get("sub_positions"))}
     pos_labels = [("捕", "捕手"), ("一", "一塁手"), ("二", "二塁手"), ("三", "三塁手"), ("遊", "遊撃手"), ("外", "外野手")]
+    base_fielding = ability_numeric_value(f, "守備力")
     cells = []
     for short, full in pos_labels:
         mark = "◎" if player.get("position") == full else sub.get(full, "－－")
-        emph = ' style="color:#075fbd;font-weight:950"' if mark == "◎" else ""
-        cells.append(f'<div class="pp-mini-card"{emph}><span class="pp-mini-label">{short}</span>{e(mark)}</div>')
-    return '<div class="pp-section-title">守備・起用</div>' + common + render_ability_rows([("守備力", f.get("守備力")), ("捕球", f.get("捕球"))]) + '<div class="pp-defense-grid">' + ''.join(cells) + '</div>'
-
+        value = display_position_defense_value(player, full, mark, base_fielding)
+        emph = ' style="color:#075fbd;font-weight:950"' if player.get("position") == full else ""
+        cells.append(f'<div class="pp-mini-card"{emph}><span class="pp-mini-label">{short}</span>{e(mark)} <span style="font-size:14px">{e(value)}</span></div>')
+    return title + render_ability_rows([("走力", f.get("走力")), ("肩力", f.get("肩力"))]) + '<div class="pp-defense-grid">' + ''.join(cells) + '</div>' + render_ability_rows([("守備力", f.get("守備力")), ("捕球", f.get("捕球"))])
 
 def render_profile_right(player: dict[str, Any]) -> str:
     items = [("氏名", player.get("name"), "wide"), ("年齢", f"{player.get('age')}歳", ""), ("投打", player.get("batting_throwing"), ""), ("国籍・出身地", f"{player.get('nationality')}／{player.get('birthplace')}", "wide"), ("身長", f"{player.get('height')}cm", ""), ("体重", f"{player.get('weight')}kg", ""), ("カテゴリ", player.get("category"), "wide"), ("タイプ", player.get("player_type"), "")]
@@ -2145,15 +2210,11 @@ def set_selected_tab(tab_key: str, label: str) -> None:
     st.session_state[tab_key] = label
 
 
-def unavailable_panel_html(message: str) -> str:
-    return f'<div class="pp-section-title">能力データ</div><div class="pp-mini-card" style="min-height:120px; display:flex; align-items:center; justify-content:center; text-align:center;">{e(message)}</div>'
-
-
 def render_detail_panel(p: dict[str, Any], master: MasterData, key_prefix: str) -> None:
     tab_key = f"{key_prefix}_selected_player_tab"
     tab = st.session_state.get(tab_key, "選手能力")
     score = overall_score(p)
-    st.markdown(f"""<div class="pp-panel"><div class="pp-header"><div><div class="pp-name">{e(p.get('name'))}</div><div class="pp-chip" style="margin-top:7px">★ <span class="pp-score">{score}</span>　{e(p.get('position'))}</div></div><div class="pp-face">{render_player_icon_svg(p)}</div><div class="pp-info"><div class="pp-chip">投打　{e(p.get('batting_throwing'))}</div><div class="pp-chip">年齢　{e(p.get('age'))}歳</div><div class="pp-chip">区分　{e(p.get('category'))}</div><div class="pp-chip">タイプ　{e(p.get('player_type'))}</div><div class="pp-chip">フォーム　スタンダード1</div><div class="pp-chip">成績　率---- 本-- 点--</div></div></div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="pp-panel"><div class="pp-header"><div><div class="pp-name">{e(p.get('name'))}</div><div class="pp-chip" style="margin-top:7px">★ <span class="pp-score">{score}</span>　{e(p.get('position'))}</div></div><div class="pp-face">{render_player_icon_svg(p)}</div><div class="pp-info"><div class="pp-chip">投打　{e(p.get('batting_throwing'))}</div><div class="pp-chip">年齢　{e(p.get('age'))}歳</div><div class="pp-chip">区分　{e(p.get('category'))}</div><div class="pp-chip">タイプ　{e(p.get('player_type'))}</div><div class="pp-chip pp-chip-wide">フォーム　スタンダード1</div><div class="pp-chip pp-chip-wide">成績　率---- 本-- 点--</div></div></div></div>""", unsafe_allow_html=True)
     tabs = [("選手能力", "player", "#075fbd"), ("投手能力", "pitcher", "#d7193f"), ("野手能力", "fielder", "#0876c9"), ("守備・起用", "usage", "#d49a00"), ("プロフィール", "profile", "#087d23")]
     tab_cols = st.columns(len(tabs), gap="small")
     for col, (label, key_name, _color) in zip(tab_cols, tabs):
