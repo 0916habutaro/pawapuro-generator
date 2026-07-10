@@ -134,6 +134,8 @@
 - `special_name_metrics_compare.csv`
 - `special_count_distribution_compare.csv`
 - `ranked_ability_family_distribution_compare.csv`
+- `special_event_classification_audit.csv`
+- `special_event_classification_summary.csv`
 - `special_ability_consistency_warnings.csv`
 - `special_ability_consistency_summary.csv`
 - `special_ability_conflicts.csv`
