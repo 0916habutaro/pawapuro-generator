@@ -121,20 +121,67 @@ def load_master_data() -> MasterData:
 
 
 def init_db() -> None:
+    """Create and migrate the local player history database.
+
+    The app started with most nested values inside abilities_json.  Current
+    storage keeps backward compatible copies in dedicated JSON columns so
+    history, CSV/Excel export, and audit scripts can read old and new DBs.
+    """
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS players (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, seed INTEGER NOT NULL,
-                role TEXT NOT NULL, category TEXT NOT NULL, name TEXT NOT NULL, age INTEGER NOT NULL,
-                nationality TEXT NOT NULL, birthplace TEXT NOT NULL, position TEXT NOT NULL, player_type TEXT NOT NULL,
-                handedness TEXT NOT NULL, batting_throwing TEXT NOT NULL, height INTEGER NOT NULL, weight INTEGER NOT NULL,
-                abilities_json TEXT NOT NULL, special_abilities_json TEXT NOT NULL, breaking_balls_json TEXT NOT NULL,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                seed INTEGER NOT NULL DEFAULT 0,
+                role TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT '',
+                name TEXT NOT NULL DEFAULT '',
+                age INTEGER NOT NULL DEFAULT 0,
+                nationality TEXT NOT NULL DEFAULT '',
+                birthplace TEXT NOT NULL DEFAULT '',
+                region TEXT NOT NULL DEFAULT '',
+                position TEXT NOT NULL DEFAULT '',
+                player_type TEXT NOT NULL DEFAULT '',
+                handedness TEXT NOT NULL DEFAULT '',
+                batting_throwing TEXT NOT NULL DEFAULT '',
+                height INTEGER NOT NULL DEFAULT 0,
+                weight INTEGER NOT NULL DEFAULT 0,
+                abilities_json TEXT NOT NULL DEFAULT '{}',
+                special_abilities_json TEXT NOT NULL DEFAULT '[]',
+                ranked_special_abilities_json TEXT NOT NULL DEFAULT '{}',
+                breaking_balls_json TEXT NOT NULL DEFAULT '[]',
+                pitcher_aptitudes_json TEXT NOT NULL DEFAULT '{}',
                 sub_positions_json TEXT NOT NULL DEFAULT '[]'
             )
         """)
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
-        if "sub_positions_json" not in columns:
-            conn.execute("ALTER TABLE players ADD COLUMN sub_positions_json TEXT NOT NULL DEFAULT '[]'")
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
+        migrations = {
+            "created_at": "TEXT NOT NULL DEFAULT ''",
+            "seed": "INTEGER NOT NULL DEFAULT 0",
+            "role": "TEXT NOT NULL DEFAULT ''",
+            "category": "TEXT NOT NULL DEFAULT ''",
+            "name": "TEXT NOT NULL DEFAULT ''",
+            "age": "INTEGER NOT NULL DEFAULT 0",
+            "nationality": "TEXT NOT NULL DEFAULT ''",
+            "birthplace": "TEXT NOT NULL DEFAULT ''",
+            "region": "TEXT NOT NULL DEFAULT ''",
+            "position": "TEXT NOT NULL DEFAULT ''",
+            "player_type": "TEXT NOT NULL DEFAULT ''",
+            "handedness": "TEXT NOT NULL DEFAULT ''",
+            "batting_throwing": "TEXT NOT NULL DEFAULT ''",
+            "height": "INTEGER NOT NULL DEFAULT 0",
+            "weight": "INTEGER NOT NULL DEFAULT 0",
+            "abilities_json": "TEXT NOT NULL DEFAULT '{}'",
+            "special_abilities_json": "TEXT NOT NULL DEFAULT '[]'",
+            "ranked_special_abilities_json": "TEXT NOT NULL DEFAULT '{}'",
+            "breaking_balls_json": "TEXT NOT NULL DEFAULT '[]'",
+            "pitcher_aptitudes_json": "TEXT NOT NULL DEFAULT '{}'",
+            "sub_positions_json": "TEXT NOT NULL DEFAULT '[]'",
+        }
+        for column, definition in migrations.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE players ADD COLUMN {column} {definition}")
+        conn.execute("UPDATE players SET region = birthplace WHERE (region IS NULL OR region = '') AND birthplace IS NOT NULL")
 
 
 def weighted_choice(rng: random.Random, items: list[tuple[Any, int]]) -> Any:
@@ -1287,11 +1334,16 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
 
 
 def save_players(players: list[dict[str, Any]]) -> int:
+    init_db()
     with sqlite3.connect(DB_PATH) as conn:
         for p in players:
-            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, nationality, birthplace, position, player_type, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, breaking_balls_json, sub_positions_json)
-                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                         (p["seed"], p["role"], p["category"], p["name"], p["age"], p["nationality"], p["birthplace"], p["position"], p["player_type"], p["handedness"], p["batting_throwing"], p["height"], p["weight"], json.dumps(p["abilities"], ensure_ascii=False), json.dumps(p["special_abilities"], ensure_ascii=False), json.dumps(p["breaking_balls"], ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False)))
+            abilities = dict(p.get("abilities", {}))
+            ranked_specials = abilities.get("ranked_specials", {}) if isinstance(abilities, dict) else {}
+            pitcher_aptitudes = {key: p.get(key) for key in PITCHER_APTITUDE_KEYS if p.get(key) is not None}
+            region = p.get("region") or p.get("birthplace") or ""
+            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, nationality, birthplace, region, position, player_type, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json)
+                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("nationality", ""), p.get("birthplace", region), region, p.get("position", ""), p.get("player_type", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False)))
         return len(players)
 
 
@@ -1315,11 +1367,18 @@ def apply_history_filters(df: pd.DataFrame, categories: list[str], roles: list[s
 def load_history() -> pd.DataFrame:
     init_db()
     with sqlite3.connect(DB_PATH) as conn:
-        history = pd.read_sql_query("SELECT id, created_at, seed, role, category, name, age, nationality, birthplace, position, player_type, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, breaking_balls_json, sub_positions_json FROM players ORDER BY id DESC", conn)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
+        wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "nationality", "birthplace", "region", "position", "player_type", "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json"]
+        selected = [column for column in wanted if column in columns]
+        history = pd.read_sql_query(f"SELECT {', '.join(selected)} FROM players ORDER BY id DESC", conn)
     if not history.empty:
+        if "region" not in history.columns:
+            history["region"] = history.get("birthplace", "")
         abilities = history["abilities_json"].apply(lambda value: parse_json_column(value, {}))
+        pitcher_aptitudes = history["pitcher_aptitudes_json"].apply(lambda value: parse_json_column(value, {})) if "pitcher_aptitudes_json" in history.columns else pd.Series([{}] * len(history))
         for key in PITCHER_APTITUDE_KEYS:
-            history[key] = abilities.apply(lambda item: item.get(key) if isinstance(item, dict) else None)
+            history[key] = pitcher_aptitudes.apply(lambda item: item.get(key) if isinstance(item, dict) else None)
+            history[key] = history[key].where(history[key].notna(), abilities.apply(lambda item: item.get(key) if isinstance(item, dict) else None))
         history["sub_positions"] = history["sub_positions_json"].apply(normalize_sub_positions)
         history["サブポジ数"] = history["sub_positions"].apply(len)
         history["サブポジ"] = history["sub_positions"].apply(format_sub_positions)
@@ -1329,12 +1388,23 @@ def load_history() -> pd.DataFrame:
 
 
 def parse_json_column(value: Any, fallback: Any) -> Any:
-    if pd.isna(value):
+    if value is None:
         return fallback
-    try:
-        return json.loads(value)
-    except (TypeError, json.JSONDecodeError):
+    if isinstance(value, float) and pd.isna(value):
         return fallback
+    if isinstance(value, (list, dict)):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return fallback
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            if isinstance(fallback, list):
+                return [part.strip() for part in text.split(",") if part.strip()]
+            return fallback
+    return fallback
 
 
 def load_history_for_balance() -> pd.DataFrame:
@@ -1344,7 +1414,13 @@ def load_history_for_balance() -> pd.DataFrame:
     df = history.copy()
     df["abilities"] = df["abilities_json"].apply(lambda value: parse_json_column(value, {}))
     df["special_abilities"] = df["special_abilities_json"].apply(lambda value: parse_json_column(value, []))
-    df["ranked_specials"] = df["abilities"].apply(lambda value: value.get("ranked_specials", {}) if isinstance(value, dict) else {})
+    from_abilities = df["abilities"].apply(lambda value: value.get("ranked_specials", {}) if isinstance(value, dict) else {})
+    if "ranked_special_abilities_json" in df.columns:
+        df["ranked_specials"] = df["ranked_special_abilities_json"].apply(lambda value: parse_json_column(value, {}))
+        df["ranked_specials"] = df["ranked_specials"].where(df["ranked_specials"].apply(bool), from_abilities)
+    else:
+        df["ranked_specials"] = from_abilities
+    df["breaking_balls"] = df["breaking_balls_json"].apply(lambda value: parse_json_column(value, []))
     df["sub_positions"] = df["sub_positions_json"].apply(normalize_sub_positions) if "sub_positions_json" in df.columns else [[] for _ in range(len(df))]
     return df
 
