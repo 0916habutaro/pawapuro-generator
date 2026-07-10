@@ -1858,7 +1858,7 @@ def inject_powerpro_ui_css() -> None:
     .pp-rank {font-size:28px; font-weight:950; text-align:center; text-shadow:1px 1px white; line-height:1;}
     .pp-value {font-size:22px; color:#0b72bd; font-weight:950; text-align:right; padding-right:12px; overflow-wrap:anywhere;}
     .pp-special-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:5px;}
-    .pp-special {height:43px; min-width:0; border-radius:8px; border:2px solid #4fc4db; background:linear-gradient(180deg,#ecfdff 0%,#a9eef6 55%,#67d9e9 100%); color:#0871ad; font-weight:950; display:grid; grid-template-columns:minmax(0,1fr); place-items:center; padding:0 8px; font-size:17px; box-shadow:inset 0 1px rgba(255,255,255,.72), inset 0 -1px rgba(83,202,232,.10);}
+    .pp-special {height:43px; min-width:0; border-radius:8px; border:2px solid #65c6d6; background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%); color:#0871ad; font-weight:900; display:grid; grid-template-columns:minmax(0,1fr); place-items:center; padding:0 8px; font-size:17px; box-shadow:inset 0 1px rgba(255,255,255,.64), inset 0 -1px rgba(83,202,232,.08);}
     .pp-special-name {overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; max-width:100%; text-align:center;}
     .pp-special-ranked {display:grid; grid-template-columns:minmax(0,1fr) 22px; padding:0; overflow:hidden; gap:0; align-items:stretch;}
     .pp-special-ranked .pp-special-name {display:flex; align-items:center; justify-content:center; padding:0 4px;}
@@ -1866,15 +1866,16 @@ def inject_powerpro_ui_css() -> None:
     .pp-special.long .pp-special-name {font-size:14.5px; letter-spacing:-.04em;}
     .pp-special.xlong .pp-special-name {font-size:12.5px; letter-spacing:-.06em;}
     .pp-special.red {background:linear-gradient(#fff8f8,#ffe0e0); border-color:#f29a9a; color:#bd1624;}
-    .pp-special.green {background:linear-gradient(#f8fff9,#dcf8e2); border-color:#73d58a; color:#15833d;}
+    .pp-special.green {background:linear-gradient(180deg,#f3fff5 0%,#c9f2d2 100%); border-color:#56c978; color:#13783a;}
+    .pp-special.neutral {background:linear-gradient(180deg,#fbffff 0%,#e4f8fb 100%); border-color:#9bdbe6; color:#0871ad;}
     .pp-special.gold {background:linear-gradient(#fffdf1,#fff0ad); border-color:#e0be3c; color:#836200;}
-    .pp-special-ranked.rank-ab {background:linear-gradient(180deg,#ecfdff 0%,#a9eef6 55%,#67d9e9 100%); border-color:#4fc4db; color:#0871ad;}
+    .pp-special-ranked.rank-ab {background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%); border-color:#65c6d6; color:#0871ad;}
     .pp-special-ranked.rank-ab .pp-special-rank-badge {background:linear-gradient(180deg,#38c9dc 0%,#1595b5 100%); color:#fff;}
     .pp-special-ranked.rank-cde {background:linear-gradient(180deg,#fbffff 0%,#e8fbfe 55%,#cef4f9 100%); border-color:#83dceb; color:#0871ad;}
-    .pp-special-ranked.rank-cde .pp-special-rank-badge {background:linear-gradient(180deg,#7bd8e4 0%,#3ba8c2 100%); color:#fff;}
+    .pp-special-ranked.rank-cde .pp-special-rank-badge {background:linear-gradient(180deg,#9be4ec 0%,#61bfd1 100%); color:#fff;}
     .pp-special-ranked.rank-fg {background:linear-gradient(180deg,#fff5f5 0%,#ffd3d3 55%,#ffadad 100%); border-color:#ef6c72; color:#c71c24;}
     .pp-special-ranked.rank-fg .pp-special-rank-badge {background:linear-gradient(180deg,#ed5a60 0%,#c8212b 100%); color:#fff;}
-    .pp-special.empty {height:43px; background:rgba(244,253,255,.72); border-color:#cfeef5; color:transparent; box-shadow:none;}
+    .pp-special.empty {height:43px; background:rgba(230,248,252,.68); border-color:#c3e8f0; color:transparent; box-shadow:none;}
     .pp-section-title {color:#075f9e; font-weight:900; font-size:17px; margin:2px 0 7px;}
     .pp-help {position:static; background:#062247; color:white; padding:11px 18px; font-size:18px; font-weight:800; border-top:4px solid #0b4f8c; border-radius:8px; margin:16px 0;}
     .pp-list-note {color:#0a4773; font-weight:800; margin-bottom:8px;}
@@ -2013,7 +2014,7 @@ def special_cell_html(name: str | None, kind: str = "blue") -> str:
     if rank_text:
         classes = " ".join(part for part in ["pp-special", "pp-special-ranked", special_rank_class(rank_text), length_cls] if part)
         return f'<div class="{classes}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span><span class="pp-special-rank-badge">{e(rank_text)}</span></div>'
-    cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else ""
+    cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else "neutral" if kind == "neutral" else ""
     classes = " ".join(part for part in ["pp-special", cls, length_cls] if part)
     return f'<div class="{classes}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span></div>'
 
