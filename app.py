@@ -1889,6 +1889,11 @@ def inject_powerpro_ui_css() -> None:
       .pp-special-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
     }
     .pp-aptitude-line {background:#f9fdff; border:2px solid #cfe9ff; border-radius:9px; color:#0a69b0; font-weight:900; padding:5px 9px; margin-bottom:6px; white-space:nowrap; font-size:15px;}
+    .pp-pitcher-usage-row,.pp-pitcher-defense-row {display:grid; grid-template-columns:40% 1fr; align-items:center; margin:6px 0; background:#fff; border:2px solid #cfe9ff; border-radius:9px; min-height:42px; overflow:hidden; box-shadow:inset 0 2px rgba(255,255,255,.8);}
+    .pp-pitcher-usage-values {display:flex; gap:14px; align-items:center; justify-content:space-around; min-width:0; white-space:nowrap; color:#0b72bd; font-weight:950; font-size:18px;}
+    .pp-pitcher-usage-item {white-space:nowrap; display:inline-flex; gap:2px; align-items:baseline;}
+    .pp-pitcher-defense-values {display:flex; gap:10px; align-items:baseline; justify-content:flex-end; padding-right:12px; white-space:nowrap; color:#0b72bd; font-weight:950;}
+    @media (max-width: 980px) {.pp-pitcher-usage-values {font-size:15px; gap:8px;}}
     .pp-chart-wrap {height:270px; margin-top:6px; overflow:visible;}
     .pp-defense-grid,.pp-profile-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px;}
     .pp-profile-grid .wide {grid-column:1 / -1;}
@@ -2034,9 +2039,10 @@ def render_special_grid_html(p: dict[str, Any], master: MasterData, mode: str = 
     else:
         display_entries = sorted(normal_entries, key=lambda item: order.get(item[1], 9))
     max_normal = max(0, cell_count - len(cells))
-    hidden_count = max(0, len(display_entries) - max_normal)
-    if hidden_count and max_normal > 0:
-        display_entries = display_entries[: max_normal - 1] + [(f"ほか{hidden_count}件", "blue")]
+    if len(display_entries) > max_normal and max_normal > 0:
+        visible_count = max_normal - 1
+        hidden_count = len(display_entries) - visible_count
+        display_entries = display_entries[:visible_count] + [(f"ほか{hidden_count}件", "blue")]
     else:
         display_entries = display_entries[:max_normal]
     cells.extend(special_cell_html(name, kind) for name, kind in display_entries)
@@ -2096,6 +2102,7 @@ def render_pitch_chart_svg(balls: list[dict[str, Any]], batting_throwing: str = 
         names = " / ".join(e(pitch_display_name(ball.get("name"))) for ball in second_fastballs)
         lines.append(f'<text x="120" y="43" text-anchor="middle" fill="#126bb0" font-size="12" font-weight="800">{names}</text>')
         lines.append('<rect x="112" y="50" width="6" height="11" rx="2" fill="#ff9b19"/><rect x="122" y="50" width="6" height="11" rx="2" fill="#ff9b19"/>')
+    placed_labels: list[tuple[float, float]] = []
     for code, balls_in_direction in grouped.items():
         x2, y2 = directions.get(code, (120, 190))
         lx, ly = label_positions.get(code, (x2, y2))
@@ -2114,6 +2121,10 @@ def render_pitch_chart_svg(balls: list[dict[str, Any]], batting_throwing: str = 
             raw_y = ly + ny * offset + extra_y
             name_x = min(215, max(25, raw_x))
             name_y = min(202, max(40, raw_y))
+            for placed_x, placed_y in placed_labels:
+                if abs(name_x - placed_x) < 55 and abs(name_y - placed_y) < 18:
+                    name_y += 8 if name_y >= placed_y else -8
+            name_y = min(202, max(40, name_y))
             anchor = "middle"
             if name_x < 84:
                 anchor = "start"
@@ -2121,6 +2132,7 @@ def render_pitch_chart_svg(balls: list[dict[str, Any]], batting_throwing: str = 
             elif name_x > 156:
                 anchor = "end"
                 name_x = min(215, name_x + 4)
+            placed_labels.append((name_x, name_y))
             lines.append(f'<text x="{name_x:.1f}" y="{name_y:.1f}" text-anchor="{anchor}" fill="#126bb0" font-size="12" font-weight="800">{e(pitch_display_name(ball.get("name")))}</text>')
     return "".join(lines) + "</svg>"
 
@@ -2179,11 +2191,11 @@ def filtered_ranked_specials(player: dict[str, Any], mode: str) -> dict[str, str
     fielder_names = {"チャンス", "対左投手", "盗塁", "走塁", "送球", "キャッチャー"}
     common_names = {"ケガしにくさ", "回復"}
     if mode == "pitcher":
-        defaults = {name: f"{name}D" for name in ["対ピンチ", "対左打者", "打たれ強さ", "ノビ", "クイック", "回復"]}
+        defaults = {name: f"{name}D" for name in ["対ピンチ", "対左打者", "打たれ強さ", "ケガしにくさ", "ノビ", "クイック", "回復"]}
         defaults.update({k: v for k, v in ranked.items() if k in common_names or k in pitcher_names})
         return {k: v for k, v in defaults.items() if k in pitcher_names or k in common_names}
     if mode == "fielder":
-        defaults = {name: f"{name}D" for name in ["チャンス", "対左投手", "盗塁", "走塁", "送球"]}
+        defaults = {name: f"{name}D" for name in ["チャンス", "対左投手", "ケガしにくさ", "盗塁", "走塁", "送球", "回復"]}
         if player.get("position") == "捕手":
             defaults["キャッチャー"] = "キャッチャーD"
         defaults.update({k: v for k, v in ranked.items() if k in common_names or k in fielder_names})
@@ -2191,11 +2203,6 @@ def filtered_ranked_specials(player: dict[str, Any], mode: str) -> dict[str, str
     return {}
 
 
-
-def ability_value_text(item: Any) -> str:
-    if isinstance(item, dict):
-        return f"{item.get('rank', '')} {item.get('value', '')}".strip()
-    return str(item if item is not None else "－－")
 
 def display_position_defense_value(player: dict[str, Any], full_position: str, mark: str, base_fielding: int | float | None) -> int | None:
     if mark == "－－" or not isinstance(base_fielding, int | float):
@@ -2213,6 +2220,27 @@ def display_position_defense_value(player: dict[str, Any], full_position: str, m
     return max(1, min(99, value))
 
 
+
+def pitcher_usage_row_html(player: dict[str, Any]) -> str:
+    abilities = player.get("abilities", {}) if isinstance(player.get("abilities"), dict) else {}
+    values = {key: player.get(key) or abilities.get(key) for key in PITCHER_APTITUDE_KEYS}
+    if not any(values.values()):
+        pos = str(player.get("position", ""))
+        values = {"starter_aptitude": "◎" if pos == "先発" else "－", "reliever_aptitude": "◎" if pos == "中継ぎ" else "－", "closer_aptitude": "◎" if pos == "抑え" else "－"}
+    items = [("starter_aptitude", "先"), ("reliever_aptitude", "中"), ("closer_aptitude", "抑")]
+    value_html = "".join(f'<span class="pp-pitcher-usage-item"><span>{label}</span><span>{e((values.get(key) or "－").replace("-", "－"))}</span></span>' for key, label in items)
+    return f'<div class="pp-pitcher-usage-row"><div class="pp-label">起用適性</div><div class="pp-pitcher-usage-values">{value_html}</div></div>'
+
+
+def pitcher_defense_row_html(item: Any) -> str:
+    if isinstance(item, dict):
+        rank_text = str(item.get("rank", "－"))
+        value = str(item.get("value", "－"))
+    else:
+        rank_text = "－"
+        value = str(item if item is not None else "－")
+    return f'<div class="pp-pitcher-defense-row"><div class="pp-label">守備力</div><div class="pp-pitcher-defense-values"><span>投</span><span style="color:{ui_rank_color(rank_text)};font-size:24px;text-shadow:1px 1px white;">{e(rank_text)}</span><span>{e(value)}</span></div></div>'
+
 def render_defense_usage_left(player: dict[str, Any]) -> str:
     f = displayed_fielder_abilities(player)
     title = '<div class="pp-section-title">守備・起用</div>'
@@ -2220,10 +2248,9 @@ def render_defense_usage_left(player: dict[str, Any]) -> str:
         return title + render_ability_rows([
             ("走力", f.get("走力")),
             ("肩力", f.get("肩力")),
-            ("守備力", f"投 {ability_value_text(f.get('守備力'))}"),
+        ]) + pitcher_defense_row_html(f.get("守備力")) + render_ability_rows([
             ("捕球", f.get("捕球")),
-            ("起用適性", compact_pitcher_aptitude_text(player)),
-        ])
+        ]) + pitcher_usage_row_html(player)
     sub = {i["position"]: i["aptitude"] for i in normalize_sub_positions(player.get("sub_positions"))}
     pos_labels = [("捕", "捕手"), ("一", "一塁手"), ("二", "二塁手"), ("三", "三塁手"), ("遊", "遊撃手"), ("外", "外野手")]
     base_fielding = ability_numeric_value(f, "守備力")
