@@ -767,6 +767,43 @@ def generate_pitcher_abilities(rng: random.Random, age: int, player_type: str, c
     elif age <= 22 and not (category == "ドラフト候補用" and rng.random() < 0.12):
         control -= rng.randint(2, 6)
         stamina -= rng.randint(1, 4)
+
+    role = primary_pitcher_role(aptitudes)
+    if category == "架空球団用":
+        if role == "先発":
+            speed += 2 if player_type == "速球派" else 1
+            control += 4 if player_type == "技巧派" else 3 if player_type in {"本格派", "変化球派"} else 2
+            stamina -= 2 if player_type == "スタミナ型" else 4
+            if starter == "○":
+                speed -= 1
+                control -= 1
+                stamina -= 1
+        elif role == "中継ぎ":
+            speed += 3 if player_type == "速球派" else 2 if player_type in {"本格派", "変化球派"} else 1
+            control -= 2 if player_type == "技巧派" else 4 if player_type == "変化球派" else 6
+            stamina -= 2 if starter == "○" or player_type == "スタミナ型" else 4
+        elif role == "抑え":
+            speed += 4 if player_type == "速球派" else 3 if player_type == "本格派" else 2
+            control -= 1 if player_type == "技巧派" else 2 if player_type == "変化球派" else 3
+    elif category == "ドラフト候補用":
+        if role == "抑え":
+            speed += 3 if player_type == "速球派" else 1 if player_type == "本格派" else 0
+        elif role in {"先発", "中継ぎ"} and player_type == "速球派" and age >= 22:
+            speed += 1
+        if role == "中継ぎ" and player_type != "スタミナ型" and starter != "○":
+            stamina -= 2
+        elif role == "先発" and player_type != "スタミナ型":
+            stamina -= 1
+    elif category == "助っ人外国人用":
+        if role == "先発":
+            control += 3 if player_type == "技巧派" else 2
+            stamina -= 2 if player_type != "スタミナ型" else 1
+        elif role == "中継ぎ":
+            control -= 2 if player_type == "技巧派" else 4
+            stamina -= 2 if starter == "○" or player_type == "スタミナ型" else 4
+        elif role == "抑え":
+            control -= 1 if player_type == "技巧派" else 2
+
     return {"球速": f"{max(125, min(165, speed))} km/h", "コントロール": ability(control), "スタミナ": ability(stamina), **aptitudes}
 
 
