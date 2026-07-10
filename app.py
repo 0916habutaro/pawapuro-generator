@@ -1236,7 +1236,7 @@ def generate_sub_positions(rng: random.Random, role: str, position: str, player_
         if pos == "二塁手": return speed >= 50 and field >= 45 and catch >= 45
         if pos == "三塁手": return arm >= 55
         if pos == "外野手": return speed >= 50 or arm >= 50
-        if pos == "捕手": return arm >= 60 and catch >= 45 and player_type in {"守備職人", "強肩型", "バランス型"} and category != "助っ人外国人用"
+        if pos == "捕手": return arm >= 60 and field >= 40 and catch >= 45 and player_type in {"守備職人", "強肩型", "バランス型"} and category != "助っ人外国人用"
         return True
     def aptitude(pos: str) -> str:
         if pos == "捕手": return "○" if rng.random() < .08 and arm >= 70 and catch >= 60 else "△"
