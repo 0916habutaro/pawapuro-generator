@@ -2,7 +2,7 @@
 
 ## 概要
 
-パワプロ選手ジェネレーターは、Python + Streamlit + SQLiteで動作するローカル用ツールです。パワプロのペナント向けに、実在選手ではなく架空選手をランダム生成することを目的としています。
+パワプロ選手ジェネレーターは、Python + Streamlit + SQLiteで動作する個人利用専用のローカル用ツールです。外部公開・配布を前提としません。パワプロのペナント向けに、実在選手ではなく架空選手をランダム生成することを目的としています。
 
 主な設計方針は次のとおりです。
 
@@ -230,18 +230,19 @@ http://localhost:8501
 
 ### バックアップ
 
-最も簡単な方法は、アプリ停止中にDBファイルをコピーすることです。
+個人利用では、公開作業よりDB保護を優先してください。最も簡単な方法は、アプリ停止中にDBファイルをコピーすることです。
 
 ```text
 1. StreamlitをCtrl+Cで終了
-2. players.sqlite3を別フォルダへコピー
+2. 更新前・マスタ変更前は必ずplayers.sqlite3を別フォルダへコピー
 3. 日付を付けて保存
+4. DBファイルをGitへコミットしない
 ```
 
 バックアップ名例:
 
 ```text
-players_2026-07-10.db
+players_backup_2026-07-10.db
 ```
 
 ### 復元
@@ -253,7 +254,7 @@ players_2026-07-10.db
 4. アプリを起動
 ```
 
-上書き前に必ず現在のDBを退避してください。DBは生成履歴そのものなので、削除すると同じ履歴は復元できません。
+上書き前に必ず現在のDBを退避してください。DBは生成履歴そのものなので、削除すると同じ履歴は復元できません。`reports/`配下は再生成可能ですが、SQLite DBは生成履歴を含むため再生成できません。
 
 ## マスタデータ
 
@@ -348,7 +349,7 @@ SQLite保存、履歴読込、CSV/Excel出力、旧DBマイグレーション、
 実行例:
 
 ```bash
-python scripts/validate_storage_and_ui_integration.py --output-dir reports/storage_ui_integration_release
+python scripts/validate_storage_and_ui_integration.py --output-dir reports/storage_ui_integration_local
 ```
 
 主な出力:
@@ -359,6 +360,51 @@ python scripts/validate_storage_and_ui_integration.py --output-dir reports/stora
 - `roundtrip_mismatches.csv`
 - `ability_rank_boundary_audit.csv`
 - `storage_ui_integration_review.md`
+
+
+## Version 1.0.0の完成確認
+
+Version 1.0.0は外部公開版ではなく、個人利用上の完成版です。ローカルWindowsでは次の範囲を確認できれば完成扱いです。
+
+```powershell
+git checkout main
+git pull origin main
+
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+
+python -m py_compile `
+  app.py `
+  scripts/validate_ability_balance.py `
+  scripts/compare_real_and_generated_balance.py `
+  scripts/validate_identity_and_subpositions.py `
+  scripts/validate_storage_and_ui_integration.py
+
+python scripts/validate_storage_and_ui_integration.py `
+  --output-dir reports/storage_ui_integration_local
+
+streamlit run app.py
+```
+
+確認事項:
+
+- アプリが起動する
+- 投手・野手を生成できる
+- 3カテゴリを選択できる
+- 保存できる
+- 再起動後も履歴が残る
+- バランス確認画面が開く
+- Version 1.0.0が表示される
+- DBバックアップを作成済みである
+
+Gitタグは任意です。個人用の区切りとして残したい場合だけ、ローカルタグを作成してください。GitHubへのpushは不要です。
+
+```powershell
+git tag -a v1.0.0 -m "Personal stable version 1.0.0"
+```
 
 ## トラブルシューティング
 
@@ -439,10 +485,13 @@ streamlit run app.py --server.port 8510
 
 ### データ保護
 
-- アプリ更新前にDBをバックアップしてください。
-- マスタ変更前にファイルをバックアップしてください。
+- アプリ停止中にDBをコピーしてください。
+- アプリ更新前に必ずDBをバックアップしてください。
+- マスタ変更前にも必ずDBと対象ファイルをバックアップしてください。
+- SQLite DBは生成履歴を含むため再生成できません。
+- `reports/`フォルダは再生成可能です。
+- `players.sqlite3`などのDBファイルをGitへコミットしないでください。
 - Git操作でDBを削除しないよう注意してください。
-- `reports/`フォルダは再生成可能ですが、DBは再生成できません。
 - 不要なDB削除操作をしないでください。
 
 ### 開発時の基本チェック

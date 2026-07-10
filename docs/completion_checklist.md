@@ -1,4 +1,4 @@
-# Version 1.0.0 リリースチェックリスト
+# Version 1.0.0 完成確認チェックリスト
 
 確認日: 2026-07-10
 対象バージョン: 1.0.0
@@ -8,7 +8,7 @@
 - [x] `APP_VERSION = "1.0.0"` を確認
 - [x] READMEにVersion 1.0.0相当の利用手順があることを確認
 - [x] CHANGELOGに `[1.0.0] - 2026-07-10` があることを確認
-- [x] `docs/release_checklist.md` があることを確認
+- [x] `docs/completion_checklist.md` があることを確認
 - [ ] `git checkout main` / `git pull origin main` は、このCodex環境に`main`ブランチと`origin`リモートが存在しないため未確認
 - [x] ワーキングツリー状態を確認
 
@@ -24,10 +24,25 @@
 ローカルWindows環境で次を1回確認してください。
 
 ```powershell
-python -m venv .venv-release
-.venv-release\Scripts\Activate.ps1
+git checkout main
+git pull origin main
+
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+
+python -m py_compile `
+  app.py `
+  scripts/validate_ability_balance.py `
+  scripts/compare_real_and_generated_balance.py `
+  scripts/validate_identity_and_subpositions.py `
+  scripts/validate_storage_and_ui_integration.py
+
+python scripts/validate_storage_and_ui_integration.py `
+  --output-dir reports/storage_ui_integration_local
+
 streamlit run app.py
 ```
 
@@ -37,7 +52,7 @@ streamlit run app.py
 
 ## 統合監査
 
-- [x] `python scripts/validate_storage_and_ui_integration.py --output-dir reports/storage_ui_integration_v1_0_0` 成功
+- [x] `python scripts/validate_storage_and_ui_integration.py --output-dir reports/storage_ui_integration_local` 成功
 - [x] SQLite初期化
 - [x] 保存・再読込
 - [x] JSON復元
@@ -99,17 +114,16 @@ streamlit run app.py
 
 - [x] Version 1.0.0に実装済み内容のみが記載されていることを確認
 
-## タグ作成準備
+## Gitタグ
 
-このCodex作業ではタグ作成・pushは実施していません。リリース承認後に次を実行してください。
+Gitタグは任意です。個人用の区切りとして残したい場合だけ、ローカルタグを作成してください。GitHubへのpushは不要です。
 
-```bash
-git tag -a v1.0.0 -m "Version 1.0.0"
-git push origin v1.0.0
+```powershell
+git tag -a v1.0.0 -m "Personal stable version 1.0.0"
 ```
 
-## リリース判定
+## 完成判定
 
-リリース判定: 条件付き承認
+完成判定: 条件付き承認
 
-条件: ローカルWindowsの新規仮想環境で requirements.txt のインストールとStreamlit起動を1回確認すること。
+条件: ローカルWindowsの新規仮想環境で requirements.txt のインストール、統合監査、Streamlit起動、生成・保存・履歴保持、DBバックアップ作成を確認すること。
