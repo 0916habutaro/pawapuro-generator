@@ -4,6 +4,7 @@ import random
 import re
 import sqlite3
 from html import escape
+from urllib.parse import urlencode
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -1826,39 +1827,41 @@ def inject_powerpro_ui_css() -> None:
     .block-container {max-width:1680px; padding-top:.9rem; padding-bottom:4rem;}
     div[data-testid="stVerticalBlockBorderWrapper"] {background:rgba(255,255,255,.72); border-color:#0e7fbd!important;}
     .pp-title {background:linear-gradient(90deg,rgba(255,255,255,.92),rgba(229,249,255,.55)); border-left:9px solid #e23d4f; border-bottom:3px solid #1b7fbd; padding:12px 20px; border-radius:4px 20px 20px 4px; color:#063d77; font-weight:900; font-size:29px; margin-bottom:10px;}
-    .pp-panel {background:#fff; border:5px solid #0876c9; border-radius:17px; padding:12px; box-shadow:0 8px 0 rgba(0,76,130,.18), inset 0 0 0 7px #e8f8ff;}
-    .pp-header {display:grid; grid-template-columns: 210px 120px 1fr; gap:11px; align-items:stretch; margin-bottom:8px;}
-    .pp-name {background:linear-gradient(#72ffff,#23dbe9); border:3px solid #078bc8; border-radius:8px; font-size:25px; font-weight:900; text-align:center; padding:9px; color:#022d55; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-    .pp-face {background:#f7fbff; border:3px solid #c8e7ff; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:108px;}
-    .pp-info {display:grid; grid-template-columns:1fr 1fr; gap:7px;}
-    .pp-chip {background:#f7fbff; border:2px solid #d5edff; border-radius:10px; padding:7px 10px; color:#0a69b0; font-weight:800; font-size:16px; min-width:0; overflow:hidden; text-overflow:ellipsis;}
+    .pp-panel {background:#fff; border:4px solid #0876c9; border-radius:16px; padding:10px; box-shadow:0 7px 0 rgba(0,76,130,.18), inset 0 0 0 6px #e8f8ff;}
+    .pp-header {display:grid; grid-template-columns: 190px 104px 1fr; gap:9px; align-items:stretch; margin-bottom:6px;}
+    .pp-name {background:linear-gradient(#72ffff,#23dbe9); border:3px solid #078bc8; border-radius:8px; font-size:24px; font-weight:900; text-align:center; padding:7px; color:#022d55; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-face {background:#f7fbff; border:2px solid #c8e7ff; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:96px;}
+    .pp-info {display:grid; grid-template-columns:1.2fr .8fr 1fr; gap:6px;}
+    .pp-chip {background:#f7fbff; border:2px solid #d5edff; border-radius:9px; padding:5px 9px; color:#0a69b0; font-weight:800; font-size:15px; min-width:0; overflow:hidden; text-overflow:ellipsis;}
     .pp-score {background:#0368b8; color:white; border-radius:7px; padding:1px 8px; display:inline-block; font-weight:900;}
-    .pp-tab {border-radius:9px 9px 0 0; color:white; font-weight:900; padding:.38rem .55rem; width:100%; box-shadow:inset 0 -4px rgba(0,0,0,.18); font-size:14px;}
-    .pp-tab-active {transform:translateY(3px); outline:3px solid rgba(255,255,255,.75);}
-    .pp-body {display:grid; grid-template-columns: 38% 62%; gap:10px; background:#edf9fc; border:3px solid #d5edff; border-radius:13px; padding:9px; min-height:360px;}
+    .pp-tabs {display:flex; gap:3px; align-items:flex-end; margin:2px 0 0 0;}
+    .pp-tab {display:block; flex:1; border-radius:10px 10px 0 0; color:white!important; text-decoration:none!important; font-weight:900; padding:.48rem .45rem .42rem; box-shadow:inset 0 -5px rgba(0,0,0,.18); font-size:15px; text-align:center; filter:brightness(.72); border:2px solid rgba(255,255,255,.25); border-bottom:0;}
+    .pp-tab-active {filter:brightness(1.05); transform:translateY(2px); position:relative; z-index:2; padding-top:.56rem; box-shadow:0 -2px 0 rgba(255,255,255,.75), inset 0 -2px rgba(255,255,255,.18);}
+    .pp-body {display:grid; grid-template-columns:34% 66%; gap:9px; background:#edf9fc; border:3px solid #d5edff; border-radius:0 0 13px 13px; padding:9px; height:430px; overflow:hidden; align-items:stretch;}
     .pp-overview {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px;}
     .pp-mini-card {background:#f8fcff; border:2px solid #cce8ff; border-radius:10px; padding:9px; color:#0a69b0; font-weight:900; min-height:58px;}
     .pp-mini-label {font-size:12px; opacity:.75; display:block; margin-bottom:4px;}
-    .pp-ability-row {display:grid; grid-template-columns: 40% 16% 1fr; align-items:center; margin:5px 0; background:#f8fcff; border:2px solid #d8ecff; border-radius:9px; min-height:38px; overflow:hidden;}
+    .pp-ability-row {display:grid; grid-template-columns: 40% 18% 1fr; align-items:center; margin:6px 0; background:#fff; border:2px solid #cfe9ff; border-radius:9px; min-height:42px; overflow:hidden; box-shadow:inset 0 2px rgba(255,255,255,.8);}
     .pp-label {background:#fff; border-radius:7px; margin-left:6px; padding:4px 8px; color:#126bb0; font-weight:900; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-    .pp-rank {font-size:21px; font-weight:900; text-align:center; text-shadow:1px 1px white;}
-    .pp-value {font-size:20px; color:#0b72bd; font-weight:900; text-align:right; padding-right:12px; overflow-wrap:anywhere;}
+    .pp-rank {font-size:28px; font-weight:950; text-align:center; text-shadow:1px 1px white; line-height:1;}
+    .pp-value {font-size:22px; color:#0b72bd; font-weight:950; text-align:right; padding-right:12px; overflow-wrap:anywhere;}
     .pp-special-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:5px;}
-    .pp-special {height:34px; min-width:0; border-radius:8px; border:2px solid #7dddf2; background:#e9fbff; color:#0870b6; font-weight:900; display:grid; grid-template-columns:minmax(0,1fr) 24px; align-items:center; gap:3px; padding:0 7px; font-size:14px;}
+    .pp-special {height:43px; min-width:0; border-radius:8px; border:3px solid #86dff4; background:linear-gradient(#f7feff,#d9f8ff); color:#0870b6; font-weight:950; display:grid; grid-template-columns:minmax(0,1fr) 28px; align-items:center; gap:3px; padding:0 8px; font-size:16px; box-shadow:inset 0 2px rgba(255,255,255,.8), inset 0 -2px rgba(83,202,232,.12);}
     .pp-special-name {overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;}
-    .pp-special-rank {font-size:17px; text-align:right; color:#07629c;}
-    .pp-special.red {background:#fff3f3; border-color:#f5a1a1; color:#bd1624;}
+    .pp-special-rank {font-size:19px; text-align:right; color:#07629c; font-weight:950;}
+    .pp-special.red {background:linear-gradient(#fff8f8,#ffe0e0); border-color:#f29a9a; color:#bd1624;}
     .pp-special.red .pp-special-rank {color:#bd1624;}
-    .pp-special.green {background:#effcf2; border-color:#72d58a; color:#15833d;}
+    .pp-special.green {background:linear-gradient(#f8fff9,#dcf8e2); border-color:#73d58a; color:#15833d;}
     .pp-special.green .pp-special-rank {color:#15833d;}
-    .pp-special.gold {background:#fffbe8; border-color:#e0be3c; color:#836200;}
+    .pp-special.gold {background:linear-gradient(#fffdf1,#fff0ad); border-color:#e0be3c; color:#836200;}
     .pp-special.gold .pp-special-rank {color:#836200;}
-    .pp-special.empty {height:20px; background:rgba(235,251,255,.45); border-color:#d4eef7; color:transparent;}
+    .pp-special.empty {height:43px; background:linear-gradient(#f8feff,#e6f9fd); border-color:#bfeaf5; color:transparent;}
     .pp-section-title {color:#075f9e; font-weight:900; font-size:17px; margin:2px 0 7px;}
     .pp-help {position:fixed; left:0; right:0; bottom:0; background:#062247; color:white; padding:11px 6vw; font-size:18px; font-weight:800; z-index:999; border-top:4px solid #0b4f8c;}
     .pp-list-note {color:#0a4773; font-weight:800; margin-bottom:8px;}
     .pp-player-row {width:100%; text-align:left; margin-bottom:4px;}
-    div[data-testid="stButton"] > button {min-height:2.2rem;}
+    div[data-testid="stButton"] > button {min-height:2.2rem; opacity:1!important;}
+    div[data-testid="stButton"] > button:disabled {opacity:.45!important;}
     @media (max-width: 980px) {
       .pp-header {grid-template-columns:1fr;}
       .pp-info {grid-template-columns:1fr;}
@@ -1867,6 +1870,9 @@ def inject_powerpro_ui_css() -> None:
       .pp-special-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
       .pp-help {position:static; margin-top:1rem;}
     }
+    .pp-aptitude-line {background:#f9fdff; border:2px solid #cfe9ff; border-radius:9px; color:#0a69b0; font-weight:900; padding:5px 9px; margin-bottom:6px; white-space:nowrap; font-size:15px;}
+    .pp-chart-wrap {height:242px; margin-top:6px;}
+    .pp-list-selected button {background:#e6f8ff!important; border:2px solid #0876c9!important; color:#063d77!important;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -1905,13 +1911,26 @@ def render_player_icon_svg(p: dict[str, Any]) -> str:
     return f'<svg width="96" height="96" viewBox="0 0 116 116" role="img" aria-label="選手アイコン"><circle cx="58" cy="62" r="34" fill="#ffd9b3" stroke="#8b5a32" stroke-width="3"/><path d="M20 54 Q58 12 96 54 Z" fill="{cap}" stroke="#fff" stroke-width="4"/><rect x="34" y="72" width="48" height="30" rx="8" fill="#fff" stroke="#b8d7ee"/><text x="58" y="47" text-anchor="middle" font-size="32" font-weight="900" fill="#fff">{initial}</text><circle cx="46" cy="62" r="4" fill="#073b6b"/><circle cx="70" cy="62" r="4" fill="#073b6b"/></svg>'
 
 
+
+def ui_rank_color(rank_text: str) -> str:
+    return {
+        "S": "#f3b400",
+        "A": "#ff3bbd",
+        "B": "#ff315d",
+        "C": "#ff9d00",
+        "D": "#d7c900",
+        "E": "#5fcbff",
+        "F": "#63a4ff",
+        "G": "#9aa4af",
+    }.get(rank_text, "#cbd5e1")
+
 def render_ability_rows(items: list[tuple[str, Any]]) -> str:
     rows = []
     for label, item in items:
         if isinstance(item, dict):
             rank_text = e(item.get("rank", "-"))
             value = e(item.get("value", "-"))
-            color = RANK_COLORS.get(str(item.get("rank")), "#cbd5e1")
+            color = ui_rank_color(str(item.get("rank", "")))
         else:
             rank_text = ""
             value = e(item)
@@ -1931,48 +1950,89 @@ def split_special_rank(name: str) -> tuple[str, str]:
     return name[: match.start()], match.group(1)
 
 
-def render_special_grid_html(p: dict[str, Any], master: MasterData) -> str:
+def render_special_grid_html(p: dict[str, Any], master: MasterData, cell_count: int = 32) -> str:
     ranked = p.get("abilities", {}).get("ranked_specials", {}) if isinstance(p.get("abilities"), dict) else {}
     entries = [(str(value), "blue") for value in ranked.values()]
     order = {"gold": 1, "blue": 2, "mixed": 2, "neutral": 2, "green": 3, "red": 4}
     normal_entries = [(str(name), special_kind(str(name), master)) for name in p.get("special_abilities", [])]
     entries.extend(sorted(normal_entries, key=lambda item: order.get(item[1], 9)))
-    visible_cell_count = max(4, min(24, ((len(entries) + 3) // 4) * 4))
+    display_entries = entries[:cell_count]
+    overflow_count = max(0, len(entries) - cell_count)
+    if overflow_count and display_entries:
+        display_entries[-1] = (f"ほか{overflow_count + 1}件", "blue")
     cells = []
-    for name, kind in entries[:visible_cell_count]:
+    for name, kind in display_entries:
         base_name, rank_text = split_special_rank(name)
         cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else ""
         cells.append(f'<div class="pp-special {cls}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span><span class="pp-special-rank">{e(rank_text)}</span></div>')
-    while len(cells) < visible_cell_count:
+    while len(cells) < cell_count:
         cells.append('<div class="pp-special empty"><span></span><span></span></div>')
     return '<div class="pp-special-grid">' + "".join(cells) + "</div>"
 
 
+def pitch_display_name(name: Any) -> str:
+    text = str(name or "")
+    aliases = {
+        "ツーシームファスト": "ツーシーム",
+        "ムービングファスト": "ムービング",
+        "シンキングツーシーム": "Sツーシーム",
+        "ドロップカーブ": "Dカーブ",
+        "ナックルカーブ": "ナックルC",
+        "サークルチェンジ": "サークル",
+        "シンキングスプリット": "Sスプリット",
+    }
+    return aliases.get(text, text if len(text) <= 8 else text[:7] + "…")
+
+
+def block_points(x1: int, y1: int, x2: int, y2: int, lane: int, movement: int) -> list[tuple[float, float, float]]:
+    dx, dy = x2 - x1, y2 - y1
+    length = max((dx * dx + dy * dy) ** 0.5, 1)
+    nx, ny = -dy / length, dx / length
+    points = []
+    for step in range(1, min(7, max(0, movement)) + 1):
+        t = 0.18 + step * 0.085
+        points.append((x1 + dx * t + nx * lane * 8, y1 + dy * t + ny * lane * 8, length))
+    return points
+
+
 def render_pitch_chart_svg(balls: list[dict[str, Any]], batting_throwing: str = "") -> str:
-    right_map = {"1": (160, 78), "2": (92, 132), "3": (120, 184), "4": (64, 168), "5": (190, 168)}
+    right_map = {"1": (205, 78), "2": (64, 150), "3": (120, 190), "4": (52, 185), "5": (188, 185)}
     directions = {code: (240 - x, y) for code, (x, y) in right_map.items()} if str(batting_throwing).startswith("左投") else right_map
-    lines = [
-        '<svg viewBox="0 0 240 210" width="100%" height="220" role="img" aria-label="変化球方向図">',
-        '<rect x="8" y="8" width="224" height="194" rx="12" fill="#f7fcff" stroke="#cce8ff" stroke-width="4"/>',
-        '<circle cx="120" cy="82" r="12" fill="#fff" stroke="#118ee8" stroke-width="4"/>',
-        '<text x="120" y="41" text-anchor="middle" fill="#126bb0" font-size="15" font-weight="700">ストレート</text>',
-    ]
-    for x, y in directions.values():
-        lines.append(f'<line x1="120" y1="86" x2="{x}" y2="{y}" stroke="#10a5f5" stroke-width="9" stroke-linecap="round" opacity=".40"/>')
-    direction_seen: dict[str, int] = {}
+    label_positions = {"1": (194, 58), "2": (49, 132), "3": (120, 204), "4": (50, 202), "5": (190, 202)}
+    if str(batting_throwing).startswith("左投"):
+        label_positions = {code: (240 - x, y) for code, (x, y) in label_positions.items()}
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    second_fastballs = []
     for ball in balls or []:
-        if ball.get("kind") != "breaking":
-            continue
-        code = str(ball.get("direction_code"))
-        index = direction_seen.get(code, 0)
-        direction_seen[code] = index + 1
-        x, y = directions.get(code, (120, 176))
-        label_offset = -16 - (index * 17)
-        dot_offset = index * 7
-        movement = pitch_movement(ball)
-        label = f'{e(ball.get("name"))} {movement}'
-        lines.append(f'<circle cx="{x + dot_offset}" cy="{y - dot_offset}" r="{5 + movement}" fill="#ff5848" opacity=".92"/>')
-        lines.append(f'<text x="{x}" y="{y + label_offset}" text-anchor="middle" fill="#075f9e" font-size="12" font-weight="800">{label}</text>')
+        if ball.get("kind") == "breaking":
+            grouped.setdefault(str(ball.get("direction_code")), []).append(ball)
+        elif ball.get("kind") == "second_fastball":
+            second_fastballs.append(ball)
+    lines = [
+        '<svg viewBox="0 0 240 218" width="100%" height="100%" role="img" aria-label="変化球方向図">',
+        '<rect x="5" y="5" width="230" height="208" rx="12" fill="#f7fcff" stroke="#cce8ff" stroke-width="4"/>',
+        '<text x="120" y="26" text-anchor="middle" fill="#126bb0" font-size="14" font-weight="800">ストレート</text>',
+        '<circle cx="120" cy="72" r="13" fill="#fff" stroke="#118ee8" stroke-width="4"/>',
+        '<text x="120" y="77" text-anchor="middle" fill="#ff4a2d" font-size="16" font-weight="900">⚾</text>',
+    ]
+    for code, (x2, y2) in directions.items():
+        lines.append(f'<line x1="120" y1="72" x2="{x2}" y2="{y2}" stroke="#19a6ee" stroke-width="8" stroke-linecap="round" opacity=".32"/>')
+        lines.append(f'<line x1="120" y1="72" x2="{x2}" y2="{y2}" stroke="#0b8fe0" stroke-width="2" stroke-linecap="round" opacity=".45"/>')
+    if second_fastballs:
+        names = " / ".join(e(pitch_display_name(ball.get("name"))) for ball in second_fastballs)
+        lines.append(f'<text x="120" y="43" text-anchor="middle" fill="#126bb0" font-size="12" font-weight="800">{names}</text>')
+        lines.append('<rect x="112" y="50" width="6" height="11" rx="2" fill="#ff9b19"/><rect x="122" y="50" width="6" height="11" rx="2" fill="#ff9b19"/>')
+    for code, balls_in_direction in grouped.items():
+        x2, y2 = directions.get(code, (120, 190))
+        lx, ly = label_positions.get(code, (x2, y2))
+        for lane_index, ball in enumerate(balls_in_direction[:2]):
+            lane = -1 if lane_index == 0 else 1
+            color = "#0fa8f5" if lane_index == 0 else "#ff9518"
+            stroke = "#0788d0" if lane_index == 0 else "#d67500"
+            for bx, by, _ in block_points(120, 72, x2, y2, lane, pitch_movement(ball)):
+                lines.append(f'<rect x="{bx - 4:.1f}" y="{by - 4:.1f}" width="8" height="8" rx="1.5" fill="{color}" stroke="{stroke}" stroke-width="1"/>')
+            name_y = ly + lane_index * 14
+            lines.append(f'<text x="{lx}" y="{name_y}" text-anchor="middle" fill="#126bb0" font-size="12" font-weight="800">{e(pitch_display_name(ball.get("name")))}</text>')
     return "".join(lines) + "</svg>"
 
 
@@ -1997,25 +2057,39 @@ def render_overview_html(p: dict[str, Any]) -> str:
     return '<div class="pp-section-title">選手能力サマリー</div><div class="pp-overview">' + "".join(f'<div class="pp-mini-card"><span class="pp-mini-label">{label}</span>{value}</div>' for label, value in cards) + "</div>"
 
 
+
+def compact_pitcher_aptitude_text(player: dict[str, Any]) -> str:
+    abilities = player.get("abilities", {}) if isinstance(player.get("abilities"), dict) else {}
+    values = {key: player.get(key) or abilities.get(key) for key in PITCHER_APTITUDE_KEYS}
+    if not any(values.values()):
+        pos = str(player.get("position", ""))
+        values = {"starter_aptitude": "◎" if pos == "先発" else "－", "reliever_aptitude": "◎" if pos == "中継ぎ" else "－", "closer_aptitude": "◎" if pos == "抑え" else "－"}
+    labels = [("starter_aptitude", "先"), ("reliever_aptitude", "中"), ("closer_aptitude", "抑")]
+    return " ".join(f"{label}{(values.get(key) or '－').replace('-', '－')}" for key, label in labels)
+
 def render_detail_panel(p: dict[str, Any], master: MasterData, key_prefix: str) -> None:
     tab_key = f"{key_prefix}_selected_player_tab"
     tab = st.session_state.get(tab_key, "選手能力")
     score = overall_score(p)
-    st.markdown(f"""<div class="pp-panel"><div class="pp-header"><div><div class="pp-name">{e(p.get('name'))}</div><div class="pp-chip" style="margin-top:7px">★ <span class="pp-score">{score}</span>　{e(p.get('position'))}</div></div><div class="pp-face">{render_player_icon_svg(p)}</div><div class="pp-info"><div class="pp-chip">投打　{e(p.get('batting_throwing'))}</div><div class="pp-chip">年齢　{e(p.get('age'))}歳</div><div class="pp-chip">カテゴリ　{e(p.get('category'))}</div><div class="pp-chip">タイプ　{e(p.get('player_type'))}</div><div class="pp-chip">フォーム　スタンダード1</div><div class="pp-chip">成績　率---- 本-- 点--</div></div></div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="pp-panel"><div class="pp-header"><div><div class="pp-name">{e(p.get('name'))}</div><div class="pp-chip" style="margin-top:7px">★ <span class="pp-score">{score}</span>　{e(p.get('position'))}</div></div><div class="pp-face">{render_player_icon_svg(p)}</div><div class="pp-info"><div class="pp-chip">投打　{e(p.get('batting_throwing'))}</div><div class="pp-chip">年齢　{e(p.get('age'))}歳</div><div class="pp-chip">区分　{e(p.get('category'))}</div><div class="pp-chip">タイプ　{e(p.get('player_type'))}</div><div class="pp-chip">フォーム　スタンダード1</div><div class="pp-chip">成績　率---- 本-- 点--</div></div></div></div>""", unsafe_allow_html=True)
     tabs = [("選手能力", "#075fbd"), ("投手能力", "#d7193f"), ("野手能力", "#0876c9"), ("守備・起用", "#d49a00"), ("プロフィール", "#087d23")]
-    cols = st.columns(len(tabs))
-    for col, (label, color) in zip(cols, tabs):
-        with col:
-            if st.button(label, key=f"{key_prefix}_tab_{label}", use_container_width=True):
-                st.session_state[tab_key] = label
-                st.rerun()
-            active_class = " pp-tab-active" if tab == label else ""
-            st.markdown(f'<div class="pp-tab{active_class}" style="background:{color}; text-align:center">{label}</div>', unsafe_allow_html=True)
+    query_tab_key = f"{key_prefix}_tab"
+    query_tab = st.query_params.get(query_tab_key)
+    valid_tab_labels = {label for label, _ in tabs}
+    if query_tab in valid_tab_labels and query_tab != tab:
+        tab = str(query_tab)
+        st.session_state[tab_key] = tab
+    tab_links = []
+    for label, color in tabs:
+        active_class = " pp-tab-active" if tab == label else ""
+        href = "?" + urlencode({query_tab_key: label})
+        tab_links.append(f'<a class="pp-tab{active_class}" style="background:{color}" href="{href}">{e(label)}</a>')
+    st.markdown('<div class="pp-tabs">' + "".join(tab_links) + '</div>', unsafe_allow_html=True)
     abilities = p.get("abilities", {}) if isinstance(p.get("abilities"), dict) else {}
     if tab == "選手能力":
         left = render_overview_html(p)
     elif tab == "投手能力":
-        left = f'<div class="pp-section-title">投手能力</div><div class="pp-ability-row"><div class="pp-label">適性</div><div></div><div class="pp-value">{e(pitcher_aptitude_text(p))}</div></div>' + render_ability_rows([("球速", abilities.get("球速")), ("コントロール", abilities.get("コントロール")), ("スタミナ", abilities.get("スタミナ"))]) + render_pitch_chart_svg(p.get("breaking_balls", []), str(p.get("batting_throwing", "")))
+        left = f'<div class="pp-section-title">投手能力</div><div class="pp-aptitude-line">適性　{e(compact_pitcher_aptitude_text(p))}</div>' + render_ability_rows([("球速", abilities.get("球速")), ("コントロール", abilities.get("コントロール")), ("スタミナ", abilities.get("スタミナ"))]) + f'<div class="pp-chart-wrap">{render_pitch_chart_svg(p.get("breaking_balls", []), str(p.get("batting_throwing", "")))}</div>'
     elif tab == "野手能力":
         left = '<div class="pp-section-title">野手能力</div>' + render_ability_rows([("守備位置", p.get("position")), ("弾道", abilities.get("弾道")), ("ミート", abilities.get("ミート")), ("パワー", abilities.get("パワー")), ("走力", abilities.get("走力")), ("肩力", abilities.get("肩力")), ("守備力", abilities.get("守備力")), ("捕球", abilities.get("捕球"))])
     elif tab == "守備・起用":
@@ -2088,21 +2162,28 @@ def main() -> None:
         st.session_state["latest_selected_player_tab"] = "選手能力"
         st.success(f"{len(players)}人の選手を生成し、SQLiteに{saved_count}件保存しました。")
     render_player_browser(st.session_state.get("latest_players", []), master, "latest")
+    latest_tab = st.session_state.get("latest_selected_player_tab", "選手能力")
+    help_messages = {
+        "選手能力": "選手の概要、起用、プロフィールを確認します。",
+        "投手能力": "球速、制球、スタミナ、変化球と投手特殊能力を確認します。",
+        "野手能力": "打撃、走塁、守備の基礎能力と野手特殊能力を確認します。",
+        "守備・起用": "メインポジション、サブポジション、起用適性を確認します。",
+        "プロフィール": "年齢、国籍、出身地、体格、生成カテゴリを確認します。",
+    }
+    st.markdown(f'<div class="pp-help">{e(help_messages.get(latest_tab, help_messages["選手能力"]))}</div>', unsafe_allow_html=True)
     st.divider()
-    st.header("過去生成選手")
     history = load_history()
     history_players = [player_from_history_row(row) for _, row in history.head(100).iterrows()] if not history.empty else []
-    with st.expander("保存済み選手の詳細ブラウザー", expanded=False):
+    with st.expander("過去生成選手", expanded=False):
         render_player_browser(history_players, master, "history")
-    st.dataframe(history, use_container_width=True, hide_index=True)
-    st.markdown('<div class="pp-help">能力や特殊能力を選択すると、ここに説明を表示できます。現在は固定ヘルプです。</div>', unsafe_allow_html=True)
-    if not history.empty:
-        st.download_button("CSV出力", data=history.to_csv(index=False).encode("utf-8-sig"), file_name="pawapuro_players.csv", mime="text/csv")
-        excel_buffer = BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-            history.to_excel(writer, sheet_name="players", index=False)
-        st.download_button("Excel出力", data=excel_buffer.getvalue(), file_name="pawapuro_players.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        st.info("同じseedを使うことで、同条件の再生成に利用できるデータ構造です。")
+        st.dataframe(history, use_container_width=True, hide_index=True)
+        if not history.empty:
+            st.download_button("CSV出力", data=history.to_csv(index=False).encode("utf-8-sig"), file_name="pawapuro_players.csv", mime="text/csv")
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+                history.to_excel(writer, sheet_name="players", index=False)
+            st.download_button("Excel出力", data=excel_buffer.getvalue(), file_name="pawapuro_players.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.info("同じseedを使うことで、同条件の再生成に利用できるデータ構造です。")
 
 
 if __name__ == "__main__":
