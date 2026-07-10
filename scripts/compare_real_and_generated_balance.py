@@ -401,6 +401,155 @@ def special_tables(real_specials: pd.DataFrame, gen: pd.DataFrame) -> tuple[pd.D
     return pd.DataFrame(cat_rows), pd.DataFrame(name_rows), pd.DataFrame(rank_rows)
 
 
+
+def load_special_master() -> pd.DataFrame:
+    path = ROOT / "data" / "special_abilities.csv"
+    if not path.exists():
+        return pd.DataFrame(columns=["name", "kind", "group", "target_role"])
+    df = pd.read_csv(path)
+    for col in ["name", "kind", "group", "target_role"]:
+        if col not in df:
+            df[col] = ""
+    df["カテゴリ"] = df.apply(lambda r: normalize_special_category(r.get("kind"), r.get("name")), axis=1)
+    df["対象役割"] = df["target_role"].fillna("").replace({"": "共通"})
+    return df
+
+
+def special_master_maps() -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+    master = load_special_master()
+    return (
+        dict(zip(master["name"].astype(str), master["カテゴリ"].astype(str))),
+        dict(zip(master["name"].astype(str), master["対象役割"].astype(str))),
+        dict(zip(master["name"].astype(str), master["group"].astype(str))),
+    )
+
+
+def _split_specials(value: Any) -> list[str]:
+    if pd.isna(value):
+        return []
+    return [part.strip() for part in str(value).replace("、", ",").split(",") if part.strip()]
+
+
+def _player_key_cols(df: pd.DataFrame) -> list[str]:
+    cols = [c for c in ["source", "team", "name", "seed"] if c in df.columns]
+    return cols or ["name"] if "name" in df.columns else []
+
+
+def build_special_events(real_players: pd.DataFrame, real_specials: pd.DataFrame, gen: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    kind_map, role_map, group_map = special_master_maps()
+    real = real_specials.copy()
+    if not real.empty and {"team", "name"}.issubset(real.columns):
+        merge_cols = [c for c in ["source", "team", "name"] if c in real.columns and c in real_players.columns]
+        cols = merge_cols + [c for c in ["role", "category", "position", "pitcher_role", "usage"] if c in real_players.columns]
+        real = real.merge(real_players[cols].drop_duplicates(), on=merge_cols, how="left") if merge_cols else real
+    real_rows = []
+    for _, r in real.iterrows():
+        name = str(r.get("special", "")).strip()
+        if not name:
+            continue
+        cat = kind_map.get(name, normalize_special_category(r.get("special_kind"), name))
+        real_rows.append({"データ": "実在12球団", "カテゴリ": "実在12球団", "対象": r.get("role", "不明"), "選手キー": "|".join(str(r.get(c, "")) for c in _player_key_cols(real)), "選手名": r.get("name", ""), "特殊能力": name, "特殊能力カテゴリ": cat, "対象役割": role_map.get(name, "不明"), "ランク系統": ranked_special_base(name) if cat == "ランク系" else group_map.get(name, "")})
+    gen_rows = []
+    for idx, r in gen.iterrows():
+        key = str(r.get("seed", idx))
+        for name in _split_specials(r.get("特殊能力", "")):
+            cat = kind_map.get(name, normalize_special_category("", name))
+            gen_rows.append({"データ": "生成", "カテゴリ": r.get("category", "生成"), "対象": r.get("role", "不明"), "選手キー": key, "選手名": r.get("name", ""), "特殊能力": name, "特殊能力カテゴリ": cat, "対象役割": role_map.get(name, "不明"), "ランク系統": group_map.get(name, "")})
+        for name in _split_specials(r.get("ランク系特殊能力", "")):
+            gen_rows.append({"データ": "生成", "カテゴリ": r.get("category", "生成"), "対象": r.get("role", "不明"), "選手キー": key, "選手名": r.get("name", ""), "特殊能力": name, "特殊能力カテゴリ": "ランク系", "対象役割": role_map.get(name, "不明"), "ランク系統": ranked_special_base(name)})
+    return pd.DataFrame(real_rows + gen_rows), load_special_master()
+
+
+def ranked_special_base(name: Any) -> str:
+    text = str(name or "").strip()
+    return re.sub(r"[A-GＡ-ＧＳ]$", "", text)
+
+
+def special_scope_metrics(events: pd.DataFrame, players: pd.DataFrame, data_label: str, category: str, role: str | None, group_cols: list[str]) -> pd.DataFrame:
+    base = players.copy()
+    if data_label == "実在12球団":
+        base = base[base.get("category", pd.Series(index=base.index, dtype=str)).eq("実在12球団")]
+    elif category != "全体":
+        base = base[base.get("category", pd.Series(index=base.index, dtype=str)).eq(category)]
+    if role:
+        base = base[base.get("role", pd.Series(index=base.index, dtype=str)).eq(role)]
+    ev = events[events["データ"].eq(data_label if data_label == "実在12球団" else "生成")].copy()
+    if data_label != "実在12球団" and category != "全体":
+        ev = ev[ev["カテゴリ"].eq(category)]
+    if role:
+        ev = ev[ev["対象"].eq(role)]
+    total = len(base)
+    rows=[]
+    if ev.empty:
+        return pd.DataFrame()
+    for keys, sub in ev.groupby(group_cols, dropna=False):
+        if not isinstance(keys, tuple): keys=(keys,)
+        holders = sub["選手キー"].nunique()
+        rows.append({"データ": data_label if data_label == "実在12球団" else category, "対象": role or "全体", "対象選手数": total, **dict(zip(group_cols, keys)), "総出現数": len(sub), "1人あたり平均個数": round(len(sub)/max(1,total),3), "100人あたり出現数": round(len(sub)/max(1,total)*100,2), "1件以上保有する選手数": holders, "1件以上保有率%": round(holders/max(1,total)*100,2)})
+    return pd.DataFrame(rows)
+
+
+def special_review_tables(real: pd.DataFrame, real_specials: pd.DataFrame, gen: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    events, master = build_special_events(real, real_specials, gen)
+    players = pd.concat([real.assign(category="実在12球団"), gen], ignore_index=True, sort=False)
+    tables={}
+    scopes=[("実在12球団","実在12球団",None),("実在12球団","実在12球団","投手"),("実在12球団","実在12球団","野手")]
+    for cat in ["全体", *_available_categories(gen)]:
+        scopes.append(("生成",cat,None))
+        for role in ["投手","野手"]: scopes.append(("生成",cat,role))
+    kind_frames=[special_scope_metrics(events, players, d,c,r,["特殊能力カテゴリ"]) for d,c,r in scopes]
+    name_frames=[special_scope_metrics(events[events["特殊能力カテゴリ"].ne("ランク系")], players, d,c,r,["特殊能力","特殊能力カテゴリ","対象役割"]) for d,c,r in scopes]
+    tables["special_kind_metrics_compare"] = pd.concat([x for x in kind_frames if not x.empty], ignore_index=True, sort=False).rename(columns={"特殊能力カテゴリ":"カテゴリ"})
+    nm = pd.concat([x for x in name_frames if not x.empty], ignore_index=True, sort=False)
+    # 名称別は、全体CSVとしても実在/生成の差分列を持たせます。
+    compare_rows = []
+    if not nm.empty:
+        real_nm = nm[(nm["データ"].eq("実在12球団")) & (nm["対象"].isin(["全体", "投手", "野手"]))]
+        for _, g in nm[~nm["データ"].eq("実在12球団")].iterrows():
+            rmatch = real_nm[(real_nm["対象"].eq(g["対象"])) & (real_nm["特殊能力"].eq(g["特殊能力"]))]
+            r = rmatch.iloc[0] if not rmatch.empty else pd.Series(dtype=object)
+            compare_rows.append({"データ": g["データ"], "対象": g["対象"], "特殊能力": g["特殊能力"], "カテゴリ": g.get("特殊能力カテゴリ"), "対象役割": g.get("対象役割"), "実在出現数": int(r.get("総出現数", 0) or 0), "生成出現数": int(g.get("総出現数", 0) or 0), "実在保有率%": float(r.get("1件以上保有率%", 0) or 0), "生成保有率%": float(g.get("1件以上保有率%", 0) or 0), "保有率差分": round(float(g.get("1件以上保有率%", 0) or 0) - float(r.get("1件以上保有率%", 0) or 0), 2), "実在100人あたり出現数": float(r.get("100人あたり出現数", 0) or 0), "生成100人あたり出現数": float(g.get("100人あたり出現数", 0) or 0)})
+    tables["special_name_metrics_compare"] = pd.DataFrame(compare_rows) if compare_rows else nm
+    # count distribution normal specials only
+    rows=[]
+    for d,c,r in scopes:
+        base = players if d=="生成" else players[players["category"].eq("実在12球団")]
+        if d=="生成" and c!="全体": base=base[base["category"].eq(c)]
+        if r: base=base[base["role"].eq(r)]
+        ev=events[(events["データ"].eq(d if d=="実在12球団" else "生成")) & (events["特殊能力カテゴリ"].ne("ランク系"))]
+        if d=="生成" and c!="全体": ev=ev[ev["カテゴリ"].eq(c)]
+        if r: ev=ev[ev["対象"].eq(r)]
+        counts=ev.groupby("選手キー").size().to_dict()
+        real_key_cols = [col for col in ["source", "team", "name"] if col in base.columns]
+        vals=[counts.get(str(row.get("seed", i)) if d=="生成" else "|".join(str(row.get(x,"")) for x in real_key_cols),0) for i,row in base.iterrows()]
+        for b in ["0個","1個","2個","3個","4個","5個以上"]:
+            if b=="5個以上": n=sum(v>=5 for v in vals)
+            else: n=sum(v==int(b[0]) for v in vals)
+            rows.append({"データ": d if d=="実在12球団" else c,"対象":r or "全体","特殊能力数":b,"人数":n,"対象選手数":len(vals),"割合%":round(n/max(1,len(vals))*100,2)})
+    tables["special_count_distribution_compare"]=pd.DataFrame(rows)
+    # ranked A-G distribution, D included only when explicit/generated existing; memo notes no blind fill.
+    rank_ev=events[events["特殊能力カテゴリ"].eq("ランク系")].copy(); rank_ev["ランク"]=rank_ev["特殊能力"].astype(str).str[-1]
+    rank_rows=[]
+    for d,c,r in scopes:
+        ev=rank_ev[rank_ev["データ"].eq(d if d=="実在12球団" else "生成")]
+        if d=="生成" and c!="全体": ev=ev[ev["カテゴリ"].eq(c)]
+        if r: ev=ev[ev["対象"].eq(r)]
+        for fam, fdf in ev.groupby("ランク系統", dropna=False):
+            total=max(1, fdf["選手キー"].nunique())
+            real_rates={}
+            for rank,cnt in fdf["ランク"].value_counts().items():
+                rate=round(cnt/total*100,2); real_rates[rank]=rate
+                rank_rows.append({"データ":d if d=="実在12球団" else c,"カテゴリ":c,"対象":r or "全体","ランク系統":fam,"ランク":rank,"人数":int(cnt),"割合%":rate,"実在との差分":None})
+    tables["ranked_ability_family_distribution_compare"]=pd.DataFrame(rank_rows)
+    # consistency/conflicts simplified diagnostics
+    tables["special_ability_consistency_warnings"] = consistency_warnings(gen, events)
+    tables["special_ability_consistency_summary"] = tables["special_ability_consistency_warnings"].groupby(["対象","チェック"], dropna=False).agg(人数=("seed","nunique"), 代表seed=("seed","first")).reset_index() if not tables["special_ability_consistency_warnings"].empty else pd.DataFrame(columns=["対象","チェック","人数","代表seed"])
+    tables["special_ability_conflicts"] = conflict_warnings(gen, events, master)
+    tables["special_ability_conflict_summary"] = tables["special_ability_conflicts"].groupby("衝突タイプ", dropna=False).agg(件数=("seed","count"), 代表seed=("seed","first")).reset_index() if not tables["special_ability_conflicts"].empty else pd.DataFrame(columns=["衝突タイプ","件数","代表seed"])
+    tables["generated_special_context_metrics"] = generated_context_metrics(gen, events)
+    return tables
+
+
 def category_rate(special_cat: pd.DataFrame, dataset: str, category: str) -> float:
     match = special_cat[(special_cat["データ"].eq(dataset)) & (special_cat["カテゴリ"].eq(category))]
     return float(match["出現率%"].sum()) if not match.empty else 0.0
@@ -686,6 +835,68 @@ def write_summary(tables: dict[str, pd.DataFrame], output_dir: Path, meta: dict[
     (output_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+
+def _num(row: pd.Series, col: str, default: float = 0) -> float:
+    return float(pd.to_numeric(pd.Series([row.get(col, default)]), errors="coerce").fillna(default).iloc[0])
+
+
+def consistency_warnings(gen: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+    rows=[]
+    by_seed=events[events["データ"].eq("生成")].groupby("選手キー")["特殊能力"].apply(set).to_dict()
+    checks=[("野手","三振と低ミート",lambda r,s: "三振" in s and _num(r,"ミート",99)>=55), ("野手","エラーと低守備力・低捕球",lambda r,s:"エラー" in s and min(_num(r,"守備力",99),_num(r,"捕球",99))>=50), ("野手","併殺と低走力",lambda r,s:"併殺" in s and _num(r,"走力",99)>=55), ("野手","パワーヒッター系とパワー",lambda r,s: bool({"パワーヒッター","アーチスト"}&s) and _num(r,"パワー",0)<65), ("野手","アベレージヒッター系とミート",lambda r,s: bool({"アベレージヒッター","安打製造機"}&s) and _num(r,"ミート",0)<65), ("野手","盗塁・走塁系と走力",lambda r,s: bool({"盗塁A","盗塁B","走塁A","走塁B","電光石火"}&s) and _num(r,"走力",0)<60), ("野手","守備系特殊能力と守備力・捕球・肩力",lambda r,s: bool({"守備職人","魔術師","レーザービーム","高速レーザー"}&s) and max(_num(r,"守備力"),_num(r,"捕球"),_num(r,"肩力"))<60), ("野手","捕手系特殊能力と捕手ポジション",lambda r,s: any("キャッチャー" in x or x=="球界の頭脳" for x in s) and r.get("position")!="捕手"), ("投手","四球・抜け球・乱調と低コントロール",lambda r,s: bool({"四球","抜け球","乱調"}&s) and _num(r,"コントロール",99)>=50), ("投手","一発・軽い球と球速・総変化量",lambda r,s: bool({"一発","軽い球"}&s) and (_num(r,"球速",0)>=150 or _num(r,"総変化量",0)>=9)), ("投手","ノビ系と球速",lambda r,s: any(str(x).startswith("ノビ") for x in s) and _num(r,"球速",0)<140), ("投手","キレ系と変化球",lambda r,s: any("キレ" in str(x) for x in s) and _num(r,"総変化量",0)<5), ("投手","奪三振系と球速・総変化量",lambda r,s: bool({"奪三振","ドクターK"}&s) and _num(r,"球速",0)<145 and _num(r,"総変化量",0)<7), ("投手","先発用特殊能力と先発適正",lambda r,s: bool({"完投","完封","尻上がり"}&s) and r.get("starter_aptitude") not in {"◎","○"}), ("投手","中継ぎ・抑え用特殊能力と適正",lambda r,s: bool({"中継ぎエース","守護神","セーブ狙い"}&s) and r.get("reliever_aptitude") not in {"◎","○"} and r.get("closer_aptitude") not in {"◎","○"})]
+    for idx,r in gen.iterrows():
+        seed=str(r.get("seed",idx)); specs=by_seed.get(seed,set())
+        for role,label,fn in checks:
+            if r.get("role")==role and fn(r,specs): rows.append({"seed":seed,"対象":role,"チェック":label,"特殊能力":"、".join(sorted(specs)),"カテゴリ":r.get("category"),"player_type":r.get("player_type")})
+    return pd.DataFrame(rows)
+
+
+def conflict_warnings(gen: pd.DataFrame, events: pd.DataFrame, master: pd.DataFrame) -> pd.DataFrame:
+    rows=[]; role_map=dict(zip(master["name"].astype(str), master["対象役割"].astype(str))) if not master.empty else {}
+    pairs=[("積極打法","慎重打法"),("強振多用","ミート多用"),("速球中心","変化球中心"),("投球位置左","投球位置右"),("チームプレイ○","チームプレイ×"),("パワーヒッター","アーチスト"),("アベレージヒッター","安打製造機")]
+    by_seed=events[events["データ"].eq("生成")].groupby("選手キー")["特殊能力"].apply(list).to_dict()
+    for idx,r in gen.iterrows():
+        seed=str(r.get("seed",idx)); vals=by_seed.get(seed,[]); specs=set(vals)
+        for name in set(vals):
+            if vals.count(name)>1: rows.append({"seed":seed,"衝突タイプ":"同一特殊能力の重複","詳細":name})
+        for a,b in pairs:
+            if a in specs and b in specs: rows.append({"seed":seed,"衝突タイプ":"相反特殊能力の同時所持","詳細":f"{a} / {b}"})
+        fams={}
+        for name in specs:
+            if normalize_special_category('',name)=="ランク系": fams.setdefault(ranked_special_base(name),set()).add(name[-1])
+            target=role_map.get(name)
+            if target in {"投手","野手"} and target != r.get("role"): rows.append({"seed":seed,"衝突タイプ":"専用能力の対象外所持","詳細":name})
+        for fam,ranks in fams.items():
+            if len(ranks)>1: rows.append({"seed":seed,"衝突タイプ":"同じランク系統を複数ランクで所持","詳細":f"{fam}:{','.join(sorted(ranks))}"})
+        usage=[x for x in specs if x in USAGE_SPECIAL_NAMES]
+        if len(usage)>=3: rows.append({"seed":seed,"衝突タイプ":"usage能力の不自然な複数所持","詳細":"、".join(sorted(usage))})
+    return pd.DataFrame(rows)
+
+
+def generated_context_metrics(gen: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+    ev=events[(events["データ"].eq("生成")) & (events["特殊能力カテゴリ"].ne("ランク系"))]
+    counts=ev.groupby("選手キー").size().to_dict(); rows=[]
+    work=gen.copy(); work["特殊能力数"]=[counts.get(str(r.get("seed",i)),0) for i,r in work.iterrows()]
+    nums=[c for c in ["ミート","パワー","走力","肩力","守備力","捕球","球速","コントロール","スタミナ","総変化量","age"] if c in work.columns]
+    work["総合スコア"] = work[nums].apply(pd.to_numeric, errors="coerce").mean(axis=1) if nums else 0
+    work["総合スコア帯"] = pd.cut(work["総合スコア"], bins=[-1,45,55,65,999], labels=["45未満","45-55","55-65","65以上"])
+    if "age" in work: work["年齢帯"] = pd.cut(pd.to_numeric(work["age"],errors="coerce"), bins=[0,22,26,32,99], labels=["22歳以下","23-26歳","27-32歳","33歳以上"])
+    for col,label in [("player_type","player_type"),("総合スコア帯","総合スコア帯"),("年齢帯","年齢帯"),("position","ポジション"),("category","カテゴリ")]:
+        if col in work:
+            for val,sub in work.groupby(col, dropna=False): rows.append({"集計軸":label,"値":val,"人数":len(sub),"平均特殊能力数":round(sub["特殊能力数"].mean(),3)})
+    if {"starter_aptitude","reliever_aptitude","closer_aptitude"}.issubset(work.columns):
+        work["投手起用"] = assign_pitcher_usage(work, [], prefer_aptitudes=True)
+        for val,sub in work[work["role"].eq("投手")].groupby("投手起用", dropna=False): rows.append({"集計軸":"投手起用","値":val,"人数":len(sub),"平均特殊能力数":round(sub["特殊能力数"].mean(),3)})
+    return pd.DataFrame(rows)
+
+
+def write_special_review_memo(tables: dict[str, pd.DataFrame], output_dir: Path) -> None:
+    kind=tables.get("special_kind_metrics_compare",pd.DataFrame()); conf=tables.get("special_ability_conflict_summary",pd.DataFrame()); cons=tables.get("special_ability_consistency_summary",pd.DataFrame())
+    gold=kind[kind.get("カテゴリ",pd.Series(dtype=str)).eq("金特")] if not kind.empty else pd.DataFrame()
+    lines=["# 特殊能力 最終比較レビュー", "", "## 現在の比較指標にあった問題", "- 旧 `出現率%` は特殊能力の総出現数を選手数で割った値で、複数所持を合算するため100%を超える指標でした。保有率ではありません。", "", "## 修正した集計定義", "- `総出現数`、`対象選手数`、`1人あたり平均個数`、`100人あたり出現数`、`1件以上保有する選手数`、`1件以上保有率%`、個数分布（0/1/2/3/4/5個以上）を分離しました。", "- 投手・野手・投手×カテゴリ・野手×カテゴリを分け、専用能力を全選手分母だけで判定しない形式にしました。", "", "## 通常青特の比較 / 赤特の比較 / 緑特の比較 / 金特0件の原因", f"- カテゴリ別詳細は `special_kind_metrics_compare.csv` と `special_name_metrics_compare.csv` を参照してください。金特行数={len(gold)}、生成金特総出現数={int(pd.to_numeric(gold.get('総出現数',pd.Series(dtype=int)),errors='coerce').fillna(0).sum()) if not gold.empty else 0}。", "- master (`data/special_abilities.csv`) に `kind=gold` が存在しない場合、現仕様では通常生成候補に金特分類がありません。今回の確認では確率変更はしていません。", "", "## ランク系A〜G分布", "- `ranked_ability_family_distribution_compare.csv` に系統・ランク別分布を出力しました。D補完は実在データに未記録=Dと断定できる仕様情報がCSVだけでは不足するため、推測補完していません。", "", "## 特殊能力数分布", "- `special_count_distribution_compare.csv` に0個〜5個以上の人数・割合を出力しました。", "", "## 投手・野手別の差 / カテゴリ別の差", "- 全体、投手、野手、投手×カテゴリ、野手×カテゴリの各スコープで比較CSVを出力しました。", "", "## 能力整合性警告", f"- 警告サマリー件数: {len(cons)}。詳細は `special_ability_consistency_warnings.csv`。", "", "## 衝突・重複", f"- 衝突タイプ件数: {len(conf)}。詳細は `special_ability_conflicts.csv`。", "", "## 修正が必要な特殊能力", "- レビューCSVで実在保有率との差分が大きい能力、整合性警告、衝突検出に出る能力を優先候補とします。", "", "## 現状維持でよい特殊能力", "- 差分が小さく、整合性警告・衝突にほぼ出ない能力は現状維持候補です。", "", "## 生成ロジックを修正すべきか", "- 本ステップはレビューのみです。金特有無、D補完仕様、カテゴリ別過多/過少を確認後に確率変更を判断してください。"]
+    (output_dir/"special_ability_review_memo.md").write_text("\n".join(lines)+"\n",encoding="utf-8")
+
+
 def main() -> int:
     args = parse_args()
     data = resolve_inputs(args)
@@ -700,10 +911,12 @@ def main() -> int:
     pitch_role = pitcher_role_compare(real, gen)
     breaking = breaking_compare(real, gen, data["real_breaking"])
     special_cat, special_name, rank_name = special_tables(data["real_specials"], gen)
+    special_review = special_review_tables(real, data["real_specials"], gen)
     real_optional = data["_real_optional"]
     generated_optional = data["_generated_optional"]
     severity_summary, high_warnings = generated_warning_tables(generated_optional)
     tables = {"overall_compare": overall, "fielder_ability_compare": fielder, "pitcher_ability_compare": pitcher, "position_compare": position, "pitcher_role_compare": pitch_role, "breaking_ball_compare": breaking, "special_ability_category_compare": special_cat, "special_ability_name_compare": special_name, "rank_ability_compare": rank_name, "percentile_compare": percentile_compare(fielder, pitcher)}
+    tables.update(special_review)
     tables.update({
         "trajectory_distribution_compare": trajectory_distribution_compare(real, gen),
         "position_rate_compare": position_rate_compare(real, gen),
@@ -731,6 +944,7 @@ def main() -> int:
             for name, df in tables.items():
                 df.to_excel(writer, sheet_name=name[:31], index=False)
     write_summary(tables, args.output_dir, {"real_dir": [str(args.real_dir)], "generated_dir": [str(args.generated_dir)], "real_loaded": data["_real_loaded_files"], "generated_loaded": data["_generated_loaded_files"], "real_missing": data["_real_missing_files"], "generated_missing": data["_generated_missing_files"]})
+    write_special_review_memo(tables, args.output_dir)
     print(f"比較レポートを出力しました: {args.output_dir}")
     return 0
 

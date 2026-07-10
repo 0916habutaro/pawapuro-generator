@@ -1,0 +1,2 @@
+﻿警告タイプ,severity,seed,カテゴリ,ポジション,年齢,タイプ,能力,source_file,平均,実在平均,差分,条件,警告,警告表示名
+捕手 走力,high,,,捕手,,,走力,position_balance_warnings.csv,41.547,51.86,-10.313,<43,警告,捕手 走力
