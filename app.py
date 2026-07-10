@@ -1858,23 +1858,22 @@ def inject_powerpro_ui_css() -> None:
     .pp-rank {font-size:28px; font-weight:950; text-align:center; text-shadow:1px 1px white; line-height:1;}
     .pp-value {font-size:22px; color:#0b72bd; font-weight:950; text-align:right; padding-right:12px; overflow-wrap:anywhere;}
     .pp-special-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:5px;}
-    .pp-special {height:43px; min-width:0; border-radius:8px; border:3px solid #86dff4; background:linear-gradient(#f7feff,#d9f8ff); color:#0870b6; font-weight:950; display:grid; grid-template-columns:minmax(0,1fr) 28px; align-items:center; gap:3px; padding:0 8px; font-size:16px; box-shadow:inset 0 2px rgba(255,255,255,.8), inset 0 -2px rgba(83,202,232,.12);}
-    .pp-special-name {overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;}
-    .pp-special.no-rank {grid-template-columns:minmax(0,1fr);}
-    .pp-special.no-rank .pp-special-rank {display:none;}
+    .pp-special {height:43px; min-width:0; border-radius:8px; border:3px solid #86dff4; background:linear-gradient(180deg,#d8fbff 0%,#79e9f5 52%,#37cee7 100%); color:#0871ad; font-weight:950; display:grid; grid-template-columns:minmax(0,1fr); place-items:center; padding:0 8px; font-size:16px; box-shadow:inset 0 2px rgba(255,255,255,.8), inset 0 -2px rgba(83,202,232,.12);}
+    .pp-special-name {overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; max-width:100%; text-align:center;}
+    .pp-special-ranked {display:grid; grid-template-columns:minmax(0,1fr) 24px; padding:0; overflow:hidden; gap:0; align-items:stretch;}
+    .pp-special-ranked .pp-special-name {display:flex; align-items:center; justify-content:center; padding:0 4px;}
+    .pp-special-rank-badge {display:flex; align-items:center; justify-content:center; align-self:stretch; width:24px; color:#fff; font-size:19px; line-height:1; font-weight:950; text-align:center; text-shadow:0 1px rgba(0,42,70,.35);}
     .pp-special.long .pp-special-name {font-size:14px; letter-spacing:-.04em;}
     .pp-special.xlong .pp-special-name {font-size:12.5px; letter-spacing:-.06em;}
-    .pp-special-rank {font-size:19px; text-align:right; color:#07629c; font-weight:950;}
     .pp-special.red {background:linear-gradient(#fff8f8,#ffe0e0); border-color:#f29a9a; color:#bd1624;}
-    .pp-special.red .pp-special-rank {color:#bd1624;}
     .pp-special.green {background:linear-gradient(#f8fff9,#dcf8e2); border-color:#73d58a; color:#15833d;}
-    .pp-special.green .pp-special-rank {color:#15833d;}
     .pp-special.gold {background:linear-gradient(#fffdf1,#fff0ad); border-color:#e0be3c; color:#836200;}
-    .pp-special.gold .pp-special-rank {color:#836200;}
-    .pp-special.rank-strong {background:linear-gradient(#d7fbff,#8eeeff); border-color:#1db4e8; color:#066aa8;}
-    .pp-special.rank-neutral {background:linear-gradient(#f7feff,#d9f8ff); border-color:#86dff4; color:#0870b6;}
-    .pp-special.rank-negative {background:linear-gradient(#fff8f8,#ffdede); border-color:#f29a9a; color:#bd1624;}
-    .pp-special.rank-negative .pp-special-rank {color:#bd1624;}
+    .pp-special-ranked.rank-ab {background:linear-gradient(180deg,#d8fbff 0%,#79e9f5 52%,#37cee7 100%); border-color:#00aaca; color:#0871ad;}
+    .pp-special-ranked.rank-ab .pp-special-rank-badge {background:linear-gradient(180deg,#23b9d6 0%,#067da8 100%); color:#fff;}
+    .pp-special-ranked.rank-cde {background:linear-gradient(180deg,#f7feff 0%,#ddf8fc 55%,#beeef6 100%); border-color:#65cfe4; color:#0871ad;}
+    .pp-special-ranked.rank-cde .pp-special-rank-badge {background:linear-gradient(180deg,#73d2df 0%,#2f9fbc 100%); color:#fff;}
+    .pp-special-ranked.rank-fg {background:linear-gradient(180deg,#fff5f5 0%,#ffd3d3 55%,#ffadad 100%); border-color:#ef6c72; color:#c71c24;}
+    .pp-special-ranked.rank-fg .pp-special-rank-badge {background:linear-gradient(180deg,#ed5a60 0%,#c8212b 100%); color:#fff;}
     .pp-special.empty {height:43px; background:linear-gradient(#f8feff,#e6f9fd); border-color:#bfeaf5; color:transparent;}
     .pp-section-title {color:#075f9e; font-weight:900; font-size:17px; margin:2px 0 7px;}
     .pp-help {position:static; background:#062247; color:white; padding:11px 18px; font-size:18px; font-weight:800; border-top:4px solid #0b4f8c; border-radius:8px; margin:16px 0;}
@@ -1981,6 +1980,16 @@ def split_special_rank(name: str) -> tuple[str, str]:
     return name[: match.start()], match.group(1)
 
 
+def special_rank_class(rank_text: str) -> str:
+    if rank_text in {"A", "B"}:
+        return "rank-ab"
+    if rank_text in {"C", "D", "E"}:
+        return "rank-cde"
+    if rank_text in {"F", "G"}:
+        return "rank-fg"
+    return ""
+
+
 def special_target_for_name(name: str, master: MasterData) -> str:
     return next((special_target_role(row) for row in master.abilities if row.get("name") == name), "共通")
 
@@ -1998,19 +2007,15 @@ def fixed_rank_slots(player: dict[str, Any], mode: str) -> list[str | None]:
 
 def special_cell_html(name: str | None, kind: str = "blue") -> str:
     if not name:
-        return '<div class="pp-special empty"><span></span><span></span></div>'
+        return '<div class="pp-special empty"><span></span></div>'
     base_name, rank_text = split_special_rank(name)
-    cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else ""
-    if rank_text in ("A", "B"):
-        cls = "rank-strong"
-    elif rank_text in ("C", "D", "E"):
-        cls = "rank-neutral"
-    elif rank_text in ("F", "G"):
-        cls = "rank-negative"
     length_cls = "xlong" if len(base_name) >= 11 else "long" if len(base_name) >= 8 else ""
-    rank_cls = "" if rank_text else "no-rank"
-    classes = " ".join(part for part in [cls, length_cls, rank_cls] if part)
-    return f'<div class="pp-special {classes}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span><span class="pp-special-rank">{e(rank_text)}</span></div>'
+    if rank_text:
+        classes = " ".join(part for part in ["pp-special", "pp-special-ranked", special_rank_class(rank_text), length_cls] if part)
+        return f'<div class="{classes}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span><span class="pp-special-rank-badge">{e(rank_text)}</span></div>'
+    cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else ""
+    classes = " ".join(part for part in ["pp-special", cls, length_cls] if part)
+    return f'<div class="{classes}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span></div>'
 
 
 def render_special_grid_html(p: dict[str, Any], master: MasterData, mode: str = "fielder", cell_count: int = 32) -> str:
