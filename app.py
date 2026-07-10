@@ -46,6 +46,21 @@ RANKED_SPECIAL_RANKS = ["A", "B", "C", "D", "E", "F", "G"]
 RANKED_SPECIAL_BASE_WEIGHTS = {"A": 1, "B": 5, "C": 13, "D": 56, "E": 17, "F": 6, "G": 2}
 RANKED_SPECIAL_DISPLAY_GROUPS = ["対ピンチ", "ノビ", "チャンス", "盗塁", "キャッチャー"]
 
+USAGE_SPECIAL_NAMES = {
+    "フル出場", "調子次第", "人気者", "ミート多用", "強振多用", "積極打法", "慎重打法",
+    "積極盗塁", "慎重盗塁", "積極走塁", "積極守備", "チームプレイ○", "チームプレイ×",
+    "速球中心", "変化球中心", "投球位置左", "投球位置右", "テンポ○",
+}
+PITCHER_USAGE_ORDER = ["フル出場", "調子次第", "速球中心", "変化球中心", "投球位置左", "投球位置右", "テンポ○", "人気者"]
+FIELDER_USAGE_ORDER = ["フル出場", "調子次第", "ミート多用", "強振多用", "積極打法", "慎重打法", "積極盗塁", "慎重盗塁", "積極走塁", "積極守備", "チームプレイ○", "チームプレイ×", "人気者"]
+LABEL_LANE_OFFSETS = {
+    "1": [(0, -10), (0, 12)],
+    "2": [(-6, -8), (8, 9)],
+    "3": [(-30, 0), (30, 0)],
+    "4": [(-8, -9), (10, 8)],
+    "5": [(8, -9), (-10, 8)],
+}
+
 
 @dataclass
 class MasterData:
@@ -1856,6 +1871,10 @@ def inject_powerpro_ui_css() -> None:
     .pp-special.green .pp-special-rank {color:#15833d;}
     .pp-special.gold {background:linear-gradient(#fffdf1,#fff0ad); border-color:#e0be3c; color:#836200;}
     .pp-special.gold .pp-special-rank {color:#836200;}
+    .pp-special.rank-strong {background:linear-gradient(#d7fbff,#8eeeff); border-color:#1db4e8; color:#066aa8;}
+    .pp-special.rank-neutral {background:linear-gradient(#f7feff,#d9f8ff); border-color:#86dff4; color:#0870b6;}
+    .pp-special.rank-negative {background:linear-gradient(#fff8f8,#ffdede); border-color:#f29a9a; color:#bd1624;}
+    .pp-special.rank-negative .pp-special-rank {color:#bd1624;}
     .pp-special.empty {height:43px; background:linear-gradient(#f8feff,#e6f9fd); border-color:#bfeaf5; color:transparent;}
     .pp-section-title {color:#075f9e; font-weight:900; font-size:17px; margin:2px 0 7px;}
     .pp-help {position:static; background:#062247; color:white; padding:11px 18px; font-size:18px; font-weight:800; border-top:4px solid #0b4f8c; border-radius:8px; margin:16px 0;}
@@ -1977,6 +1996,12 @@ def special_cell_html(name: str | None, kind: str = "blue") -> str:
         return '<div class="pp-special empty"><span></span><span></span></div>'
     base_name, rank_text = split_special_rank(name)
     cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else ""
+    if rank_text in ("A", "B"):
+        cls = "rank-strong"
+    elif rank_text in ("C", "D", "E"):
+        cls = "rank-neutral"
+    elif rank_text in ("F", "G"):
+        cls = "rank-negative"
     length_cls = "xlong" if len(base_name) >= 11 else "long" if len(base_name) >= 8 else ""
     rank_cls = "" if rank_text else "no-rank"
     classes = " ".join(part for part in [cls, length_cls, rank_cls] if part)
@@ -1989,19 +2014,25 @@ def render_special_grid_html(p: dict[str, Any], master: MasterData, mode: str = 
         cells.extend(special_cell_html(name) for name in fixed_rank_slots(p, mode))
     order = {"gold": 1, "blue": 2, "mixed": 2, "neutral": 2, "green": 3, "red": 4}
     normal_entries = []
-    usage_names = {"調子次第", "ミート多用", "強振多用", "積極打法", "慎重打法", "積極盗塁", "慎重盗塁", "積極走塁", "積極守備", "チームプレイ○", "チームプレイ×", "速球中心", "変化球中心", "投球位置左", "投球位置右", "テンポ○"}
+    usage_order = PITCHER_USAGE_ORDER if p.get("role") == "投手" else FIELDER_USAGE_ORDER
+    usage_priority = {name: index for index, name in enumerate(usage_order)}
     for raw_name in p.get("special_abilities", []):
         name = str(raw_name)
         kind = special_kind(name, master)
         target = special_target_for_name(name, master)
-        if mode == "pitcher" and target not in ("投手", "共通"):
+        if mode == "pitcher" and (target not in ("投手", "共通") or name in USAGE_SPECIAL_NAMES):
             continue
-        if mode == "fielder" and target not in ("野手", "共通"):
+        if mode == "fielder" and (target not in ("野手", "共通") or name in USAGE_SPECIAL_NAMES):
             continue
-        if mode == "usage" and name not in usage_names:
-            continue
+        if mode == "usage":
+            player_role = "投手" if p.get("role") == "投手" else "野手"
+            if name not in USAGE_SPECIAL_NAMES or target not in (player_role, "共通"):
+                continue
         normal_entries.append((name, kind))
-    display_entries = sorted(normal_entries, key=lambda item: order.get(item[1], 9))
+    if mode == "usage":
+        display_entries = sorted(normal_entries, key=lambda item: (usage_priority.get(item[0], 99), item[0]))
+    else:
+        display_entries = sorted(normal_entries, key=lambda item: order.get(item[1], 9))
     max_normal = max(0, cell_count - len(cells))
     hidden_count = max(0, len(display_entries) - max_normal)
     if hidden_count and max_normal > 0:
@@ -2078,8 +2109,9 @@ def render_pitch_chart_svg(balls: list[dict[str, Any]], batting_throwing: str = 
             length = max((dx * dx + dy * dy) ** 0.5, 1)
             nx, ny = -dy / length, dx / length
             offset = -10 if lane_index == 0 else 12
-            raw_x = lx + nx * offset
-            raw_y = ly + ny * offset
+            extra_x, extra_y = LABEL_LANE_OFFSETS.get(code, [(0, -8), (0, 8)])[min(lane_index, 1)]
+            raw_x = lx + nx * offset + extra_x
+            raw_y = ly + ny * offset + extra_y
             name_x = min(215, max(25, raw_x))
             name_y = min(202, max(40, raw_y))
             anchor = "middle"
@@ -2139,6 +2171,8 @@ def displayed_fielder_abilities(player: dict[str, Any]) -> dict[str, Any]:
 
 
 def filtered_ranked_specials(player: dict[str, Any], mode: str) -> dict[str, str]:
+    # 未設定ランクのD補完は画面表示用の標準値です。
+    # 元のranked_specialsは変更せず、SQLite/CSV/Excel/バランス集計にも追加しません。
     abilities = player.get("abilities", {}) if isinstance(player.get("abilities"), dict) else {}
     ranked = dict(abilities.get("ranked_specials", {}) or {})
     pitcher_names = {"対ピンチ", "対左打者", "打たれ強さ", "ノビ", "クイック"}
@@ -2163,9 +2197,9 @@ def ability_value_text(item: Any) -> str:
         return f"{item.get('rank', '')} {item.get('value', '')}".strip()
     return str(item if item is not None else "－－")
 
-def display_position_defense_value(player: dict[str, Any], full_position: str, mark: str, base_fielding: int | float | None) -> str:
+def display_position_defense_value(player: dict[str, Any], full_position: str, mark: str, base_fielding: int | float | None) -> int | None:
     if mark == "－－" or not isinstance(base_fielding, int | float):
-        return ""
+        return None
     if mark == "◎" and player.get("position") == full_position:
         rate_min, rate_max = 1.0, 1.0
     elif mark == "◎":
@@ -2176,7 +2210,7 @@ def display_position_defense_value(player: dict[str, Any], full_position: str, m
         rate_min, rate_max = 0.55, 0.75
     rng = random.Random(f"defense-table:{player.get('seed', 0)}:{full_position}:{mark}")
     value = int(round(base_fielding * rng.uniform(rate_min, rate_max)))
-    return str(max(1, min(99, value)))
+    return max(1, min(99, value))
 
 
 def render_defense_usage_left(player: dict[str, Any]) -> str:
@@ -2197,8 +2231,13 @@ def render_defense_usage_left(player: dict[str, Any]) -> str:
     for short, full in pos_labels:
         mark = "◎" if player.get("position") == full else sub.get(full, "－－")
         value = display_position_defense_value(player, full, mark, base_fielding)
-        emph = ' style="color:#075fbd;font-weight:950"' if player.get("position") == full else ""
-        cells.append(f'<div class="pp-mini-card"{emph}><span class="pp-mini-label">{short}</span>{e(mark)} <span style="font-size:14px">{e(value)}</span></div>')
+        emph = ' style="border-color:#0b8fe0; box-shadow:inset 0 0 0 2px rgba(11,143,224,.18);"' if player.get("position") == full else ""
+        if isinstance(value, int):
+            pos_rank = rank(value)
+            value_html = f'<span style="color:{ui_rank_color(pos_rank)};font-size:24px;font-weight:950;text-shadow:1px 1px white;">{e(pos_rank)}</span><span style="font-size:18px;color:#0b72bd;font-weight:950;">{e(value)}</span>'
+        else:
+            value_html = '<span style="font-size:18px;color:#9bb7cc;font-weight:950;">－－</span>'
+        cells.append(f'<div class="pp-mini-card"{emph}><span class="pp-mini-label">{short}</span><div style="display:flex;align-items:baseline;gap:8px;justify-content:center;">{value_html}</div></div>')
     return title + render_ability_rows([("走力", f.get("走力")), ("肩力", f.get("肩力"))]) + '<div class="pp-defense-grid">' + ''.join(cells) + '</div>' + render_ability_rows([("守備力", f.get("守備力")), ("捕球", f.get("捕球"))])
 
 def render_profile_right(player: dict[str, Any]) -> str:
