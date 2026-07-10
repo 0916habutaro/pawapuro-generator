@@ -273,6 +273,30 @@ def special_deviation(value: int | float | None, average: int | float, step: flo
     return max(-2.0, min(2.0, (float(value) - float(average)) / step))
 
 
+def player_special_scale(role: str, player_type: str, category: str | None, abilities: dict[str, Any], age: int | None = None) -> float:
+    """選手格に応じた通常特殊能力の基礎スケール。基本能力そのものは変更しません。"""
+    if role == "投手":
+        values = [pitcher_speed_value(abilities), ability_numeric_value(abilities, "コントロール"), ability_numeric_value(abilities, "スタミナ")]
+        score = sum(v for v in values if isinstance(v, int | float)) / max(1, sum(isinstance(v, int | float) for v in values))
+        scale = 1.18 + special_deviation(score, 55, 14) * 0.18
+        if player_type in {"速球派", "技巧派", "変化球派", "スタミナ型"}:
+            scale += 0.08
+    else:
+        keys = ["ミート", "パワー", "走力", "肩力", "守備力", "捕球"]
+        values = [ability_numeric_value(abilities, key) for key in keys]
+        score = sum(v for v in values if isinstance(v, int | float)) / max(1, sum(isinstance(v, int | float) for v in values))
+        scale = 1.10 + special_deviation(score, 55, 14) * 0.15
+        if player_type in {"巧打型", "長距離砲", "俊足型", "守備職人", "強肩型"}:
+            scale += 0.06
+    if category == "ドラフト候補用":
+        scale *= 0.86
+        if isinstance(age, int) and age <= 22 and score >= 60:
+            scale *= 1.08
+    elif category == "助っ人外国人用":
+        scale *= 1.08
+    return max(0.78, min(1.55, scale))
+
+
 def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, player_type: str, position: str | None = None, age: int | None = None, abilities: dict[str, Any] | None = None, breaking_balls: list[dict[str, Any]] | None = None, category: str | None = None) -> float:
     abilities = abilities or {}
     name = str(row.get("name", ""))
@@ -280,19 +304,27 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
     power = str(row.get("power", "normal"))
     base_scale = 0.98 if kind == "green" or name in PERSONALITY_SPECIALS else 0.70
     chance = 0.35 if power == "gold" or kind == "gold" else float(base_chance) * base_scale
+    if kind in {"blue", "red", "green"}:
+        chance *= player_special_scale(role, player_type, category, abilities, age)
+        if kind == "blue":
+            chance *= 1.32 if role == "投手" else 1.22
+        elif kind == "red":
+            chance *= 0.82 if role == "投手" else 1.18
+        elif kind == "green" and role == "投手":
+            chance *= 0.78
     if power == "strong" or name in STRONG_SPECIALS:
         chance *= 0.70
     if kind == "red":
-        chance *= 1.28
+        chance *= 1.34 if role == "野手" else 1.08
     if kind == "mixed":
         chance *= 0.90
 
     if category == "ドラフト候補用":
-        chance *= 0.86
+        chance *= 0.90
         if kind == "green" or name in PERSONALITY_SPECIALS:
             chance *= 1.20
     elif category == "助っ人外国人用":
-        chance *= 1.18
+        chance *= 1.12
         if kind == "green" or name in PERSONALITY_SPECIALS:
             chance *= 1.18
         if role == "投手" and kind == "red":
@@ -341,14 +373,20 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
             if player_type == "長距離砲": chance += 2
             chance += power_dev * 0.45
             if isinstance(power_v, int | float): chance += 1.1 if power_v >= 80 else 0.5 if power_v >= 70 else -1.8 if power_v < 45 else 0
+            if isinstance(power_v, int | float) and power_v < 55 and name == "パワーヒッター":
+                chance -= 2.5
         if name in contact:
             if player_type == "巧打型": chance += 2
             chance += meet_dev * 0.35
             if isinstance(meet, int | float): chance += 0.5 if meet >= 70 else -1.8 if meet < 45 and name == "アベレージヒッター" else 0
+            if isinstance(meet, int | float) and meet < 55 and name == "アベレージヒッター":
+                chance -= 2.0
         if name in run:
             if player_type == "俊足型": chance += 2
             chance += speed_dev * 0.45
             if isinstance(speed, int | float): chance += 0.8 if speed >= 70 else -1.8 if speed < 45 else 0
+            if isinstance(speed, int | float) and speed < 55 and name in {"盗塁〇", "走塁〇", "積極盗塁", "積極走塁"}:
+                chance -= 1.6
         if name in defense:
             if player_type == "守備職人": chance += 2
             chance += defense_dev * 0.4
@@ -359,6 +397,7 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
             chance += arm_dev * 0.4
             if isinstance(arm, int | float): chance += 0.6 if arm >= 70 else -1.8 if arm < 45 else 0
         if kind == "red":
+            chance *= 1.72
             if name == "三振" and isinstance(meet, int | float):
                 if meet < 40:
                     chance += 4
@@ -379,6 +418,20 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
                 elif isinstance(speed, int | float) and speed < 55: chance += 1.5
                 if isinstance(power_v, int | float) and power_v >= 75: chance -= 1
             chance -= 0.05
+        if kind == "green" or name in PERSONALITY_SPECIALS:
+            chance *= 1.75
+            if name in {"積極盗塁", "慎重盗塁"} and isinstance(speed, int | float):
+                chance += 1.4 if speed >= 70 else -1.2 if speed < 45 else 0
+            if name == "積極走塁" and isinstance(speed, int | float):
+                chance += 1.2 if speed >= 65 else -0.8 if speed < 45 else 0
+            if name == "積極守備" and (isinstance(field, int | float) or isinstance(catch, int | float)):
+                chance += 1.2 if max(field or 0, catch or 0) >= 65 else -0.7
+            if name == "選球眼" and isinstance(meet, int | float):
+                chance += 1.0 if meet >= 60 else -0.5
+            if name == "強振多用" and isinstance(power_v, int | float):
+                chance += 1.0 if power_v >= 65 or player_type == "長距離砲" else -0.5
+            if name == "ミート多用" and isinstance(meet, int | float):
+                chance += 1.0 if meet >= 60 or player_type == "巧打型" else -0.5
     else:
         speed_v = pitcher_speed_value(abilities)
         control = ability_numeric_value(abilities, "コントロール")
@@ -394,7 +447,7 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
         stamina_names = {"尻上がり", "回またぎ○", "要所○", "根性", "立ち上がり○"}
         real_pitcher_blue = {"球速安定", "奪三振", "リリース○", "逃げ球", "球持ち○", "内角攻め", "緩急○", "キレ○", "牽制○", "ナチュラルシュート", "ゴロピッチャー", "回またぎ○", "真っスラ"}
         if name in real_pitcher_blue:
-            chance += 0.7
+            chance += 1.5
         if name in fast:
             if player_type == "速球派": chance += 2
             chance += speed_dev * 0.45
@@ -437,12 +490,15 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
             if name in {"一発", "軽い球"}:
                 if isinstance(speed_v, int) and speed_v < 140: chance += 2
                 if isinstance(speed_v, int) and speed_v >= 150: chance -= 2
+                if total_break >= 9: chance -= 1.5
                 if player_type == "速球派": chance -= 1
             if name in {"寸前", "負け運", "スロースターター"}:
                 if isinstance(control, int | float) and control < 55: chance += 1
                 if isinstance(stamina, int | float) and stamina < 50: chance += 1
             if name == "スロースターター" and position == "先発" and isinstance(stamina, int | float) and stamina < 45: chance += 1
             chance -= 0.05
+        if kind == "green" or name in PERSONALITY_SPECIALS:
+            chance *= 0.95
 
     max_chance = 8.0 if power == "strong" or name in STRONG_SPECIALS else 25.0
     return max(0.0, min(max_chance, float(chance)))
@@ -450,6 +506,14 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
 
 def generate_specials(rng: random.Random, master: MasterData, role: str, player_type: str, position: str | None = None, age: int | None = None, abilities: dict[str, Any] | None = None, breaking_balls: list[dict[str, Any]] | None = None, category: str | None = None) -> list[str]:
     selected, used_groups = [], set()
+    conflicts = {
+        "積極打法": "慎重打法", "慎重打法": "積極打法",
+        "強振多用": "ミート多用", "ミート多用": "強振多用",
+        "積極盗塁": "慎重盗塁", "慎重盗塁": "積極盗塁",
+        "速球中心": "変化球中心", "変化球中心": "速球中心",
+        "投球位置左": "投球位置右", "投球位置右": "投球位置左",
+        "チームプレイ○": "チームプレイ×", "チームプレイ×": "チームプレイ○",
+    }
     candidates = [row for row in master.abilities if special_target_role(row) in (role, "共通") and not is_ranked_special(row)]
     rng.shuffle(candidates)
     for row in candidates:
@@ -457,9 +521,16 @@ def generate_specials(rng: random.Random, master: MasterData, role: str, player_
         if group in used_groups:
             continue
         chance = adjust_special_chance(row, int(row.get("weight", 0) or 0), role, player_type, position, age, abilities, breaking_balls, category)
-        if rng.random() < chance / 100:
-            selected.append(row["name"])
+        name = row["name"]
+        if rng.random() < chance / 100 and conflicts.get(name) not in selected:
+            selected.append(name)
             used_groups.add(group)
+    cap = 6 if category == "助っ人外国人用" else 5
+    if role == "投手" and category == "架空球団用":
+        cap = 6
+    if len(selected) > cap:
+        rng.shuffle(selected)
+        selected = selected[:cap]
     return selected
 
 
@@ -467,6 +538,12 @@ def generate_specials(rng: random.Random, master: MasterData, role: str, player_
 def ranked_shift_for_group(rng: random.Random, group_name: str, role: str, position: str, player_type: str, abilities: dict[str, Any]) -> int:
     shift = 0
     if role == "投手":
+        speed = pitcher_speed_value(abilities)
+        if group_name == "ノビ":
+            if isinstance(speed, int) and speed >= 152 and rng.random() < 0.55:
+                shift += 1
+            elif isinstance(speed, int) and speed < 140 and rng.random() < 0.75:
+                shift -= 1
         if player_type == "速球派" and group_name == "ノビ":
             shift += 1
         if player_type == "技巧派" and group_name in ("対ピンチ", "対左打者"):
@@ -485,6 +562,8 @@ def ranked_shift_for_group(rng: random.Random, group_name: str, role: str, posit
         fielding = ability_numeric_value(abilities, "守備力")
         if isinstance(speed, int | float) and speed >= 70 and group_name in ("盗塁", "走塁"):
             shift += 1
+        if isinstance(speed, int | float) and speed < 50 and group_name in ("盗塁", "走塁"):
+            shift -= 1
         if isinstance(fielding, int | float) and fielding >= 70 and group_name == "送球":
             shift += 1
     return max(-2, min(2, shift))
