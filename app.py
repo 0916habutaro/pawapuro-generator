@@ -11,6 +11,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+APP_VERSION = "1.0.0"
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
 DB_PATH = APP_DIR / "players.sqlite3"
@@ -1857,6 +1858,7 @@ def main() -> None:
         category = st.selectbox("カテゴリ", CATEGORIES)
         count = st.number_input("生成人数", min_value=1, max_value=1000, value=3, step=1)
         generate = st.button("生成する", type="primary", use_container_width=True)
+        st.caption(f"Version {APP_VERSION}")
     if page == "バランス確認":
         render_balance_check(master)
         return
