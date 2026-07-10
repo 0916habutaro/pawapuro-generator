@@ -309,9 +309,9 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
         if kind == "blue":
             chance *= 1.32 if role == "投手" else 1.22
         elif kind == "red":
-            chance *= 0.82 if role == "投手" else 1.18
+            chance *= 0.98 if role == "投手" else 1.18
         elif kind == "green" and role == "投手":
-            chance *= 0.78
+            chance *= 0.90
     if power == "strong" or name in STRONG_SPECIALS:
         chance *= 0.70
     if kind == "red":
@@ -324,9 +324,9 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
         if kind == "green" or name in PERSONALITY_SPECIALS:
             chance *= 1.20
     elif category == "助っ人外国人用":
-        chance *= 1.12
+        chance *= 0.82
         if kind == "green" or name in PERSONALITY_SPECIALS:
-            chance *= 1.18
+            chance *= 1.05
         if role == "投手" and kind == "red":
             chance *= 0.86
 
@@ -505,7 +505,7 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
 
 
 def generate_specials(rng: random.Random, master: MasterData, role: str, player_type: str, position: str | None = None, age: int | None = None, abilities: dict[str, Any] | None = None, breaking_balls: list[dict[str, Any]] | None = None, category: str | None = None) -> list[str]:
-    selected, used_groups = [], set()
+    selected, selected_names, used_groups = [], set(), set()
     conflicts = {
         "積極打法": "慎重打法", "慎重打法": "積極打法",
         "強振多用": "ミート多用", "ミート多用": "強振多用",
@@ -517,17 +517,31 @@ def generate_specials(rng: random.Random, master: MasterData, role: str, player_
     candidates = [row for row in master.abilities if special_target_role(row) in (role, "共通") and not is_ranked_special(row)]
     rng.shuffle(candidates)
     for row in candidates:
-        group = str(row.get("group", ""))
-        if group in used_groups:
+        group = str(row.get("group", "") or "").strip()
+        if group and group in used_groups:
             continue
         chance = adjust_special_chance(row, int(row.get("weight", 0) or 0), role, player_type, position, age, abilities, breaking_balls, category)
         name = row["name"]
-        if rng.random() < chance / 100 and conflicts.get(name) not in selected:
+        if name in selected_names:
+            continue
+        if rng.random() < chance / 100 and conflicts.get(name) not in selected_names:
             selected.append(name)
-            used_groups.add(group)
+            selected_names.add(name)
+            if group:
+                used_groups.add(group)
     cap = 6 if category == "助っ人外国人用" else 5
     if role == "投手" and category == "架空球団用":
         cap = 6
+    if role == "投手":
+        score_values = [pitcher_speed_value(abilities or {}), ability_numeric_value(abilities or {}, "コントロール"), ability_numeric_value(abilities or {}, "スタミナ")]
+    else:
+        score_values = [ability_numeric_value(abilities or {}, key) for key in ("ミート", "パワー", "走力", "肩力", "守備力", "捕球")]
+    numeric_scores = [value for value in score_values if isinstance(value, int | float)]
+    player_score = sum(numeric_scores) / max(1, len(numeric_scores))
+    if category == "架空球団用" and player_score >= 62:
+        cap += 1
+    if category == "助っ人外国人用" and player_score >= 68:
+        cap += 1
     if len(selected) > cap:
         rng.shuffle(selected)
         selected = selected[:cap]
