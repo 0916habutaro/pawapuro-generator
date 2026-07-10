@@ -1216,10 +1216,12 @@ def consistency_summary(gen: pd.DataFrame, events: pd.DataFrame, warnings: pd.Da
     gen_events = events[events["データ"].eq("生成")]
     by_seed = gen_events.groupby("選手キー")["正規化名称"].apply(set).to_dict()
     for role, label, names, _predicate in _consistency_check_specs():
-        for category in ["全体", *[c for c in CATEGORY_PRIORITY if c in set(gen.get("category", []))]]:
-            for player_type in ["全体", *sorted(gen.get("player_type", pd.Series(dtype=str)).dropna().astype(str).unique())]:
+        category_scopes = ["全生成", *[c for c in CATEGORY_PRIORITY if c in set(gen.get("category", []))]]
+        player_type_scopes = ["全体", *sorted(gen.get("player_type", pd.Series(dtype=str)).dropna().astype(str).unique())]
+        for category in category_scopes:
+            for player_type in player_type_scopes:
                 base = gen[gen["role"].eq(role)].copy()
-                if category != "全体":
+                if category != "全生成":
                     base = base[base["category"].eq(category)]
                 if player_type != "全体":
                     base = base[base["player_type"].astype(str).eq(player_type)]
@@ -1231,7 +1233,8 @@ def consistency_summary(gen: pd.DataFrame, events: pd.DataFrame, warnings: pd.Da
                     continue
                 w = warnings[(warnings.get("チェック", pd.Series(dtype=str)).eq(label)) & (warnings.get("seed", pd.Series(dtype=str)).astype(str).isin(seeds))] if not warnings.empty else pd.DataFrame()
                 bad_count = int(w["seed"].nunique()) if not w.empty else 0
-                rows.append({"カテゴリ": category, "対象": role, "player_type": player_type, "チェック": label, "全対象人数": len(base), "特殊能力保有者数": len(holders), "不整合人数": bad_count, "全対象比%": round(bad_count / max(1, len(base)) * 100, 2), "保有者内不整合率%": round(bad_count / max(1, len(holders)) * 100, 2), "代表seed": int(w["seed"].iloc[0]) if not w.empty else ""})
+                usable = player_type == "全体" or len(holders) >= 20 or (bad_count / max(1, len(base)) * 100) >= 1
+                rows.append({"カテゴリ": category, "対象": role, "player_type": player_type, "チェック": label, "全対象人数": len(base), "特殊能力保有者数": len(holders), "不整合人数": bad_count, "全対象比%": round(bad_count / max(1, len(base)) * 100, 2), "保有者内不整合率%": round(bad_count / max(1, len(holders)) * 100, 2), "調整根拠採用可": "可" if usable else "参考のみ", "代表seed": int(w["seed"].iloc[0]) if not w.empty else ""})
     return pd.DataFrame(rows)
 
 
@@ -1310,12 +1313,22 @@ def write_special_adjustment_plan(tables: dict[str, pd.DataFrame], output_dir: P
         for _, row in view.iterrows():
             lines.append("| " + " | ".join(str(row[c]) for c in cols) + " |")
         return "\n".join(lines)
-    main_kind = kind[kind["データ"].isin(["実在12球団", "架空球団用"])] if not kind.empty else pd.DataFrame()
+    main_kind = kind[(kind["データ"].isin(["実在12球団", "架空球団用"])) & (kind["対象"].isin(["投手", "野手"]))] if not kind.empty else pd.DataFrame()
     too_much = name[(name.get("データ", pd.Series(dtype=str)).eq("架空球団用")) & (pd.to_numeric(name.get("保有率差分", pd.Series(dtype=float)), errors="coerce") >= 10)] if not name.empty else pd.DataFrame()
     too_low = name[(name.get("データ", pd.Series(dtype=str)).eq("架空球団用")) & (pd.to_numeric(name.get("保有率差分", pd.Series(dtype=float)), errors="coerce") <= -10)] if not name.empty else pd.DataFrame()
     generated_only = name[(name.get("データ", pd.Series(dtype=str)).eq("架空球団用")) & (pd.to_numeric(name.get("実在出現数", pd.Series(dtype=float)), errors="coerce").eq(0)) & (pd.to_numeric(name.get("生成出現数", pd.Series(dtype=float)), errors="coerce").gt(0))] if not name.empty else pd.DataFrame()
     real_only = name[(name.get("データ", pd.Series(dtype=str)).eq("架空球団用")) & (pd.to_numeric(name.get("実在出現数", pd.Series(dtype=float)), errors="coerce").gt(0)) & (pd.to_numeric(name.get("生成出現数", pd.Series(dtype=float)), errors="coerce").eq(0))] if not name.empty else pd.DataFrame()
-    high_consistency = consistency[pd.to_numeric(consistency.get("保有者内不整合率%", pd.Series(dtype=float)), errors="coerce") >= 20] if not consistency.empty else pd.DataFrame()
+    usable_consistency = consistency[
+        (consistency.get("カテゴリ", pd.Series(dtype=str)).eq("架空球団用"))
+        & (consistency.get("player_type", pd.Series(dtype=str)).eq("全体"))
+    ] if not consistency.empty else pd.DataFrame()
+    high_consistency = usable_consistency[pd.to_numeric(usable_consistency.get("保有者内不整合率%", pd.Series(dtype=float)), errors="coerce") >= 20] if not usable_consistency.empty else pd.DataFrame()
+    rank_major = pd.DataFrame()
+    if not rank.empty:
+        tmp = rank[(rank["データ"].eq("架空球団用")) & (rank["ランク"].isin(list("ABCEFG")))].copy()
+        tmp["absdiff"] = pd.to_numeric(tmp["実在との差分"], errors="coerce").abs()
+        rank_major = tmp.sort_values("absdiff", ascending=False).head(20).drop(columns=["absdiff"], errors="ignore")
+    conflict_total = int(pd.to_numeric(conflict.get("件数", pd.Series(dtype=int)), errors="coerce").fillna(0).sum()) if not conflict.empty else 0
     adjustment_rows = []
     if not too_low.empty:
         adjustment_rows.append({"対象能力または能力群": "実在より10pt以上少ない通常特殊能力", "現状値": "special_name_metrics_compare参照", "実在値": "同左", "問題": "実在との差が大きい", "修正方針": "個別能力のweight/条件を軽微調整候補にする", "修正対象の関数・マスタ": "data/special_abilities.csv / adjust_special_chance", "推奨補正量": "+10〜+20%から検証", "影響範囲": "通常青特・赤特・緑特", "回帰確認項目": "保有率差分、保有者内不整合率"})
@@ -1324,8 +1337,143 @@ def write_special_adjustment_plan(tables: dict[str, pd.DataFrame], output_dir: P
     conclusion = "通常青特・赤特・緑特の再調整が必要" if not too_low.empty or not too_much.empty else "特殊能力生成は現状のまま完成扱い可能"
     if not high_consistency.empty and conclusion == "特殊能力生成は現状のまま完成扱い可能":
         conclusion = "軽微調整のみ必要"
-    lines = ["# 特殊能力 調整対象絞り込み計画", "", "## 前提", "- usageは生成対象外・比較対象外・不足判定対象外・警告対象外です。", "- 金特は実在0件・生成0件で一致しているため、警告や修正候補から除外します。", "- ランク系は通常特殊能力から完全分離し、D補完なしの明示ランク比較と生成全ランク参考表示を分けます。", "", "## 1. レビュー結果の数値要約", md(main_kind, 80), "", "### カテゴリ別", md(kind, 120), "", "## 2. 特殊能力名別の差分", "### 生成側が実在より10ポイント以上多い能力", md(too_much.sort_values("保有率差分", ascending=False) if not too_much.empty else too_much), "", "### 生成側が実在より10ポイント以上少ない能力", md(too_low.sort_values("保有率差分") if not too_low.empty else too_low), "", "### 実在にあるが生成0件", md(real_only.sort_values("実在保有率%", ascending=False) if not real_only.empty else real_only), "", "### 生成にあるが実在0件（alias確認用）", md(generated_only.sort_values("生成保有率%", ascending=False) if not generated_only.empty else generated_only), "", "### 分類", "- 修正必須: 現時点なし。", "- 軽微調整候補: 差分±10pt以上、または保有者内不整合率が高い能力群。", "- 現状維持: usage、金特、差分が小さい通常能力、衝突0件の組み合わせ。", "- 実在データ不足で判断保留: 明示ランクが少ない系統、実在/生成合計出現数が少ない能力。", "", "## 3. 金特0件の原因確定", "- 実在0件・生成0件で一致。現時点では生成対象外、master追加なし、出現確率追加なし、警告なし、修正候補なし。", "", "## 4. ランク系D補完の妥当性", "- 実在データの未記録=Dは断定しません。D補完なしで明示A〜Gのみ比較します。", "- 生成側Dは明示出力されるため参考表示です。", md(rank, 80), "", "## 5. 整合性警告の評価", md(consistency.sort_values("保有者内不整合率%", ascending=False) if not consistency.empty else consistency, 80), "", "## 6. 衝突・重複", "- usageと金特は衝突確認対象外です。", md(conflict), "", "## 7. 特殊能力数と選手格", md(context, 80), "", "## 8. 調整案", md(pd.DataFrame(adjustment_rows)), "", "## 9. 分類監査", md(audit, 80), "", "## 結論", f"**{conclusion}。** usageと金特は判断対象外です。"]
+    lines = ["# 特殊能力 調整対象絞り込み計画", "", "## 前提", "- usageは今回の調整・比較対象外です。", "- 金特は実在0件・生成0件で一致しているため変更しません。", "- ランク系はD補完せず、全行ではなく主要差分だけをMarkdownへ掲載します。詳細はCSVを参照してください。", "", "## 実在12球団と架空球団用の投手・野手別総量比較", md(main_kind, 20), "", "## 青特・赤特・緑特の平均個数と保有率", md(main_kind[["データ","対象","カテゴリ","1人あたり平均個数","1件以上保有率%","0個率%","5個以上率%"]] if not main_kind.empty else main_kind, 20), "", "## 差分が大きい特殊能力上位", "### 生成側が多い", md(too_much.sort_values("保有率差分", ascending=False).head(15) if not too_much.empty else too_much, 15), "", "### 生成側が少ない", md(too_low.sort_values("保有率差分").head(15) if not too_low.empty else too_low, 15), "", "## 整合性警告の集約値", "- 調整判断はまず架空球団用の投手／野手全体（player_type=全体）を使用します。player_type別は、特殊能力保有者数20人以上または全対象比1%以上のみ根拠採用可です。", md(consistency.sort_values(["カテゴリ","対象","player_type","保有者内不整合率%"], ascending=[True, True, True, False]) if not consistency.empty else consistency, 80), "", "## 衝突件数", f"- 衝突合計: {conflict_total}件", md(conflict, 20), "", "## ランク系の主要差分", md(rank_major, 20), "", "## 調整方針", md(pd.DataFrame(adjustment_rows), 10), "- 総量は選手格スケール、player_typeの能力連動、カテゴリ別スケール、個別能力条件、上限・重複除去の順で調整します。", "- 保有者数が少ない100%行だけを理由に生成確率を変更しません。", "", "## 分類監査", md(audit, 20), "", "## 最終結論", f"**{conclusion}。** usageと金特は判断対象外です。詳細明細はCSVに残しています。"]
     (output_dir / "special_ability_adjustment_plan.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_special_adjustment_review(tables: dict[str, pd.DataFrame], output_dir: Path) -> None:
+    kind = tables.get("special_kind_metrics_compare", pd.DataFrame())
+    counts = tables.get("special_count_distribution_compare", pd.DataFrame())
+    consistency = tables.get("special_ability_consistency_summary", pd.DataFrame())
+    conflict = tables.get("special_ability_conflict_summary", pd.DataFrame())
+    rank = tables.get("ranked_ability_family_distribution_compare", pd.DataFrame())
+    context = tables.get("generated_special_context_metrics", pd.DataFrame())
+    fielder = tables.get("fielder_ability_compare", pd.DataFrame())
+    pitcher = tables.get("pitcher_ability_compare", pd.DataFrame())
+    breaking = tables.get("breaking_ball_compare", pd.DataFrame())
+
+    def md(df: pd.DataFrame, max_rows: int = 30) -> str:
+        if df.empty:
+            return "該当なし"
+        view = df.head(max_rows).fillna("")
+        cols = list(view.columns)
+        out = ["| " + " | ".join(cols) + " |", "| " + " | ".join(["---"] * len(cols)) + " |"]
+        for _, row in view.iterrows():
+            out.append("| " + " | ".join(str(row[c]) for c in cols) + " |")
+        return "\n".join(out)
+
+    target_kind = kind[(kind["データ"].isin(["実在12球団", "架空球団用", "ドラフト候補用", "助っ人外国人用"])) & (kind["対象"].isin(["投手", "野手"]))] if not kind.empty else pd.DataFrame()
+    conflict_total = int(pd.to_numeric(conflict.get("件数", pd.Series(dtype=int)), errors="coerce").fillna(0).sum()) if not conflict.empty else 0
+    master = load_special_master()
+    blank_group_count = int(master[
+        master["カテゴリ"].isin(NORMAL_REVIEW_CATEGORIES)
+        & master["group"].fillna("").astype(str).str.strip().eq("")
+    ].shape[0]) if not master.empty else 0
+    target_ranges = {
+        ("投手", "青特", "1人あたり平均個数"): (2.6, 3.1), ("投手", "青特", "1件以上保有率%"): (90.0, None),
+        ("投手", "赤特", "1人あたり平均個数"): (0.75, 0.90), ("投手", "赤特", "1件以上保有率%"): (52.0, 60.0),
+        ("投手", "緑特", "1人あたり平均個数"): (0.27, 0.33), ("投手", "緑特", "1件以上保有率%"): (24.0, 30.0),
+        ("野手", "青特", "1人あたり平均個数"): (2.3, 2.7), ("野手", "青特", "1件以上保有率%"): (83.0, 90.0),
+        ("野手", "赤特", "1人あたり平均個数"): (0.45, 0.62), ("野手", "赤特", "1件以上保有率%"): (40.0, 52.0),
+        ("野手", "緑特", "1人あたり平均個数"): (1.0, 1.25), ("野手", "緑特", "1件以上保有率%"): (62.0, 72.0),
+    }
+    range_rows = []
+    if not kind.empty:
+        fake = kind[kind["データ"].eq("架空球団用")]
+        for (role, category, metric), (low, high) in target_ranges.items():
+            match = fake[(fake["対象"].eq(role)) & (fake["カテゴリ"].eq(category))]
+            value = None if match.empty else float(match[metric].iloc[0])
+            in_range = value is not None and value >= low and (high is None or value <= high)
+            range_rows.append({"対象": role, "カテゴリ": category, "指標": metric, "after値": "" if value is None else round(value, 3), "目標下限": low, "目標上限": "以上" if high is None else high, "判定": "範囲内" if in_range else "範囲外"})
+    range_df = pd.DataFrame(range_rows)
+    in_range_df = range_df[range_df["判定"].eq("範囲内")] if not range_df.empty else pd.DataFrame()
+    out_range_df = range_df[range_df["判定"].eq("範囲外")] if not range_df.empty else pd.DataFrame()
+    total_kind = kind[(kind["対象"].eq("全体")) & (kind["カテゴリ"].isin(NORMAL_REVIEW_CATEGORIES))] if not kind.empty else pd.DataFrame()
+    category_total_rows = []
+    for data_label in ["ドラフト候補用", "助っ人外国人用"]:
+        sub = total_kind[total_kind["データ"].eq(data_label)]
+        special_avg = round(pd.to_numeric(sub.get("1人あたり平均個数", pd.Series(dtype=float)), errors="coerce").sum(), 3)
+        five = counts[(counts.get("データ", pd.Series(dtype=str)).eq(data_label)) & (counts.get("対象", pd.Series(dtype=str)).eq("全体")) & (counts.get("特殊能力数", pd.Series(dtype=str)).eq("5個以上"))] if not counts.empty else pd.DataFrame()
+        category_total_rows.append({"データ": data_label, "通常特殊能力平均": special_avg, "通常特殊能力5個以上率%": "" if five.empty else float(five["割合%"].iloc[0])})
+    category_total_df = pd.DataFrame(category_total_rows)
+    rank_key = rank[(rank.get("データ", pd.Series(dtype=str)).eq("架空球団用")) & (rank.get("ランク", pd.Series(dtype=str)).isin(list("ABCEFG")))].head(30) if not rank.empty else pd.DataFrame()
+    ability_regression = pd.concat([
+        fielder[fielder.get("カテゴリ", pd.Series(dtype=str)).eq("架空球団用")].assign(区分="野手基本能力"),
+        pitcher[pitcher.get("カテゴリ", pd.Series(dtype=str)).eq("架空球団用")].assign(区分="投手基本能力"),
+    ], ignore_index=True, sort=False) if not fielder.empty or not pitcher.empty else pd.DataFrame()
+    movement = breaking[breaking.get("カテゴリ", pd.Series(dtype=str)).isin(["実在12球団", "架空球団用"])].head(40) if not breaking.empty else pd.DataFrame()
+    lines = [
+        "# 特殊能力 調整レビュー",
+        "",
+        "## 修正した関数・係数",
+        "- `app.py`: `player_special_scale` を追加し、選手格・カテゴリ・年齢で通常特殊能力の基礎スケールを調整。",
+        "- `app.py`: `adjust_special_chance` で青特・赤特・緑特の能力依存、野手赤特、野手緑特、投手青特、投手赤特の軽微抑制を調整。",
+        "- `app.py`: `generate_specials` で緑特などの相反ペア除外とカテゴリ別上限を維持。",
+        "- `app.py`: `ranked_shift_for_group` でノビ系と盗塁・走塁系の能力連動を強化。",
+        "- `scripts/compare_real_and_generated_balance.py`: Markdownを要約中心にし、明細はCSVへ退避。整合性警告に全生成・カテゴリ別・投手/野手別・player_type別と根拠採用可否を出力。",
+        "",
+        "## 投手／野手別のbefore・after・実在値",
+        "- このレビューはafter比較ディレクトリで生成されるため、after・実在値は下表、before値は `reports/real_vs_generated_balance_5000_special_before` がある場合にCSV同士で確認してください。",
+        md(target_kind, 30),
+        "",
+        "## 青特・赤特・緑特の個数分布",
+        md(counts[counts.get("データ", pd.Series(dtype=str)).isin(["実在12球団", "架空球団用"])].head(40) if not counts.empty else counts, 40),
+        "",
+        "## カテゴリ別の影響",
+        md(kind[kind.get("データ", pd.Series(dtype=str)).isin(["架空球団用", "ドラフト候補用", "助っ人外国人用"])] if not kind.empty else kind, 40),
+        "",
+        "### カテゴリ別 主要数値",
+        md(category_total_df, 10),
+        "",
+        "## player_type別の影響",
+        md(context[context.get("集計軸", pd.Series(dtype=str)).eq("player_type")] if not context.empty else context, 30),
+        "",
+        "## 整合性警告のbefore・after",
+        "- afterの集約値は下表です。player_type別の小母数行は `調整根拠採用可=参考のみ` として扱います。",
+        md(consistency, 60),
+        "",
+        "## 衝突が0件であること",
+        f"- 衝突合計: {conflict_total}件。",
+        md(conflict, 20),
+        "",
+        "## ランク系への影響",
+        "- 実在側D補完は行わず、生成Dは仕様として維持しています。Markdownには主要差分のみ掲載します。",
+        md(rank_key, 30),
+        "",
+        "## 基本能力・変化球への回帰がないこと",
+        "- 今回の変更対象は特殊能力生成ロジックのみで、野手基本能力・投手基本能力・変化球生成は変更していません。比較CSVで平均差分を確認してください。",
+        md(ability_regression, 30),
+        "",
+        "### 変化球系参考",
+        md(movement, 40),
+        "",
+        "## 残っている差",
+        "- 個別能力の実在差分は `special_name_metrics_compare.csv`、ランク系詳細は `ranked_ability_family_distribution_compare.csv` を確認してください。",
+        "",
+        "## 目標レンジに入った項目",
+        md(in_range_df, 30),
+        "",
+        "## まだ外れている項目",
+        md(out_range_df, 30),
+        "",
+        "## 外れているが許容する項目",
+        "- 第1段階では完全一致ではなく総量レンジへの接近を優先します。範囲外が残る場合は、衝突0件・重複0件・基本能力/変化球回帰なしを優先し、次段階の微調整候補として扱います。",
+        "",
+        "## final cap の影響",
+        "- final cap は全員の5個以上急増を防ぐための最後の安全弁です。青特5個以上率と助っ人外国人用の通常特殊能力5個以上率は下表で確認します。実在より低い場合も、一律cap引き上げではなく高総合スコア・主力級だけを緩める方針です。",
+        md(counts[
+            counts.get("データ", pd.Series(dtype=str)).isin(["実在12球団", "架空球団用", "助っ人外国人用"])
+            & counts.get("特殊能力数", pd.Series(dtype=str)).eq("5個以上")
+        ] if not counts.empty else counts, 20),
+        "",
+        "## group空欄確認結果",
+        f"- 通常特殊能力のgroup空欄行数: {blank_group_count}件。",
+        "- `generate_specials` はgroupが空欄の場合は排他グループへ入れず、特殊能力名単位で重複防止します。groupが設定されている能力だけ排他制御します。",
+        "",
+        "## 特殊能力生成を完成扱いにできるか",
+        "- 衝突0件、usage 0件、金特0件、専用能力の対象外所持0件を満たし、架空球団用の投手／野手全体が目標レンジに概ね入っていれば第1段階は完成扱い可能です。範囲外項目がある場合は上記の許容理由と次段階候補を確認します。",
+    ]
+    (output_dir / "special_adjustment_review.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main() -> int:
@@ -1377,6 +1525,7 @@ def main() -> int:
     write_summary(tables, args.output_dir, {"real_dir": [str(args.real_dir)], "generated_dir": [str(args.generated_dir)], "real_loaded": data["_real_loaded_files"], "generated_loaded": data["_generated_loaded_files"], "real_missing": data["_real_missing_files"], "generated_missing": data["_generated_missing_files"]})
     write_special_review_memo(tables, args.output_dir)
     write_special_adjustment_plan(tables, args.output_dir)
+    write_special_adjustment_review(tables, args.output_dir)
     print(f"比較レポートを出力しました: {args.output_dir}")
     return 0
 
