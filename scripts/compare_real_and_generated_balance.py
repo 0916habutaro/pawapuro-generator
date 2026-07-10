@@ -488,6 +488,33 @@ def position_rate_compare(real: pd.DataFrame, gen: pd.DataFrame) -> pd.DataFrame
     return pd.DataFrame(rows)
 
 
+def _nonblank(value: Any) -> bool:
+    return not pd.isna(value) and str(value).strip() != ""
+
+
+def _first_nonblank(row: pd.Series, columns: list[str], default: str = "比較不能") -> Any:
+    for col in columns:
+        if col in row and _nonblank(row[col]):
+            return row[col]
+    return default
+
+
+def _warning_display_name(row: pd.Series) -> str:
+    warning_type = _first_nonblank(row, ["警告タイプ"], default="")
+    if warning_type:
+        return str(warning_type)
+    warning = _first_nonblank(row, ["警告"], default="")
+    # 「警告」のような汎用ラベルだけでは内容を識別できないため、次候補を使います。
+    if warning and str(warning).strip() not in {"警告", "warning"}:
+        return str(warning)
+    position, ability = row.get("ポジション"), row.get("能力")
+    if _nonblank(position) and _nonblank(ability):
+        return f"{position} {ability}"
+    if warning:
+        return str(warning)
+    return str(_first_nonblank(row, ["source_file"], default="比較不能"))
+
+
 def generated_warning_tables(optional: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, pd.DataFrame]:
     frames = []
     for key in ["warnings", "position_balance_warnings"]:
@@ -501,6 +528,12 @@ def generated_warning_tables(optional: dict[str, pd.DataFrame]) -> tuple[pd.Data
     all_warnings = pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame(columns=["severity", "source_file"])
     summary = all_warnings["severity"].fillna("unknown").astype(str).value_counts().rename_axis("severity").reset_index(name="件数")
     high = all_warnings[all_warnings["severity"].fillna("").astype(str).str.lower().eq("high")].copy()
+    if not high.empty:
+        high["警告表示名"] = high.apply(_warning_display_name, axis=1)
+        if "警告タイプ" not in high:
+            high["警告タイプ"] = high["警告表示名"]
+        else:
+            high["警告タイプ"] = high.apply(lambda r: r["警告タイプ"] if _nonblank(r.get("警告タイプ")) else r["警告表示名"], axis=1)
     return summary, high
 
 
@@ -511,19 +544,55 @@ def sub_position_compare(real_optional: dict[str, pd.DataFrame], gen_optional: d
         if df.empty:
             continue
         for _, r in df.iterrows():
-            axis = r.get("集計軸", r.get("metric", ""))
-            value = r.get("値", r.get("value", ""))
-            rows.append({"データ": label, "集計軸": axis, "値": value, "人数": r.get("人数", r.get("count")), "割合%": r.get("割合%", r.get("rate%"))})
+            axis = _first_nonblank(r, ["集計軸", "metric"], default="")
+            value = _first_nonblank(r, ["値", "value", "item"], default="")
+            rows.append({"データ": label, "集計軸": axis, "値": value, "人数": _first_nonblank(r, ["人数", "count"], default=None), "割合%": _first_nonblank(r, ["割合%", "rate%", "ratio_percent"], default="比較不能")})
     return pd.DataFrame(rows)
+
+
+def _normalize_aptitude_pattern(text: Any) -> str:
+    value = str(text or "").strip()
+    if value in {"先", "中", "先中", "中抑", "先中抑"}:
+        return value
+    marks = {"先発": "-", "中継ぎ": "-", "抑え": "-"}
+    for role, mark in re.findall(r"(先発|中継ぎ|抑え)\s*([◎○-])", value):
+        marks[role] = mark
+    parts = []
+    if marks["先発"] in {"◎", "○"}:
+        parts.append("先")
+    if marks["中継ぎ"] in {"◎", "○"}:
+        parts.append("中")
+    if marks["抑え"] in {"◎", "○"}:
+        parts.append("抑")
+    return "".join(parts) or "比較不能"
 
 
 def pitcher_aptitude_compare(real_optional: dict[str, pd.DataFrame], gen_optional: dict[str, pd.DataFrame]) -> pd.DataFrame:
     rows = []
-    for label, df in [("実在12球団", real_optional.get("pitcher_role_summary", real_optional.get("pitcher_role_ability_average", pd.DataFrame()))), ("生成", gen_optional.get("pitcher_aptitude_summary", pd.DataFrame()))]:
-        if df.empty:
-            continue
-        for _, r in df.iterrows():
-            rows.append({"データ": label, "集計軸": r.get("集計軸", r.get("pitcher_roles", r.get("role", ""))), "値": r.get("値", r.get("pitcher_roles", "")), "人数": r.get("人数", r.get("count")), "割合%": r.get("割合%", r.get("rate%")), "平均球速": r.get("平均球速", r.get("top_speed"))})
+    real_df = real_optional.get("pitcher_role_summary", real_optional.get("pitcher_role_ability_average", pd.DataFrame()))
+    if not real_df.empty:
+        total = pd.to_numeric(real_df.get("人数", real_df.get("count")), errors="coerce").sum()
+        for _, r in real_df.iterrows():
+            count = _first_nonblank(r, ["人数", "count"], default=None)
+            rate = _first_nonblank(r, ["割合%", "rate%", "ratio_percent"], default=None)
+            if (rate is None or pd.isna(rate)) and total:
+                rate = round(float(count) / total * 100, 2)
+            pattern = _first_nonblank(r, ["値", "pitcher_roles", "role", "集計軸"], default="比較不能")
+            rows.append({"データ": "実在12球団", "カテゴリ": "実在12球団", "集計軸": "適正パターン別", "比較用適正パターン": pattern, "詳細適正パターン": pattern, "人数": count, "割合%": rate if rate is not None else "比較不能", "平均球速": _first_nonblank(r, ["平均球速", "top_speed"], default="")})
+    gen_df = gen_optional.get("pitcher_aptitude_summary", pd.DataFrame())
+    if not gen_df.empty:
+        work = gen_df.copy()
+        work["カテゴリ"] = work["カテゴリ"] if "カテゴリ" in work else "生成（カテゴリ不明）"
+        for category, cdf in work.groupby("カテゴリ", dropna=False):
+            pattern_rows = cdf[cdf.get("集計軸", pd.Series(index=cdf.index, dtype=str)).astype(str).eq("適正パターン別")]
+            total = pd.to_numeric(pattern_rows.get("人数", pattern_rows.get("count")), errors="coerce").sum()
+            for _, r in pattern_rows.iterrows():
+                count = _first_nonblank(r, ["人数", "count"], default=None)
+                rate = _first_nonblank(r, ["割合%", "rate%"], default=None)
+                if (rate is None or pd.isna(rate)) and total:
+                    rate = round(float(count) / total * 100, 2)
+                detail = _first_nonblank(r, ["値", "pitcher_roles", "詳細適正パターン"], default="比較不能")
+                rows.append({"データ": "生成", "カテゴリ": category, "集計軸": "適正パターン別", "比較用適正パターン": _normalize_aptitude_pattern(detail), "詳細適正パターン": detail, "人数": count, "割合%": rate if rate is not None else "比較不能", "平均球速": _first_nonblank(r, ["平均球速", "top_speed"], default="")})
     return pd.DataFrame(rows)
 
 
@@ -543,7 +612,7 @@ def second_pitch_compare(real_optional: dict[str, pd.DataFrame], gen_optional: d
         if df.empty:
             continue
         for _, r in df.iterrows():
-            rows.append({"データ": data_label, "集計軸": r.get("集計軸", r.get("metric", "")), "値": r.get("値", r.get("value", "")), "人数": r.get("人数", r.get("count")), "割合%": r.get("割合%", r.get("rate%"))})
+            rows.append({"データ": data_label, "集計軸": _first_nonblank(r, ["集計軸", "metric"], default=""), "値": _first_nonblank(r, ["値", "value", "item"], default=""), "人数": _first_nonblank(r, ["人数", "count"], default=None), "割合%": _first_nonblank(r, ["割合%", "rate%", "ratio_percent"], default="比較不能")})
     return pd.DataFrame(rows)
 
 
@@ -580,13 +649,14 @@ def write_summary(tables: dict[str, pd.DataFrame], output_dir: Path, meta: dict[
     for metric in ["ミート60以上", "パワー70以上", "走力70以上", "守備力70以上", "肩力70以上"]:
         sub = pr[(pr["データ"].eq("架空球団用")) & (pr["指標"].eq(metric))].head(6) if not pr.empty else pd.DataFrame()
         if not sub.empty:
-            lines.append("- " + " / ".join(f"{r['ポジション']} {r['割合%']}%" for _, r in sub.iterrows()))
+            lines.append("- " + " / ".join(f"{r['ポジション']} {r['指標']}: {r['割合%']}%" for _, r in sub.iterrows()))
     lines.extend(["", "## severity 別 warning 件数", ""])
     sev = tables.get("generated_warning_severity_summary", pd.DataFrame())
     lines.extend([f"- {r['severity']}: {r['件数']}件" for _, r in sev.iterrows()] or ["- severity付き生成警告なし"])
     high = tables.get("generated_high_warnings", pd.DataFrame())
     if not high.empty:
-        lines.append("- high警告タイプ: " + ", ".join(sorted(set(high.get("警告タイプ", high.get("警告", pd.Series(dtype=str))).dropna().astype(str)))))
+        type_col = "警告表示名" if "警告表示名" in high else "警告タイプ"
+        lines.append("- high警告タイプ: " + ", ".join(sorted(set(high.get(type_col, high.get("警告", pd.Series(dtype=str))).dropna().astype(str)))))
         lines.append(f"- high代表例: {high.iloc[0].to_dict()}")
     lines.extend(["", "## 第二球種・変化球分布の要約", ""])
     sp = tables.get("second_pitch_compare", pd.DataFrame())
