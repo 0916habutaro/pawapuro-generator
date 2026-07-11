@@ -1,5 +1,6 @@
 import re
 import unittest
+from pathlib import Path
 
 import app
 
@@ -65,16 +66,23 @@ class UiLayoutHelpersTest(unittest.TestCase):
         player = {"role": "投手", "special_abilities": ["調子次第", "速球中心", "テンポ○", "人気者"]}
         html = app.render_usage_categories_html(player, self.master)
         self.assertIn('class="pp-usage-grid"', html)
-        self.assertEqual(html.count('pp-usage-cell'), 12)
+        self.assertEqual(html.count('pp-usage-cell'), 32)
         self.assertIn('pp-usage-label">起用法', html)
         self.assertIn('pp-usage-value">速球中心', html)
 
-    def test_empty_usage_categories_show_empty_grid_only(self):
+    def test_empty_usage_categories_show_32_cells_without_setting_none(self):
         player = {"role": "野手", "special_abilities": []}
         html = app.render_usage_categories_html(player, self.master)
         self.assertIn('class="pp-usage-grid"', html)
-        self.assertIn("設定なし", html)
-        self.assertEqual(html.count('pp-usage-cell'), 4)
+        self.assertNotIn("設定なし", html)
+        self.assertIn('pp-usage-label">起用法', html)
+        self.assertEqual(html.count('pp-usage-cell'), 32)
+
+    def test_usage_categories_expand_by_four_after_32_cells(self):
+        player = {"role": "野手", "special_abilities": ["ミート多用", "強振多用", "積極打法"] * 11}
+        html = app.render_usage_categories_html(player, self.master)
+        self.assertGreater(html.count('pp-usage-cell'), 32)
+        self.assertEqual(html.count('pp-usage-cell') % 4, 0)
 
     def test_header_has_no_overall_star(self):
         html = app.render_header_html({"role": "野手", "name": "山田", "position": "三塁手", "seed": 1, "batting_throwing": "右投右打"})
@@ -82,10 +90,19 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertNotIn("pp-score", html)
         self.assertIn("守備位置　三", html)
 
-    def test_profile_renders_seed_once(self):
-        html = app.render_profile_right({"name": "山田", "age": 20, "batting_throwing": "右投右打", "nationality": "日本", "birthplace": "東京", "height": 180, "weight": 80, "category": "架空球団用", "player_type": "巧打型", "seed": 123})
-        self.assertEqual(html.count("seed"), 1)
-        self.assertNotIn("pp-seed-note", html)
+    def test_profile_game_area_excludes_generation_fields(self):
+        player = {"name": "山田", "age": 20, "batting_throwing": "右投右打", "nationality": "日本", "birthplace": "東京", "height": 180, "weight": 80, "category": "架空球団用", "player_type": "巧打型", "seed": 123}
+        html = app.render_profile_right(player)
+        self.assertNotIn("seed", html)
+        self.assertNotIn("カテゴリ", html)
+        self.assertNotIn("タイプ", html)
+        self.assertIn("表示名", html)
+
+    def test_generation_info_contains_seed_category_and_type(self):
+        html = app.render_generation_info_html({"category": "架空球団用", "player_type": "巧打型", "seed": 123})
+        self.assertIn("seed", html)
+        self.assertIn("カテゴリ", html)
+        self.assertIn("タイプ", html)
 
     def test_defense_table_always_renders_six_positions_with_split_rank_and_value(self):
         player = {"role": "野手", "position": "一塁手", "seed": 1, "abilities": {"走力": app.ability(50), "肩力": app.ability(50), "守備力": app.ability(56), "捕球": app.ability(50)}, "sub_positions": []}
@@ -93,6 +110,21 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertEqual(html.count('class="pp-defense-pos'), 6)
         self.assertIn('class="pp-defense-rank"', html)
         self.assertIn('class="pp-defense-num"', html)
+
+
+    def test_detail_body_has_no_pitcher_aptitude_row_or_section_titles(self):
+        player = {"role": "投手", "position": "先発", "abilities": {"球速": "145 km/h", "コントロール": app.ability(50), "スタミナ": app.ability(50)}, "special_abilities": []}
+        html = app.render_detail_body_html(player, self.master, "投手能力")
+        self.assertNotIn("pp-aptitude-line", html)
+        self.assertNotIn("適性　", html)
+        self.assertNotIn("特殊能力", html)
+        self.assertNotIn("pp-section-title", html)
+
+    def test_detail_panel_uses_keyed_streamlit_container_and_no_split_panel_html(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertIn('st.container(key=f"{key_prefix}_detail_shell")', source)
+        self.assertNotIn("st.markdown(f'<div class=\"pp-panel", source)
+        self.assertNotIn("</div></div>', unsafe_allow_html=True)", source)
 
     def test_same_direction_pitch_labels_are_split_horizontally(self):
         html = app.render_pitch_chart_svg([
