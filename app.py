@@ -1844,33 +1844,35 @@ def inject_powerpro_ui_css() -> None:
     .block-container {max-width:1680px; padding-top:3.5rem; padding-bottom:2rem;}
     div[data-testid="stVerticalBlockBorderWrapper"] {background:rgba(255,255,255,.72); border-color:#0e7fbd!important;}
     .pp-title {background:linear-gradient(90deg,rgba(255,255,255,.92),rgba(229,249,255,.55)); border-left:9px solid #e23d4f; border-bottom:3px solid #1b7fbd; padding:12px 20px; border-radius:4px 20px 20px 4px; color:#063d77; font-weight:900; font-size:29px; margin-bottom:10px;}
-    .pp-panel {background:#fff; border:4px solid #0876c9; border-radius:16px; padding:8px; box-shadow:0 7px 0 rgba(0,76,130,.18), inset 0 0 0 5px #e8f8ff;}
-    .pp-detail-panel {padding-bottom:8px;}
-    .pp-header {display:grid; grid-template-columns:minmax(190px,1fr) 116px minmax(280px,1.3fr); gap:8px; align-items:stretch; margin-bottom:2px;}
-    .pp-name {background:linear-gradient(#72ffff,#23dbe9); border:3px solid #078bc8; border-radius:8px; font-size:24px; font-weight:900; text-align:center; padding:6px 42px 6px 7px; color:#022d55; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; position:relative;}
+    .pp-panel {background:#fff;}
+    div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {max-width:1320px; margin:0 auto; background:#fff; border:4px solid var(--pp-tab-color,#0876c9); border-radius:16px; padding:8px; box-shadow:0 7px 0 rgba(0,76,130,.18), inset 0 0 0 5px #e8f8ff; font-family:"Arial Rounded MT Bold","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo",sans-serif;}
+    div[class*="st-key-latest_detail_shell"] > div, div[class*="st-key-history_detail_shell"] > div {font-family:inherit;}
+    .pp-header {display:grid; grid-template-columns:minmax(220px,1fr) 74px 126px minmax(360px,1.35fr); gap:8px; align-items:stretch; margin-bottom:0;}
+    .pp-name {background:linear-gradient(#ffbbb5,#ff6e68); border:3px solid #e82e42; border-radius:8px; font-size:30px; font-weight:900; text-align:center; padding:5px 7px; min-height:48px; color:#022d55; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; position:relative;}
     .pp-name-row {position:relative; min-width:0;}
-    .pp-number {position:absolute; right:8px; top:50%; transform:translateY(-50%); background:#fff; color:#075fbd; border:2px solid #82c7ef; border-radius:4px; padding:0 6px; font-size:15px; line-height:1.45; font-weight:950; min-width:24px; text-align:center; box-shadow:inset 0 1px rgba(255,255,255,.8);}
-    .pp-face {background:#f7fbff; border:2px solid #c8e7ff; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:96px;}
+    .pp-number-box {background:#fff; color:#075fbd; border:3px solid #c8e7ff; border-radius:5px; font-size:30px; line-height:1.45; font-weight:950; text-align:center; align-self:start; min-height:48px;}
+    .pp-category-mark {background:linear-gradient(#fff,#e9f9ff); border:3px solid #c8e7ff; border-radius:5px; color:#075fbd; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:950; min-height:48px;}
+    .pp-face {background:#f7fbff; border:2px solid #c8e7ff; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:122px;}
     .pp-info {display:grid; grid-template-columns:1fr; gap:6px; align-content:center;}
-    .pp-chip {background:#f7fbff; border:2px solid #d5edff; border-radius:9px; padding:5px 9px; color:#0a69b0; font-weight:800; font-size:15px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-chip {background:#f7fbff; border:2px solid #d5edff; border-radius:9px; padding:5px 9px; color:#0a69b0; font-weight:800; font-size:18px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
     .pp-chip-wide {font-size:14px; letter-spacing:-.01em;}
     .pp-score {background:#0368b8; color:white; border-radius:7px; padding:1px 8px; display:inline-block; font-weight:900;}
-    .pp-body {display:grid; grid-template-columns:34% 66%; gap:9px; background:#edf9fc; border:3px solid var(--pp-tab-color,#0876c9); border-radius:0 0 10px 10px; padding:9px; overflow:hidden; align-items:start; margin-top:0;}
+    .pp-body {display:grid; grid-template-columns:34% 66%; gap:9px; background:#edf9fc; border:0; border-top:3px solid var(--pp-tab-color,#0876c9); border-radius:0 0 10px 10px; padding:9px; overflow:hidden; align-items:start; margin-top:0;}
     .pp-body-pitcher {grid-template-columns:37% 63%; min-height:430px; overflow:visible;}
     .pp-mini-card {background:#f8fcff; border:2px solid #cce8ff; border-radius:9px; padding:7px; color:#0a69b0; font-weight:900; min-height:50px;}
     .pp-mini-label {font-size:12px; opacity:.75; display:block; margin-bottom:3px;}
-    .pp-ability-row {display:grid; grid-template-columns:minmax(82px,40%) 42px 1fr; align-items:center; margin:4px 0; background:#fff; border:2px solid #cfe9ff; border-radius:9px; min-height:39px; overflow:hidden; box-shadow:inset 0 2px rgba(255,255,255,.8);}
-    .pp-label {background:#fff; border-radius:7px; margin-left:6px; padding:4px 8px; color:#126bb0; font-weight:900; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-    .pp-rank {font-size:25px; font-weight:950; text-align:center; -webkit-text-stroke:.45px rgba(255,255,255,.75); text-shadow:0 1px rgba(255,255,255,.42); line-height:1; width:42px;}
-    .pp-value {font-size:21px; color:#0b72bd; font-weight:950; text-align:right; padding-right:12px; overflow-wrap:anywhere;}
+    .pp-ability-row {display:grid; grid-template-columns:minmax(112px,40%) 56px 1fr; align-items:center; margin:5px 0; background:#fff; border:2px solid #cfe9ff; border-radius:9px; min-height:48px; overflow:hidden; box-shadow:inset 0 2px rgba(255,255,255,.8);}
+    .pp-label {font-size:19px; background:#fff; border-radius:7px; margin-left:6px; padding:4px 8px; color:#126bb0; font-weight:900; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-rank {font-size:30px; font-weight:950; text-align:center; -webkit-text-stroke:.45px rgba(255,255,255,.75); text-shadow:0 1px rgba(255,255,255,.42); line-height:1; width:42px;}
+    .pp-value {font-size:28px; color:#0b72bd; font-weight:950; text-align:right; padding-right:12px; overflow-wrap:anywhere;}
     .pp-special-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:3px;}
-    .pp-special {height:40px; min-width:0; border-radius:7px; border:2px solid #65c6d6; background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%); color:#0871ad; font-weight:800; display:grid; grid-template-columns:minmax(0,1fr); place-items:center; padding:0 6px; font-size:17px; box-shadow:inset 0 1px rgba(255,255,255,.64), inset 0 -1px rgba(83,202,232,.08);}
+    .pp-special {height:46px; min-width:0; border-radius:7px; border:2px solid #65c6d6; background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%); color:#0871ad; font-weight:800; display:grid; grid-template-columns:minmax(0,1fr); place-items:center; padding:0 6px; font-size:19px; box-shadow:inset 0 1px rgba(255,255,255,.64), inset 0 -1px rgba(83,202,232,.08);}
     .pp-special-name {overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; max-width:100%; text-align:center;}
     .pp-special-ranked {display:grid; grid-template-columns:minmax(0,1fr) 28px; padding:0; overflow:hidden; gap:0; align-items:stretch;}
     .pp-special-ranked .pp-special-name {display:flex; align-items:center; justify-content:center; padding:0 4px;}
     .pp-special-rank-badge {display:flex; align-items:center; justify-content:center; align-self:stretch; width:28px; color:#fff; font-size:19px; line-height:1; font-weight:950; text-align:center; text-shadow:0 1px rgba(0,42,70,.32);}
-    .pp-special.long .pp-special-name {font-size:14.8px; letter-spacing:-.055em;}
-    .pp-special.xlong .pp-special-name {font-size:12.8px; letter-spacing:-.075em;}
+    .pp-special.long .pp-special-name {font-size:16px; letter-spacing:-.055em;}
+    .pp-special.xlong .pp-special-name {font-size:14px; letter-spacing:-.075em;}
     .pp-special.red {background:linear-gradient(#fff8f8,#ffe0e0); border-color:#f29a9a; color:#bd1624;}
     .pp-special.green {background:linear-gradient(180deg,#f3fff5 0%,#c9f2d2 100%); border-color:#56c978; color:#13783a;}
     .pp-special.neutral {background:linear-gradient(180deg,#fbffff 0%,#e4f8fb 100%); border-color:#9bdbe6; color:#0871ad;}
@@ -1881,7 +1883,7 @@ def inject_powerpro_ui_css() -> None:
     .pp-special-ranked.rank-cde .pp-special-rank-badge {background:linear-gradient(180deg,#9be4ec 0%,#61bfd1 100%); color:#fff;}
     .pp-special-ranked.rank-fg {background:linear-gradient(180deg,#fff5f5 0%,#ffd3d3 55%,#ffadad 100%); border-color:#ef6c72; color:#c71c24;}
     .pp-special-ranked.rank-fg .pp-special-rank-badge {background:linear-gradient(180deg,#ed5a60 0%,#c8212b 100%); color:#fff;}
-    .pp-special.empty {height:40px; background:rgba(235,250,253,.46); border-color:rgba(155,219,230,.62); color:transparent; box-shadow:none;}
+    .pp-special.empty {height:46px; background:linear-gradient(180deg,#e9fbff 0%,#b9eef7 55%,#83ddea 100%); border-color:#73cddd; color:transparent; box-shadow:inset 0 1px rgba(255,255,255,.75), inset 0 -2px rgba(48,178,212,.24);}
     .pp-section-title {color:#075f9e; font-weight:900; font-size:17px; margin:2px 0 7px;}
     .pp-help {position:static; background:#062247; color:white; padding:11px 18px; font-size:18px; font-weight:800; border-top:4px solid #0b4f8c; border-radius:8px; margin:16px 0;}
     .pp-list-note {color:#0a4773; font-weight:800; margin-bottom:8px;}
@@ -1901,26 +1903,26 @@ def inject_powerpro_ui_css() -> None:
     .pp-pitcher-usage-item {white-space:nowrap; display:inline-flex; gap:2px; align-items:baseline;}
     .pp-pitcher-defense-values {display:flex; gap:10px; align-items:baseline; justify-content:flex-end; padding-right:12px; white-space:nowrap; color:#0b72bd; font-weight:950;}
     @media (max-width: 980px) {.pp-pitcher-usage-values {font-size:15px; gap:8px;}}
-    .pp-chart-wrap {height:292px; margin-top:6px; overflow:visible;}
+    .pp-chart-wrap {height:346px; margin-top:6px; overflow:visible;}
     .pp-defense-grid,.pp-profile-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px;}
-    .pp-defense-compact {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; margin:5px 0;}
-    .pp-defense-pos {display:grid; grid-template-columns:28px 28px 1fr; align-items:center; gap:4px; background:#f8fcff; border:1px solid #cce8ff; border-radius:7px; padding:5px 8px; color:#0a69b0; font-weight:900; min-height:30px;}
+    .pp-defense-compact {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; margin:5px 0; border:2px solid #cce8ff; border-radius:9px; overflow:hidden; background:#cce8ff;}
+    .pp-defense-pos {display:grid; grid-template-columns:34px 34px 1fr; align-items:center; gap:4px; background:#f8fcff; border:0; border-radius:0; padding:8px 8px; color:#0a69b0; font-weight:900; min-height:42px;}
     .pp-defense-short {text-align:left;}
     .pp-defense-rank {text-align:center; font-size:18px; font-weight:950;}
     .pp-defense-num {text-align:right; color:#0b72bd;}
-    .pp-defense-empty {grid-column:2 / 4; text-align:center; color:#9bb7cc;}
+    .pp-defense-empty {grid-column:2 / 4; text-align:center; color:#b5d7f3; font-weight:950;}
     .pp-defense-pos.main {border-color:#0b8fe0; background:#eaf8ff;}
     .pp-usage-grid {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px;}
-    .pp-usage-cell {min-height:36px; border:2px solid #bde7f0; border-radius:7px; display:flex; align-items:center; justify-content:center; padding:0 6px; font-weight:900; color:#0b72bd; background:rgba(235,250,253,.46); min-width:0; text-align:center;}
+    .pp-usage-cell {min-height:46px; border:2px solid #bde7f0; border-radius:7px; display:flex; align-items:center; justify-content:center; padding:0 6px; font-weight:900; color:#0b72bd; background:rgba(235,250,253,.46); min-width:0; text-align:center;}
     .pp-usage-label {background:linear-gradient(180deg,#fff 0%,#e9f9fd 100%); color:#126bb0;}
     .pp-usage-value {background:linear-gradient(180deg,#f3fff5 0%,#c9f2d2 100%); border-color:#56c978; color:#13783a;}
-    .pp-usage-empty {color:transparent;}
-    .pp-usage-none {font-size:12px; color:#7892a5; margin-bottom:4px; font-weight:800;}
+    .pp-usage-empty {color:transparent; background:linear-gradient(180deg,#e9fbff 0%,#b9eef7 55%,#83ddea 100%); border-color:#73cddd;}
     .pp-header-left {display:grid; gap:6px; align-content:center;}
     .pp-posline {background:#f7fbff; border:2px solid #d5edff; border-radius:9px; padding:6px 9px; color:#0a69b0; font-weight:900;}
     .pp-profile-grid .wide {grid-column:1 / -1;}
     div[class*="st-key-latest_tab_"], div[class*="st-key-history_tab_"] {margin-bottom:-2px;}
-    div[class*="st-key-latest_tab_"] button, div[class*="st-key-history_tab_"] button {background:#06396f!important; color:white!important; border-color:#052e5a!important; font-weight:900;}
+    div[class*="st-key-latest_tab_"] button, div[class*="st-key-history_tab_"] button {background:#06396f!important; color:white!important; border-color:#052e5a!important; font-weight:900; border-radius:11px 11px 0 0!important; margin-right:0!important; min-height:3rem;}
+    div[class*="st-key-latest_tab_"] button[kind="primary"], div[class*="st-key-history_tab_"] button[kind="primary"] {border-bottom-color:transparent!important;}
     div[class*="st-key-latest_tab_player"] button[kind="primary"], div[class*="st-key-history_tab_player"] button[kind="primary"] {background:#075fbd!important; border-color:#075fbd!important;}
     div[class*="st-key-latest_tab_pitcher"] button[kind="primary"], div[class*="st-key-history_tab_pitcher"] button[kind="primary"] {background:#d7193f!important; border-color:#d7193f!important;}
     div[class*="st-key-latest_tab_fielder"] button[kind="primary"], div[class*="st-key-history_tab_fielder"] button[kind="primary"] {background:#0876c9!important; border-color:#0876c9!important;}
@@ -2121,16 +2123,18 @@ def render_pitch_chart_svg(balls: list[dict[str, Any]], batting_throwing: str = 
     lines = [
         '<svg viewBox="0 0 240 218" width="100%" height="100%" role="img" aria-label="変化球方向図">',
         '<rect x="5" y="5" width="230" height="208" rx="12" fill="#f7fcff" stroke="#cce8ff" stroke-width="4"/>',
-        '<text x="120" y="26" text-anchor="middle" fill="#126bb0" font-size="14" font-weight="800">ストレート</text>',
-        '<circle cx="120" cy="72" r="13" fill="#fff" stroke="#118ee8" stroke-width="4"/>',
-        '<text x="120" y="77" text-anchor="middle" fill="#ff4a2d" font-size="16" font-weight="900">⚾</text>',
+        '<text x="120" y="25" text-anchor="middle" fill="#126bb0" font-size="16" font-weight="900">ストレート</text>',
+        '<rect x="34" y="62" width="72" height="9" rx="4" fill="#2ab8ff" stroke="#0788d0" stroke-width="2"/>',
+        '<rect x="134" y="62" width="72" height="9" rx="4" fill="#2ab8ff" stroke="#0788d0" stroke-width="2"/>',
+        '<circle cx="120" cy="72" r="14" fill="#fff" stroke="#118ee8" stroke-width="4"/>',
+        '<text x="120" y="77" text-anchor="middle" fill="#ff4a2d" font-size="17" font-weight="900">⚾</text>',
     ]
     for code, (x2, y2) in directions.items():
-        lines.append(f'<line x1="120" y1="72" x2="{x2}" y2="{y2}" stroke="#19a6ee" stroke-width="8" stroke-linecap="round" opacity=".32"/>')
-        lines.append(f'<line x1="120" y1="72" x2="{x2}" y2="{y2}" stroke="#0b8fe0" stroke-width="2" stroke-linecap="round" opacity=".45"/>')
+        lines.append(f'<line x1="120" y1="72" x2="{x2}" y2="{y2}" stroke="#19a6ee" stroke-width="11" stroke-linecap="round" opacity=".38"/>')
+        lines.append(f'<line x1="120" y1="72" x2="{x2}" y2="{y2}" stroke="#0b8fe0" stroke-width="3" stroke-linecap="round" opacity=".55"/>')
     if second_fastballs:
         names = " / ".join(e(pitch_display_name(ball.get("name"))) for ball in second_fastballs)
-        lines.append(f'<text x="120" y="43" text-anchor="middle" fill="#126bb0" font-size="12" font-weight="800">{names}</text>')
+        lines.append(f'<text x="120" y="43" text-anchor="middle" fill="#126bb0" font-size="14" font-weight="900">{names}</text>')
         lines.append('<rect x="112" y="50" width="6" height="11" rx="2" fill="#ff9b19"/><rect x="122" y="50" width="6" height="11" rx="2" fill="#ff9b19"/>')
     placed_labels: list[tuple[float, float]] = []
     for code, balls_in_direction in grouped.items():
@@ -2141,7 +2145,7 @@ def render_pitch_chart_svg(balls: list[dict[str, Any]], batting_throwing: str = 
             color = "#0fa8f5" if lane_index == 0 else "#ff9518"
             stroke = "#0788d0" if lane_index == 0 else "#d67500"
             for bx, by, _ in block_points(120, 72, x2, y2, lane, pitch_movement(ball)):
-                lines.append(f'<rect x="{bx - 4:.1f}" y="{by - 4:.1f}" width="8" height="8" rx="1.5" fill="{color}" stroke="{stroke}" stroke-width="1"/>')
+                lines.append(f'<rect x="{bx - 5:.1f}" y="{by - 5:.1f}" width="10" height="10" rx="1.5" fill="{color}" stroke="{stroke}" stroke-width="1"/>')
             dx, dy = x2 - 120, y2 - 72
             length = max((dx * dx + dy * dy) ** 0.5, 1)
             nx, ny = -dy / length, dx / length
@@ -2172,7 +2176,7 @@ def render_pitch_chart_svg(balls: list[dict[str, Any]], batting_throwing: str = 
                 name_x = min(215, max(25, name_x))
                 name_y = min(202, max(40, name_y))
             placed_labels.append((name_x, name_y))
-            lines.append(f'<text x="{name_x:.1f}" y="{name_y:.1f}" text-anchor="{anchor}" fill="#126bb0" font-size="12" font-weight="800">{e(pitch_display_name(ball.get("name")))}</text>')
+            lines.append(f'<text x="{name_x:.1f}" y="{name_y:.1f}" text-anchor="{anchor}" fill="#126bb0" font-size="15" font-weight="900">{e(pitch_display_name(ball.get("name")))}</text>')
     return "".join(lines) + "</svg>"
 
 
@@ -2282,9 +2286,8 @@ def pitcher_defense_row_html(item: Any) -> str:
 
 def render_defense_usage_left(player: dict[str, Any]) -> str:
     f = displayed_fielder_abilities(player)
-    title = '<div class="pp-section-title">守備・起用</div>'
     if player.get("role") == "投手":
-        return title + render_ability_rows([
+        return render_ability_rows([
             ("走力", f.get("走力")),
             ("肩力", f.get("肩力")),
         ]) + pitcher_defense_row_html(f.get("守備力")) + render_ability_rows([
@@ -2304,12 +2307,19 @@ def render_defense_usage_left(player: dict[str, Any]) -> str:
         else:
             value_html = '<span class="pp-defense-empty">－－</span>'
         cells.append(f'<div class="pp-defense-pos{main_cls}"><span class="pp-defense-short">{short}</span>{value_html}</div>')
-    return title + render_ability_rows([("走力", f.get("走力")), ("肩力", f.get("肩力"))]) + '<div class="pp-defense-compact">' + ''.join(cells) + '</div>' + render_ability_rows([("守備力", f.get("守備力")), ("捕球", f.get("捕球"))])
+    return render_ability_rows([("走力", f.get("走力")), ("肩力", f.get("肩力"))]) + '<div class="pp-defense-compact">' + ''.join(cells) + '</div>' + render_ability_rows([("守備力", f.get("守備力")), ("捕球", f.get("捕球"))])
 
 def render_profile_right(player: dict[str, Any]) -> str:
-    items = [("氏名", player.get("name"), "wide"), ("年齢", f"{player.get('age')}歳", ""), ("投打", player.get("batting_throwing"), ""), ("国籍", player.get("nationality"), ""), ("出身地", player.get("birthplace"), ""), ("身長", f"{player.get('height')}cm", ""), ("体重", f"{player.get('weight')}kg", ""), ("カテゴリ", player.get("category"), "wide"), ("タイプ", player.get("player_type"), ""), ("seed", player.get("seed"), "wide")]
+    display_name = player.get("back_name") or player.get("name")
+    items = [("氏名", player.get("name"), "wide"), ("年齢", f"{player.get('age')}歳", ""), ("投打", player.get("batting_throwing"), ""), ("国籍", player.get("nationality"), ""), ("出身地", player.get("birthplace"), ""), ("身長", f"{player.get('height')}cm", ""), ("体重", f"{player.get('weight')}kg", ""), ("表示名", display_name, "wide")]
     cards = ''.join(f'<div class="pp-mini-card {cls}"><span class="pp-mini-label">{e(label)}</span>{e(value)}</div>' for label, value, cls in items)
-    return '<div class="pp-section-title">プロフィール</div><div class="pp-profile-grid">' + cards + '</div>'
+    return '<div class="pp-profile-grid pp-game-profile">' + cards + '</div>'
+
+
+def render_generation_info_html(player: dict[str, Any]) -> str:
+    items = [("カテゴリ", player.get("category")), ("タイプ", player.get("player_type")), ("seed", player.get("seed"))]
+    cards = ''.join(f'<div class="pp-mini-card"><span class="pp-mini-label">{e(label)}</span>{e(value)}</div>' for label, value in items)
+    return '<details class="pp-generation-info"><summary>生成情報</summary><div class="pp-profile-grid">' + cards + '</div></details>'
 
 
 def player_uniform_number(player: dict[str, Any]) -> int:
@@ -2363,14 +2373,12 @@ def render_usage_categories_html(player: dict[str, Any], master: MasterData) -> 
     categories = usage_special_categories(player, master)
     if not categories:
         cells.extend([
-            '<div class="pp-usage-cell pp-usage-label">設定なし</div>',
+            '<div class="pp-usage-cell pp-usage-label">起用法</div>',
             '<div class="pp-usage-cell pp-usage-empty"></div>',
             '<div class="pp-usage-cell pp-usage-empty"></div>',
             '<div class="pp-usage-cell pp-usage-empty"></div>',
         ])
-        note = '<div class="pp-usage-none">設定なし</div>'
     else:
-        note = ''
         for label, names in categories.items():
             for offset in range(0, max(1, len(names)), 3):
                 row_names = names[offset: offset + 3]
@@ -2380,24 +2388,30 @@ def render_usage_categories_html(player: dict[str, Any], master: MasterData) -> 
                     cells.append(f'<div class="pp-usage-cell pp-usage-value">{e(name)}</div>')
                 while len(cells) % 4 != 0:
                     cells.append('<div class="pp-usage-cell pp-usage-empty"></div>')
-    return '<div class="pp-section-title">起用・方針</div>' + note + '<div class="pp-usage-grid">' + ''.join(cells) + '</div>'
+    target_count = special_grid_cell_count(32, 0, len(cells))
+    while len(cells) < target_count:
+        cells.append('<div class="pp-usage-cell pp-usage-empty"></div>')
+    return '<div class="pp-usage-grid">' + ''.join(cells) + '</div>'
 
 def set_selected_tab(tab_key: str, label: str) -> None:
     st.session_state[tab_key] = label
 
 
 def render_header_html(p: dict[str, Any]) -> str:
+    category_mark = {"架空球団用": "架", "ドラフト候補用": "候", "助っ人外国人用": "外"}.get(str(p.get("category", "")), "球")
     return f"""
       <div class="pp-header">
         <div class="pp-header-left">
-          <div class="pp-name-row"><div class="pp-name">{e(p.get('name'))}<span class="pp-number">{player_uniform_number(p)}</span></div></div>
+          <div class="pp-name-row"><div class="pp-name">{e(p.get('name'))}</div></div>
           <div class="pp-posline">{e(header_position_text(p))}</div>
         </div>
+        <div class="pp-category-mark" title="{e(p.get('category'))}">{e(category_mark)}</div>
+        <div class="pp-number-box">{player_uniform_number(p)}</div>
         <div class="pp-face">{render_player_icon_svg(p)}</div>
         <div class="pp-info">
-          <div class="pp-chip">成績　{e(role_stats_placeholder(p))}</div>
-          <div class="pp-chip pp-chip-wide">フォーム　{e(role_form_placeholder(p))}</div>
-          <div class="pp-chip">投打　{e(p.get('batting_throwing'))}</div>
+          <div class="pp-chip"><span class="pp-mini-label">成績</span>{e(role_stats_placeholder(p))}</div>
+          <div class="pp-chip pp-chip-wide"><span class="pp-mini-label">フォーム</span>{e(role_form_placeholder(p))}</div>
+          <div class="pp-chip"><span class="pp-mini-label">投打</span>{e(p.get('batting_throwing'))}</div>
         </div>
       </div>"""
 
@@ -2407,37 +2421,41 @@ def render_detail_panel(p: dict[str, Any], master: MasterData, key_prefix: str) 
     tab = normalize_selected_tab_value(p, st.session_state.get(tab_key))
     st.session_state[tab_key] = tab
     panel_color = TAB_COLORS.get(tab, "#0876c9")
-    st.markdown(f'<div class="pp-panel pp-detail-panel" style="border-color:{panel_color}; --pp-tab-color:{panel_color};">{render_header_html(p)}', unsafe_allow_html=True)
-    tabs = [(label, {"投手能力":"pitcher", "野手能力":"fielder", "守備・起用":"usage", "プロフィール":"profile"}[label], TAB_COLORS[label]) for label in TAB_LABELS]
-    tab_cols = st.columns(len(tabs), gap="small")
-    for col, (label, key_name, _color) in zip(tab_cols, tabs):
-        with col:
-            st.button(label, key=f"{key_prefix}_tab_{key_name}", use_container_width=True, type="primary" if tab == label else "secondary", on_click=set_selected_tab, args=(tab_key, label))
-    effective_tab = tab
+    with st.container(key=f"{key_prefix}_detail_shell"):
+        st.markdown(f'<style>div[class*="st-key-{key_prefix}_detail_shell"]{{--pp-tab-color:{panel_color};}}</style>', unsafe_allow_html=True)
+        st.markdown(render_header_html(p), unsafe_allow_html=True)
+        tabs = [(label, {"投手能力":"pitcher", "野手能力":"fielder", "守備・起用":"usage", "プロフィール":"profile"}[label], TAB_COLORS[label]) for label in TAB_LABELS]
+        tab_cols = st.columns(len(tabs), gap="small")
+        for col, (label, key_name, _color) in zip(tab_cols, tabs):
+            with col:
+                st.button(label, key=f"{key_prefix}_tab_{key_name}", use_container_width=True, type="primary" if tab == label else "secondary", on_click=set_selected_tab, args=(tab_key, label))
+        st.markdown(render_detail_body_html(p, master, tab), unsafe_allow_html=True)
+
+
+def render_detail_body_html(p: dict[str, Any], master: MasterData, effective_tab: str) -> str:
     if effective_tab == "投手能力":
         pa = displayed_pitcher_abilities(p)
-        apt = compact_pitcher_aptitude_text(p) if p.get("role") == "投手" else "－－－"
         balls = p.get("breaking_balls", []) if p.get("role") == "投手" else []
-        left = f'<div class="pp-section-title">投手能力</div><div class="pp-aptitude-line">適性　{e(apt)}</div>' + render_ability_rows([("球速", pa.get("球速")), ("コントロール", pa.get("コントロール")), ("スタミナ", pa.get("スタミナ"))]) + f'<div class="pp-chart-wrap">{render_pitch_chart_svg(balls, str(p.get("batting_throwing", "")))}</div>'
-        right = '<div class="pp-section-title">特殊能力</div>' + render_special_grid_html(p, master, mode="pitcher")
+        left = render_ability_rows([("球速", pa.get("球速")), ("コントロール", pa.get("コントロール")), ("スタミナ", pa.get("スタミナ"))]) + f'<div class="pp-chart-wrap">{render_pitch_chart_svg(balls, str(p.get("batting_throwing", "")))}</div>'
+        right = render_special_grid_html(p, master, mode="pitcher")
     elif effective_tab == "野手能力":
         fa = displayed_fielder_abilities(p)
         pos = p.get("position") if p.get("role") == "野手" else "投"
-        left = '<div class="pp-section-title">野手能力</div>' + render_ability_rows([("守備位置", pos), ("弾道", fa.get("弾道")), ("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
-        right = '<div class="pp-section-title">特殊能力</div>' + render_special_grid_html(p, master, mode="fielder")
+        left = render_ability_rows([("守備位置", pos), ("弾道", fa.get("弾道")), ("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
+        right = render_special_grid_html(p, master, mode="fielder")
     elif effective_tab == "守備・起用":
         left = render_defense_usage_left(p)
         right = render_usage_categories_html(p, master)
     else:
         if p.get("role") == "投手":
             pa = displayed_pitcher_abilities(p)
-            left = '<div class="pp-section-title">本職能力</div>' + render_ability_rows([("球速", pa.get("球速")), ("コントロール", pa.get("コントロール")), ("スタミナ", pa.get("スタミナ"))]) + f'<div class="pp-chart-wrap">{render_pitch_chart_svg(p.get("breaking_balls", []), str(p.get("batting_throwing", "")))}</div>'
+            left = render_ability_rows([("球速", pa.get("球速")), ("コントロール", pa.get("コントロール")), ("スタミナ", pa.get("スタミナ"))]) + f'<div class="pp-chart-wrap">{render_pitch_chart_svg(p.get("breaking_balls", []), str(p.get("batting_throwing", "")))}</div>'
         else:
             fa = displayed_fielder_abilities(p)
-            left = '<div class="pp-section-title">本職能力</div>' + render_ability_rows([("弾道", fa.get("弾道")), ("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
-        right = render_profile_right(p)
+            left = render_ability_rows([("弾道", fa.get("弾道")), ("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
+        right = render_profile_right(p) + render_generation_info_html(p)
     body_class = "pp-body pp-body-pitcher" if effective_tab == "投手能力" else "pp-body"
-    st.markdown(f'<div class="{body_class}"><div>{left}</div><div>{right}</div></div></div>', unsafe_allow_html=True)
+    return f'<div class="{body_class}"><div>{left}</div><div>{right}</div></div>'
 
 def select_player(index_key: str, selected_index: int) -> None:
     st.session_state[index_key] = selected_index
@@ -2449,23 +2467,19 @@ def render_player_browser(players: list[dict[str, Any]], master: MasterData, key
         return
     index_key = f"{key_prefix}_selected_index"
     st.session_state[index_key] = min(max(int(st.session_state.get(index_key, 0)), 0), len(players) - 1)
-    left, right = st.columns([0.18, 0.82], gap="large")
-    with left:
-        st.markdown('<div class="pp-list-note">選手一覧から詳細表示する選手を選択</div>', unsafe_allow_html=True)
-        for index, player in enumerate(players):
-            is_selected = index == st.session_state[index_key]
-            label = f"{'●' if is_selected else '○'} {player.get('name')}\n{player.get('position')}｜{player.get('player_type')}｜{player.get('age')}歳｜{player.get('batting_throwing')}"
-            st.button(label, key=f"{key_prefix}_player_{index}", use_container_width=True, type="primary" if is_selected else "secondary", on_click=select_player, args=(index_key, index))
-        selected = st.session_state[index_key]
-        col_prev, col_next = st.columns(2)
-        if col_prev.button("前の選手", use_container_width=True, disabled=selected <= 0, key=f"{key_prefix}_prev"):
-            st.session_state[index_key] = selected - 1
-            st.rerun()
-        if col_next.button("次の選手", use_container_width=True, disabled=selected >= len(players) - 1, key=f"{key_prefix}_next"):
-            st.session_state[index_key] = selected + 1
-            st.rerun()
-    with right:
-        render_detail_panel(players[st.session_state[index_key]], master, key_prefix)
+    st.markdown('<div class="pp-list-note">選手一覧から詳細表示する選手を選択</div>', unsafe_allow_html=True)
+    options = list(range(len(players)))
+    labels = {index: f"{index + 1}. {player.get('name')}｜{player.get('position')}｜{player.get('player_type')}｜{player.get('age')}歳｜{player.get('batting_throwing')}" for index, player in enumerate(players)}
+    selected = st.selectbox("選手一覧", options, index=st.session_state[index_key], format_func=lambda index: labels[index], key=f"{key_prefix}_player_select", label_visibility="collapsed")
+    st.session_state[index_key] = int(selected)
+    nav_prev, nav_next = st.columns([1, 1])
+    if nav_prev.button("前の選手", use_container_width=True, disabled=st.session_state[index_key] <= 0, key=f"{key_prefix}_prev"):
+        st.session_state[index_key] -= 1
+        st.rerun()
+    if nav_next.button("次の選手", use_container_width=True, disabled=st.session_state[index_key] >= len(players) - 1, key=f"{key_prefix}_next"):
+        st.session_state[index_key] += 1
+        st.rerun()
+    render_detail_panel(players[st.session_state[index_key]], master, key_prefix)
 
 def main() -> None:
     st.set_page_config(page_title="パワプロ風 架空選手生成", page_icon="⚾", layout="wide")
