@@ -1,6 +1,9 @@
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import app
 
@@ -101,6 +104,53 @@ class UiLayoutHelpersTest(unittest.TestCase):
         source = Path("app.py").read_text(encoding="utf-8")
         self.assertIn(".pp-header {display:grid; grid-template-columns:minmax(230px,1.05fr) 52px 72px 112px minmax(450px,1.7fr);", source)
         self.assertIn(".pp-info {display:grid; grid-template-columns:minmax(190px,1.45fr) minmax(160px,1fr) minmax(104px,.8fr);", source)
+
+
+    def test_relative_player_id_empty_list(self):
+        self.assertIsNone(app.relative_player_id([], None, 1))
+
+    def test_relative_player_id_single_player_is_clamped(self):
+        self.assertEqual(app.relative_player_id(["p1"], "p1", 1), "p1")
+        self.assertEqual(app.relative_player_id(["p1"], "p1", -1), "p1")
+
+    def test_relative_player_id_head_previous_is_clamped(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p1", -1), "p1")
+
+    def test_relative_player_id_head_next_moves_to_second(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p1", 1), "p2")
+
+    def test_relative_player_id_middle_previous_moves_to_first(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p2", -1), "p1")
+
+    def test_relative_player_id_middle_next_moves_to_third(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p2", 1), "p3")
+
+    def test_relative_player_id_tail_next_is_clamped(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p3", 1), "p3")
+
+    def test_relative_player_id_invalid_current_uses_first(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "missing", 1), "p1")
+
+    def test_relative_player_id_large_offset_is_clamped(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p1", 20), "p3")
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p3", -20), "p1")
+
+    def test_duplicate_player_labels_still_get_distinct_latest_ids(self):
+        players = [
+            {"seed": 10, "name": "山田", "position": "先発", "player_type": "本格派", "age": 20, "batting_throwing": "右投右打"},
+            {"seed": 11, "name": "山田", "position": "先発", "player_type": "本格派", "age": 20, "batting_throwing": "右投右打"},
+        ]
+        ids = [app.player_unique_id(player, index) for index, player in enumerate(players)]
+        labels = [app.player_label(player, index) for index, player in enumerate(players)]
+        self.assertEqual(len(set(ids)), 2)
+        self.assertNotEqual(ids[0], ids[1])
+        self.assertIn("山田", labels[0])
+
+    def test_history_db_id_has_priority_over_latest_display_id(self):
+        self.assertEqual(app.player_unique_id({"id": 42, "seed": 10, "name": "山田", "position": "先発"}, 0), "db:42")
+
+    def test_latest_and_history_selected_player_keys_are_distinct(self):
+        self.assertNotEqual("latest_selected_player_id", "history_selected_player_id")
 
     def test_profile_game_area_excludes_generation_fields(self):
         player = {"name": "山田", "age": 20, "batting_throwing": "右投右打", "nationality": "日本", "birthplace": "東京", "height": 180, "weight": 80, "category": "架空球団用", "player_type": "巧打型", "seed": 123}

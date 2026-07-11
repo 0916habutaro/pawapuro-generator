@@ -2458,29 +2458,50 @@ def render_detail_body_html(p: dict[str, Any], master: MasterData, effective_tab
     body_class = "pp-body pp-body-pitcher" if effective_tab == "投手能力" else "pp-body"
     return f'<div class="{body_class}"><div>{left}</div><div>{right}</div></div>'
 
-def select_player(index_key: str, selected_index: int) -> None:
-    st.session_state[index_key] = selected_index
+def player_unique_id(player: dict[str, Any], index: int) -> str:
+    db_id = player.get("id")
+    if db_id not in (None, ""):
+        return f"db:{db_id}"
+    return f"latest:{player.get('seed', '')}:{player.get('name', '')}:{player.get('position', '')}:{index}"
+
+
+def player_label(player: dict[str, Any], index: int) -> str:
+    return f"{index + 1}. {player.get('name')}｜{player.get('position')}｜{player.get('player_type')}｜{player.get('age')}歳｜{player.get('batting_throwing')}"
+
+
+def relative_player_id(player_ids: list[str], current_id: str | None, offset: int) -> str | None:
+    if not player_ids:
+        return None
+    if current_id not in player_ids:
+        return player_ids[0]
+    current_index = player_ids.index(current_id)
+    next_index = max(0, min(len(player_ids) - 1, current_index + offset))
+    return player_ids[next_index]
+
+
+def select_relative_player(*, player_ids: list[str], selected_key: str, offset: int) -> None:
+    st.session_state[selected_key] = relative_player_id(player_ids, st.session_state.get(selected_key), offset)
 
 
 def render_player_browser(players: list[dict[str, Any]], master: MasterData, key_prefix: str) -> None:
     if not players:
         st.info("表示する選手がまだありません。左の条件で生成してください。")
         return
-    index_key = f"{key_prefix}_selected_index"
-    st.session_state[index_key] = min(max(int(st.session_state.get(index_key, 0)), 0), len(players) - 1)
+    selected_player_id_key = f"{key_prefix}_selected_player_id"
+    player_ids = [player_unique_id(player, index) for index, player in enumerate(players)]
+    if st.session_state.get(selected_player_id_key) not in player_ids:
+        st.session_state[selected_player_id_key] = player_ids[0]
+    player_by_id = dict(zip(player_ids, players, strict=True))
+    label_by_id = {player_id: player_label(player, index) for index, (player_id, player) in enumerate(zip(player_ids, players, strict=True))}
+    selected_player_id = st.session_state[selected_player_id_key]
+    current_index = player_ids.index(selected_player_id)
     st.markdown('<div class="pp-list-note">選手一覧から詳細表示する選手を選択</div>', unsafe_allow_html=True)
-    options = list(range(len(players)))
-    labels = {index: f"{index + 1}. {player.get('name')}｜{player.get('position')}｜{player.get('player_type')}｜{player.get('age')}歳｜{player.get('batting_throwing')}" for index, player in enumerate(players)}
-    selected = st.selectbox("選手一覧", options, index=st.session_state[index_key], format_func=lambda index: labels[index], key=f"{key_prefix}_player_select", label_visibility="collapsed")
-    st.session_state[index_key] = int(selected)
+    selected_player_id = st.selectbox("選手一覧", player_ids, format_func=lambda player_id: label_by_id[player_id], key=selected_player_id_key, label_visibility="collapsed")
+    current_index = player_ids.index(selected_player_id)
     nav_prev, nav_next = st.columns([1, 1])
-    if nav_prev.button("前の選手", use_container_width=True, disabled=st.session_state[index_key] <= 0, key=f"{key_prefix}_prev"):
-        st.session_state[index_key] -= 1
-        st.rerun()
-    if nav_next.button("次の選手", use_container_width=True, disabled=st.session_state[index_key] >= len(players) - 1, key=f"{key_prefix}_next"):
-        st.session_state[index_key] += 1
-        st.rerun()
-    render_detail_panel(players[st.session_state[index_key]], master, key_prefix)
+    nav_prev.button("前の選手", use_container_width=True, disabled=current_index <= 0, key=f"{key_prefix}_prev", on_click=select_relative_player, kwargs={"player_ids": player_ids, "selected_key": selected_player_id_key, "offset": -1})
+    nav_next.button("次の選手", use_container_width=True, disabled=current_index >= len(players) - 1, key=f"{key_prefix}_next", on_click=select_relative_player, kwargs={"player_ids": player_ids, "selected_key": selected_player_id_key, "offset": 1})
+    render_detail_panel(player_by_id[selected_player_id], master, key_prefix)
 
 def main() -> None:
     st.set_page_config(page_title="パワプロ風 架空選手生成", page_icon="⚾", layout="wide")
@@ -2512,13 +2533,15 @@ def main() -> None:
         saved_count = save_players(players)
         progress.empty()
         st.session_state["latest_players"] = players
-        st.session_state["latest_selected_index"] = 0
+        st.session_state["latest_selected_player_id"] = player_unique_id(players[0], 0) if players else None
         st.session_state["latest_selected_player_tab"] = "投手能力" if role == "投手" else "野手能力"
         st.success(f"{len(players)}人の選手を生成し、SQLiteに{saved_count}件保存しました。")
     render_player_browser(st.session_state.get("latest_players", []), master, "latest")
     latest_players = st.session_state.get("latest_players", [])
-    latest_index = min(max(int(st.session_state.get("latest_selected_index", 0)), 0), max(0, len(latest_players) - 1)) if latest_players else 0
-    latest_role = latest_players[latest_index].get("role") if latest_players else "投手"
+    latest_ids = [player_unique_id(player, index) for index, player in enumerate(latest_players)]
+    latest_selected_id = relative_player_id(latest_ids, st.session_state.get("latest_selected_player_id"), 0)
+    latest_player_by_id = dict(zip(latest_ids, latest_players, strict=True)) if latest_players else {}
+    latest_role = latest_player_by_id[latest_selected_id].get("role") if latest_selected_id in latest_player_by_id else "投手"
     latest_tab = normalize_selected_tab_value({"role": latest_role}, st.session_state.get("latest_selected_player_tab"))
     role_help = "球速、制球、スタミナ、変化球と投手特殊能力を確認します。" if latest_role == "投手" else "打撃、走塁、守備の基礎能力と野手特殊能力を確認します。"
     help_messages = {
