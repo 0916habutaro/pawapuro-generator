@@ -12,6 +12,13 @@ def special_cell_count(html: str) -> int:
     return len(re.findall(r'<div class="pp-special(?: |")', html))
 
 
+def css_block(source: str, selector: str) -> str:
+    match = re.search(rf"{re.escape(selector)} \{{([^}}]+)\}}", source)
+    if not match:
+        raise AssertionError(f"CSS block not found: {selector}")
+    return match.group(1)
+
+
 class UiLayoutHelpersTest(unittest.TestCase):
     def setUp(self):
         self.master = app.MasterData(
@@ -151,6 +158,65 @@ class UiLayoutHelpersTest(unittest.TestCase):
 
     def test_latest_and_history_selected_player_keys_are_distinct(self):
         self.assertNotEqual("latest_selected_player_id", "history_selected_player_id")
+
+
+    def test_ui_rank_color_e_is_green(self):
+        self.assertEqual(app.ui_rank_color("E"), "#20a84a")
+
+    def test_ui_rank_colors_except_e_are_unchanged(self):
+        expected = {
+            "S": "#f3b400",
+            "A": "#ff3bbd",
+            "B": "#ff315d",
+            "C": "#ff9d00",
+            "D": "#d7c900",
+            "F": "#63a4ff",
+            "G": "#9aa4af",
+        }
+        for rank_text, color in expected.items():
+            with self.subTest(rank=rank_text):
+                self.assertEqual(app.ui_rank_color(rank_text), color)
+
+    def test_ability_body_ratios_match_game_screen(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertIn(".pp-body {display:grid; grid-template-columns:33% 67%;", source)
+        self.assertIn(".pp-body-pitcher {grid-template-columns:35% 65%;", source)
+        self.assertNotIn(".pp-body {display:grid; grid-template-columns:36% 64%;", source)
+        self.assertNotIn(".pp-body-pitcher {grid-template-columns:40% 60%;", source)
+
+    def test_ability_row_density_css_is_42px(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        ability_row = css_block(source, ".pp-ability-row")
+        label = css_block(source, ".pp-label")
+        rank = css_block(source, ".pp-rank")
+        value = css_block(source, ".pp-value")
+        self.assertIn("grid-template-columns:minmax(102px,38%) 50px 1fr", ability_row)
+        self.assertIn("margin:3px 0", ability_row)
+        self.assertIn("min-height:42px", ability_row)
+        self.assertIn("height:42px", ability_row)
+        self.assertIn("border-radius:7px", ability_row)
+        self.assertIn("box-shadow:inset 0 1px rgba(255,255,255,.72)", ability_row)
+        self.assertIn("font-size:17px", label)
+        self.assertIn("padding:2px 7px", label)
+        self.assertIn("font-size:26px", rank)
+        self.assertIn("font-size:24px", value)
+
+    def test_empty_special_and_usage_cells_are_pale(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        for selector in [".pp-special.empty", ".pp-usage-empty"]:
+            with self.subTest(selector=selector):
+                block = css_block(source, selector)
+                for color in ["#fbfeff", "#f2fbfd", "#e3f5f8", "#c7e5eb"]:
+                    self.assertIn(color, block)
+                self.assertIn("box-shadow:none", block)
+                for old_color in ["#e9fbff", "#b9eef7", "#83ddea", "#73cddd"]:
+                    self.assertNotIn(old_color, block)
+
+    def test_normal_blue_special_cell_background_is_unchanged(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        block = css_block(source, ".pp-special")
+        self.assertIn("background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%)", block)
+        self.assertIn("border:2px solid #65c6d6", block)
 
     def test_profile_game_area_excludes_generation_fields(self):
         player = {"name": "山田", "age": 20, "batting_throwing": "右投右打", "nationality": "日本", "birthplace": "東京", "height": 180, "weight": 80, "category": "架空球団用", "player_type": "巧打型", "seed": 123}

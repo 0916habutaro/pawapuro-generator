@@ -1858,14 +1858,14 @@ def inject_powerpro_ui_css() -> None:
     .pp-chip {background:#f7fbff; border:2px solid #d5edff; border-radius:9px; padding:5px 8px; color:#0a69b0; font-weight:800; font-size:17px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
     .pp-chip-wide {font-size:14px; letter-spacing:-.03em;}
     .pp-score {background:#0368b8; color:white; border-radius:7px; padding:1px 8px; display:inline-block; font-weight:900;}
-    .pp-body {display:grid; grid-template-columns:36% 64%; gap:9px; background:#edf9fc; border:0; border-top:3px solid var(--pp-tab-color,#0876c9); border-radius:0 0 10px 10px; padding:9px; overflow:hidden; align-items:start; margin-top:0;}
-    .pp-body-pitcher {grid-template-columns:40% 60%; min-height:430px; overflow:visible;}
+    .pp-body {display:grid; grid-template-columns:33% 67%; gap:9px; background:#edf9fc; border:0; border-top:3px solid var(--pp-tab-color,#0876c9); border-radius:0 0 10px 10px; padding:9px; overflow:hidden; align-items:start; margin-top:0;}
+    .pp-body-pitcher {grid-template-columns:35% 65%; min-height:430px; overflow:visible;}
     .pp-mini-card {background:#f8fcff; border:2px solid #cce8ff; border-radius:9px; padding:7px; color:#0a69b0; font-weight:900; min-height:50px;}
     .pp-mini-label {font-size:12px; opacity:.75; display:block; margin-bottom:3px;}
-    .pp-ability-row {display:grid; grid-template-columns:minmax(102px,38%) 50px 1fr; align-items:center; margin:5px 0; background:#fff; border:2px solid #cfe9ff; border-radius:9px; min-height:48px; overflow:hidden; box-shadow:inset 0 2px rgba(255,255,255,.8);}
-    .pp-label {font-size:18px; background:#fff; border-radius:7px; margin-left:6px; padding:4px 8px; color:#126bb0; font-weight:900; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-    .pp-rank {font-size:28px; font-weight:950; text-align:center; -webkit-text-stroke:.45px rgba(255,255,255,.75); text-shadow:0 1px rgba(255,255,255,.42); line-height:1; width:42px;}
-    .pp-value {font-size:26px; color:#0b72bd; font-weight:950; text-align:right; padding-right:12px; overflow-wrap:anywhere;}
+    .pp-ability-row {display:grid; grid-template-columns:minmax(102px,38%) 50px 1fr; align-items:center; margin:3px 0; background:#fff; border:2px solid #cfe9ff; border-radius:7px; min-height:42px; height:42px; overflow:hidden; box-shadow:inset 0 1px rgba(255,255,255,.72);}
+    .pp-label {font-size:17px; background:#fff; border-radius:7px; margin-left:6px; padding:2px 7px; color:#126bb0; font-weight:900; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-rank {font-size:26px; font-weight:950; text-align:center; -webkit-text-stroke:.45px rgba(255,255,255,.75); text-shadow:0 1px rgba(255,255,255,.42); line-height:1; width:42px;}
+    .pp-value {font-size:24px; color:#0b72bd; font-weight:950; text-align:right; padding-right:12px; overflow-wrap:anywhere;}
     .pp-special-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:3px;}
     .pp-special {height:42px; min-width:0; border-radius:7px; border:2px solid #65c6d6; background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%); color:#0871ad; font-weight:800; display:grid; grid-template-columns:minmax(0,1fr); place-items:center; padding:0 6px; font-size:17px; box-shadow:inset 0 1px rgba(255,255,255,.64), inset 0 -1px rgba(83,202,232,.08);}
     .pp-special-name {overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; max-width:100%; text-align:center;}
@@ -1884,7 +1884,7 @@ def inject_powerpro_ui_css() -> None:
     .pp-special-ranked.rank-cde .pp-special-rank-badge {background:linear-gradient(180deg,#9be4ec 0%,#61bfd1 100%); color:#fff;}
     .pp-special-ranked.rank-fg {background:linear-gradient(180deg,#fff5f5 0%,#ffd3d3 55%,#ffadad 100%); border-color:#ef6c72; color:#c71c24;}
     .pp-special-ranked.rank-fg .pp-special-rank-badge {background:linear-gradient(180deg,#ed5a60 0%,#c8212b 100%); color:#fff;}
-    .pp-special.empty {height:42px; background:linear-gradient(180deg,#e9fbff 0%,#b9eef7 55%,#83ddea 100%); border-color:#73cddd; color:transparent; box-shadow:inset 0 1px rgba(255,255,255,.75), inset 0 -2px rgba(48,178,212,.24);}
+    .pp-special.empty {height:42px; background:linear-gradient(180deg,#fbfeff 0%,#f2fbfd 58%,#e3f5f8 100%); border-color:#c7e5eb; color:transparent; box-shadow:none;}
     .pp-section-title {color:#075f9e; font-weight:900; font-size:17px; margin:2px 0 7px;}
     .pp-help {position:static; background:#062247; color:white; padding:11px 18px; font-size:18px; font-weight:800; border-top:4px solid #0b4f8c; border-radius:8px; margin:16px 0;}
     .pp-list-note {color:#0a4773; font-weight:800; margin-bottom:8px;}
@@ -1917,7 +1917,7 @@ def inject_powerpro_ui_css() -> None:
     .pp-usage-cell {min-height:46px; border:2px solid #bde7f0; border-radius:7px; display:flex; align-items:center; justify-content:center; padding:0 6px; font-weight:900; color:#0b72bd; background:rgba(235,250,253,.46); min-width:0; text-align:center;}
     .pp-usage-label {background:linear-gradient(180deg,#fff 0%,#e9f9fd 100%); color:#126bb0;}
     .pp-usage-value {background:linear-gradient(180deg,#f3fff5 0%,#c9f2d2 100%); border-color:#56c978; color:#13783a;}
-    .pp-usage-empty {color:transparent; background:linear-gradient(180deg,#e9fbff 0%,#b9eef7 55%,#83ddea 100%); border-color:#73cddd;}
+    .pp-usage-empty {color:transparent; background:linear-gradient(180deg,#fbfeff 0%,#f2fbfd 58%,#e3f5f8 100%); border-color:#c7e5eb; box-shadow:none;}
     .pp-header-left {display:grid; gap:5px; align-content:stretch; min-width:0;}
     .pp-posline {background:#f7fbff; border:2px solid #d5edff; border-radius:9px; padding:5px 8px; color:#0a69b0; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
     .pp-profile-grid .wide {grid-column:1 / -1;}
@@ -1975,7 +1975,7 @@ def ui_rank_color(rank_text: str) -> str:
         "B": "#ff315d",
         "C": "#ff9d00",
         "D": "#d7c900",
-        "E": "#5fcbff",
+        "E": "#20a84a",
         "F": "#63a4ff",
         "G": "#9aa4af",
     }.get(rank_text, "#cbd5e1")
