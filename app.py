@@ -62,11 +62,11 @@ PITCH_CHART_DIRECTION_POINTS = {
     "5": (30, 92),
 }
 PITCH_CHART_LABEL_LANES = {
-    "1": [(250, 72, "end"), (250, 91, "end")],
-    "2": [(230, 165, "end"), (230, 185, "end")],
-    "3": [(128, 202, "end"), (152, 202, "start")],
-    "4": [(50, 165, "start"), (50, 185, "start")],
-    "5": [(30, 72, "start"), (30, 91, "start")],
+    "1": [(260, 86, "end"), (260, 105, "end")],
+    "2": [(238, 156, "end"), (238, 177, "end")],
+    "3": [(126, 192, "end"), (154, 192, "start")],
+    "4": [(42, 156, "start"), (42, 177, "start")],
+    "5": [(20, 86, "start"), (20, 105, "start")],
 }
 PITCH_DISPLAY_NAMES = {
     "ツーシームファスト": "ツーシーム",
@@ -2133,13 +2133,23 @@ def pitch_display_name(name: Any) -> str:
     return PITCH_DISPLAY_NAMES.get(text, text if len(text) <= 8 else text[:7] + "…")
 
 
-def block_points(x1: int, y1: int, x2: int, y2: int, lane: int, movement: int) -> list[tuple[float, float, float]]:
+def block_points(
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    lane: int,
+    movement: int,
+    *,
+    start_t: float = 0.24,
+    step_t: float = 0.095,
+) -> list[tuple[float, float, float]]:
     dx, dy = x2 - x1, y2 - y1
     length = max((dx * dx + dy * dy) ** 0.5, 1)
     nx, ny = -dy / length, dx / length
     points = []
     for step in range(1, min(7, max(0, movement)) + 1):
-        t = 0.24 + step * 0.095
+        t = start_t + step * step_t
         points.append((x1 + dx * t + nx * lane * 8, y1 + dy * t + ny * lane * 8, length))
     return points
 
@@ -2168,20 +2178,24 @@ def render_pitch_chart_svg(balls: list[dict[str, Any]] | None, batting_throwing:
     lines = [
         '<svg viewBox="0 0 280 210" width="100%" height="100%" role="img" aria-label="変化球方向図">',
         '<rect x="5" y="5" width="270" height="200" rx="7" fill="#f7fcff" stroke="#cce8ff" stroke-width="3"/>',
-        '<text x="140" y="25" text-anchor="middle" fill="#126bb0" font-size="16" font-weight="900">ストレート</text>',
-        '<rect x="78" y="59" width="46" height="7" rx="3" fill="#2ab8ff" stroke="#0788d0" stroke-width="2"/>',
-        '<rect x="156" y="59" width="46" height="7" rx="3" fill="#2ab8ff" stroke="#0788d0" stroke-width="2"/>',
-        '<circle cx="140" cy="66" r="13" fill="#fff" stroke="#118ee8" stroke-width="4"/>',
-        '<text x="140" y="71" text-anchor="middle" fill="#ff4a2d" font-size="17" font-weight="900">⚾</text>',
     ]
     for code, (x2, y2) in directions.items():
         lines.append(f'<line x1="140" y1="66" x2="{x2}" y2="{y2}" stroke="#53b7eb" stroke-width="6" stroke-linecap="round" opacity="0.28"/>')
         lines.append(f'<line x1="140" y1="66" x2="{x2}" y2="{y2}" stroke="#168bd1" stroke-width="2.5" stroke-linecap="round" opacity="0.55"/>')
+    lines.append('<text x="140" y="25" text-anchor="middle" fill="#126bb0" font-size="16" font-weight="900">ストレート</text>')
     if second_fastballs:
         second_fastball = second_fastballs[0]
         name = e(pitch_display_name(second_fastball.get("name")))
-        lines.append(f'<text x="140" y="43" text-anchor="middle" fill="#126bb0" font-size="13" font-weight="900">{name}</text>')
-        lines.append('<rect x="134" y="48" width="5" height="10" rx="1" fill="#ff9b19"/><rect x="142" y="48" width="5" height="10" rx="1" fill="#ff9b19"/>')
+        lines.append(f'<text x="140" y="42" text-anchor="middle" fill="#126bb0" font-size="12" font-weight="900">{name}</text>')
+        lines.append('<rect x="135" y="47" width="4" height="8" rx="1" fill="#ff9b19"/><rect x="142" y="47" width="4" height="8" rx="1" fill="#ff9b19"/>')
+    lines.extend([
+        '<rect x="80" y="57" width="43" height="6" rx="3" fill="#2ab8ff" stroke="#0788d0" stroke-width="2"/>',
+        '<rect x="157" y="57" width="43" height="6" rx="3" fill="#2ab8ff" stroke="#0788d0" stroke-width="2"/>',
+        '<circle cx="140" cy="66" r="13" fill="#fff" stroke="#118ee8" stroke-width="4"/>',
+        '<text x="140" y="71" text-anchor="middle" fill="#ff4a2d" font-size="17" font-weight="900">⚾</text>',
+    ])
+    block_lines: list[str] = []
+    label_lines: list[str] = []
     for code in PITCH_CHART_DIRECTION_POINTS:
         balls_in_direction = sorted(grouped.get(code, []), key=lambda ball: (bool(ball.get("is_second_pitch")), int(ball.get("slot", 1) or 1)))[:2]
         x2, y2 = directions[code]
@@ -2194,11 +2208,12 @@ def render_pitch_chart_svg(balls: list[dict[str, Any]] | None, batting_throwing:
             except (TypeError, ValueError):
                 movement = 0
             movement = max(0, movement)
-            for bx, by, _ in block_points(140, 66, x2, y2, lane, movement):
-                lines.append(f'<rect x="{bx - 4:.1f}" y="{by - 4:.1f}" width="8" height="8" rx="1" fill="{color}" stroke="{stroke}" stroke-width="1"/>')
+            block_kwargs = {"start_t": 0.20, "step_t": 0.075} if code in {"1", "5"} else {}
+            for bx, by, _ in block_points(140, 66, x2, y2, lane, movement, **block_kwargs):
+                block_lines.append(f'<rect x="{bx - 4:.1f}" y="{by - 4:.1f}" width="8" height="8" rx="1" fill="{color}" stroke="{stroke}" stroke-width="1"/>')
             name_x, name_y, anchor = label_lanes[code][lane_index]
-            lines.append(f'<text x="{name_x}" y="{name_y}" text-anchor="{anchor}" fill="#126bb0" font-size="13" font-weight="900">{e(pitch_display_name(ball.get("name")))}</text>')
-    return "".join(lines) + "</svg>"
+            label_lines.append(f'<text x="{name_x}" y="{name_y}" text-anchor="{anchor}" fill="#126bb0" font-size="12" font-weight="900">{e(pitch_display_name(ball.get("name")))}</text>')
+    return "".join(lines + block_lines + label_lines) + "</svg>"
 
 
 def compact_pitcher_aptitude_text(player: dict[str, Any]) -> str:
