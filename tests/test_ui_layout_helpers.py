@@ -278,20 +278,87 @@ class UiLayoutHelpersTest(unittest.TestCase):
 
     def test_empty_special_and_usage_cells_are_pale(self):
         source = Path("app.py").read_text(encoding="utf-8")
-        for selector in [".pp-special.empty", ".pp-usage-empty"]:
-            with self.subTest(selector=selector):
-                block = css_block(source, selector)
-                for color in ["#fbfeff", "#f2fbfd", "#e3f5f8", "#c7e5eb"]:
-                    self.assertIn(color, block)
-                self.assertIn("box-shadow:none", block)
-                for old_color in ["#e9fbff", "#b9eef7", "#83ddea", "#73cddd"]:
-                    self.assertNotIn(old_color, block)
+        empty = css_block(source, ".pp-special.empty")
+        blue = css_block(source, ".pp-special")
+        self.assertIn("#ffffff", empty)
+        self.assertIn("border-color:#dcebef", empty)
+        self.assertIn("box-shadow:none", empty)
+        self.assertNotEqual(empty, blue)
+        usage = css_block(source, ".pp-usage-empty")
+        self.assertIn("box-shadow:none", usage)
 
-    def test_normal_blue_special_cell_background_is_unchanged(self):
+    def test_normal_blue_special_cell_keeps_42px_grid_cell_and_clear_outline(self):
         source = Path("app.py").read_text(encoding="utf-8")
         block = css_block(source, ".pp-special")
         self.assertIn("background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%)", block)
-        self.assertIn("border:2px solid #65c6d6", block)
+        self.assertIn("border:2px solid #3fb5cb", block)
+        self.assertIn("height:42px", block)
+
+    def test_navigation_disabled_buttons_remain_legible(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertNotIn('div[data-testid="stButton"] > button:disabled', source)
+        for key in ["latest_prev", "latest_next", "history_prev", "history_next"]:
+            self.assertIn(f'div[class*="st-key-{key}"] button:disabled', source)
+        self.assertIn("opacity:1!important", source)
+        self.assertIn("cursor:not-allowed", source)
+        self.assertIn('button:disabled * {color:#5f7484!important', source)
+
+    def test_global_text_color_does_not_override_streamlit_controls(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertNotIn(".stApp p,", source)
+        self.assertNotIn(".stApp label,", source)
+
+    def test_control_text_colors_are_scoped_by_purpose(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertIn('div[class*="st-key-latest_tab_"] button *', source)
+        self.assertIn('div[class*="st-key-history_tab_"] button *', source)
+        self.assertIn("color:#ffffff!important", source)
+        self.assertIn('[data-testid="stSidebar"] p', source)
+        self.assertIn("color:#d8ecf7", source)
+        self.assertIn('[data-testid="stExpander"] summary *', source)
+        self.assertIn('[data-testid="stHeadingWithActionElements"] h1', source)
+        self.assertIn("color:#073f68; text-shadow:none", source)
+
+    def test_page_description_uses_scoped_dark_text_and_escapes_html(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        block = css_block(source, ".pp-page-description")
+        self.assertIn("color:#073f68", block)
+        self.assertNotIn(".stApp p,", source)
+        self.assertNotIn(".stApp label,", source)
+        self.assertEqual(
+            app.page_description_html('<生成条件 & "説明">'),
+            '<p class="pp-page-description">&lt;生成条件 &amp; &quot;説明&quot;&gt;</p>',
+        )
+        self.assertIn('render_page_description("投手/野手、カテゴリ、生成人数だけを選ぶと', source)
+        self.assertIn('render_page_description("保存済み選手をSQLiteから読み込み', source)
+
+    def test_success_message_has_scoped_high_contrast_style_and_escapes_html(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        block = css_block(source, ".pp-success-message")
+        self.assertIn("color:#075f3b", block)
+        self.assertIn("background:rgba(133,225,177,.38)", block)
+        self.assertIn("border-left:5px solid #168a54", block)
+        self.assertEqual(
+            app.success_message_html("3件 <保存> & 完了"),
+            '<div class="pp-success-message">3件 &lt;保存&gt; &amp; 完了</div>',
+        )
+        self.assertIn('render_success_message(f"{len(players)}人の選手を生成し', source)
+        self.assertNotIn('.stApp [data-testid="stAlert"] {color:', source)
+
+    def test_main_defense_position_has_distinct_emphasis(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        block = css_block(source, ".pp-defense-pos.main")
+        self.assertIn("background:#dff3ff", block)
+        self.assertIn("box-shadow:inset 4px 0 0 #0b8fe0", block)
+
+    def test_profile_help_matches_visible_profile_and_generation_info(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        expected = "氏名、年齢、投打、国籍、出身地、体格を確認します。生成条件は「生成情報」から確認できます。"
+        self.assertIn(f'"プロフィール": "{expected}"', source)
+        self.assertNotIn("年齢、国籍、出身地、体格、生成カテゴリを確認します。", source)
+        profile_definition = source.index(".pp-profile-table {display:grid")
+        responsive_definition = source.index(".pp-profile-table {grid-template-columns:88px", profile_definition)
+        self.assertGreater(responsive_definition, profile_definition)
 
     def test_profile_game_area_is_ordered_table_and_excludes_generation_fields(self):
         player = {"name": "山田", "age": 20, "batting_throwing": "右投右打", "nationality": "日本", "birthplace": "東京", "height": 180, "weight": 80, "back_name": "YAMADA", "category": "架空球団用", "player_type": "巧打型", "seed": 123}
