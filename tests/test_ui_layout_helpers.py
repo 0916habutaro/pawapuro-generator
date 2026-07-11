@@ -1,12 +1,22 @@
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import app
 
 
 def special_cell_count(html: str) -> int:
     return len(re.findall(r'<div class="pp-special(?: |")', html))
+
+
+def css_block(source: str, selector: str) -> str:
+    match = re.search(rf"{re.escape(selector)} \{{([^}}]+)\}}", source)
+    if not match:
+        raise AssertionError(f"CSS block not found: {selector}")
+    return match.group(1)
 
 
 class UiLayoutHelpersTest(unittest.TestCase):
@@ -89,6 +99,124 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertNotIn("★", html)
         self.assertNotIn("pp-score", html)
         self.assertIn("守備位置　三", html)
+
+
+    def test_header_direct_children_stay_in_single_grid_row(self):
+        html = app.render_header_html({"role": "野手", "name": "山田", "position": "三塁手", "seed": 1, "category": "架空球団用", "batting_throwing": "右投右打"})
+        for cls in ["pp-header-left", "pp-category-mark", "pp-number-box", "pp-face", "pp-info"]:
+            self.assertIn(f'class="{cls}', html)
+        self.assertLess(html.index('class="pp-info"'), html.index('</div>"') if '</div>"' in html else len(html))
+
+    def test_layout_css_has_five_header_columns_and_horizontal_info(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertIn(".pp-header {display:grid; grid-template-columns:minmax(230px,1.05fr) 52px 72px 112px minmax(450px,1.7fr);", source)
+        self.assertIn(".pp-info {display:grid; grid-template-columns:minmax(190px,1.45fr) minmax(160px,1fr) minmax(104px,.8fr);", source)
+
+
+    def test_relative_player_id_empty_list(self):
+        self.assertIsNone(app.relative_player_id([], None, 1))
+
+    def test_relative_player_id_single_player_is_clamped(self):
+        self.assertEqual(app.relative_player_id(["p1"], "p1", 1), "p1")
+        self.assertEqual(app.relative_player_id(["p1"], "p1", -1), "p1")
+
+    def test_relative_player_id_head_previous_is_clamped(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p1", -1), "p1")
+
+    def test_relative_player_id_head_next_moves_to_second(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p1", 1), "p2")
+
+    def test_relative_player_id_middle_previous_moves_to_first(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p2", -1), "p1")
+
+    def test_relative_player_id_middle_next_moves_to_third(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p2", 1), "p3")
+
+    def test_relative_player_id_tail_next_is_clamped(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p3", 1), "p3")
+
+    def test_relative_player_id_invalid_current_uses_first(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "missing", 1), "p1")
+
+    def test_relative_player_id_large_offset_is_clamped(self):
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p1", 20), "p3")
+        self.assertEqual(app.relative_player_id(["p1", "p2", "p3"], "p3", -20), "p1")
+
+    def test_duplicate_player_labels_still_get_distinct_latest_ids(self):
+        players = [
+            {"seed": 10, "name": "山田", "position": "先発", "player_type": "本格派", "age": 20, "batting_throwing": "右投右打"},
+            {"seed": 11, "name": "山田", "position": "先発", "player_type": "本格派", "age": 20, "batting_throwing": "右投右打"},
+        ]
+        ids = [app.player_unique_id(player, index) for index, player in enumerate(players)]
+        labels = [app.player_label(player, index) for index, player in enumerate(players)]
+        self.assertEqual(len(set(ids)), 2)
+        self.assertNotEqual(ids[0], ids[1])
+        self.assertIn("山田", labels[0])
+
+    def test_history_db_id_has_priority_over_latest_display_id(self):
+        self.assertEqual(app.player_unique_id({"id": 42, "seed": 10, "name": "山田", "position": "先発"}, 0), "db:42")
+
+    def test_latest_and_history_selected_player_keys_are_distinct(self):
+        self.assertNotEqual("latest_selected_player_id", "history_selected_player_id")
+
+
+    def test_ui_rank_color_e_is_green(self):
+        self.assertEqual(app.ui_rank_color("E"), "#20a84a")
+
+    def test_ui_rank_colors_except_e_are_unchanged(self):
+        expected = {
+            "S": "#f3b400",
+            "A": "#ff3bbd",
+            "B": "#ff315d",
+            "C": "#ff9d00",
+            "D": "#d7c900",
+            "F": "#63a4ff",
+            "G": "#9aa4af",
+        }
+        for rank_text, color in expected.items():
+            with self.subTest(rank=rank_text):
+                self.assertEqual(app.ui_rank_color(rank_text), color)
+
+    def test_ability_body_ratios_match_game_screen(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertIn(".pp-body {display:grid; grid-template-columns:33% 67%;", source)
+        self.assertIn(".pp-body-pitcher {grid-template-columns:35% 65%;", source)
+        self.assertNotIn(".pp-body {display:grid; grid-template-columns:36% 64%;", source)
+        self.assertNotIn(".pp-body-pitcher {grid-template-columns:40% 60%;", source)
+
+    def test_ability_row_density_css_is_42px(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        ability_row = css_block(source, ".pp-ability-row")
+        label = css_block(source, ".pp-label")
+        rank = css_block(source, ".pp-rank")
+        value = css_block(source, ".pp-value")
+        self.assertIn("grid-template-columns:minmax(102px,38%) 50px 1fr", ability_row)
+        self.assertIn("margin:3px 0", ability_row)
+        self.assertIn("min-height:42px", ability_row)
+        self.assertIn("height:42px", ability_row)
+        self.assertIn("border-radius:7px", ability_row)
+        self.assertIn("box-shadow:inset 0 1px rgba(255,255,255,.72)", ability_row)
+        self.assertIn("font-size:17px", label)
+        self.assertIn("padding:2px 7px", label)
+        self.assertIn("font-size:26px", rank)
+        self.assertIn("font-size:24px", value)
+
+    def test_empty_special_and_usage_cells_are_pale(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        for selector in [".pp-special.empty", ".pp-usage-empty"]:
+            with self.subTest(selector=selector):
+                block = css_block(source, selector)
+                for color in ["#fbfeff", "#f2fbfd", "#e3f5f8", "#c7e5eb"]:
+                    self.assertIn(color, block)
+                self.assertIn("box-shadow:none", block)
+                for old_color in ["#e9fbff", "#b9eef7", "#83ddea", "#73cddd"]:
+                    self.assertNotIn(old_color, block)
+
+    def test_normal_blue_special_cell_background_is_unchanged(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        block = css_block(source, ".pp-special")
+        self.assertIn("background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%)", block)
+        self.assertIn("border:2px solid #65c6d6", block)
 
     def test_profile_game_area_excludes_generation_fields(self):
         player = {"name": "山田", "age": 20, "batting_throwing": "右投右打", "nationality": "日本", "birthplace": "東京", "height": 180, "weight": 80, "category": "架空球団用", "player_type": "巧打型", "seed": 123}
