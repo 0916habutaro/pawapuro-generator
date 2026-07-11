@@ -1,11 +1,42 @@
 import re
 import sys
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import app
+
+
+class ClassTreeParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.stack = []
+        self.header_children = []
+        self.name_attrs = None
+        self.name_text = []
+        self._in_name = False
+
+    def handle_starttag(self, tag, attrs):
+        attr_dict = dict(attrs)
+        classes = attr_dict.get("class", "").split()
+        if self.stack and "pp-header" in self.stack[-1] and tag == "div":
+            self.header_children.append(attr_dict.get("class", ""))
+        if "pp-name" in classes:
+            self.name_attrs = attr_dict
+            self._in_name = True
+        self.stack.append(classes)
+
+    def handle_data(self, data):
+        if self._in_name:
+            self.name_text.append(data)
+
+    def handle_endtag(self, tag):
+        if self.stack:
+            classes = self.stack.pop()
+            if "pp-name" in classes:
+                self._in_name = False
 
 
 def special_cell_count(html: str) -> int:
@@ -101,16 +132,60 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertIn("守備位置　三", html)
 
 
-    def test_header_direct_children_stay_in_single_grid_row(self):
+    def test_header_direct_children_are_three_blocks(self):
         html = app.render_header_html({"role": "野手", "name": "山田", "position": "三塁手", "seed": 1, "category": "架空球団用", "batting_throwing": "右投右打"})
-        for cls in ["pp-header-left", "pp-category-mark", "pp-number-box", "pp-face", "pp-info"]:
-            self.assertIn(f'class="{cls}', html)
-        self.assertLess(html.index('class="pp-info"'), html.index('</div>"') if '</div>"' in html else len(html))
+        parser = ClassTreeParser()
+        parser.feed(html)
+        self.assertEqual(parser.header_children, ["pp-header-main", "pp-face", "pp-info"])
+        for cls in ["pp-header-main", "pp-face", "pp-info"]:
+            self.assertEqual(html.count(f'class="{cls}"'), 1)
+        self.assertNotIn('class="pp-header-left"', html)
 
-    def test_layout_css_has_five_header_columns_and_horizontal_info(self):
+    def test_header_display_content_is_preserved(self):
+        pitcher = {"role": "投手", "name": "山田 太郎", "position": "先発", "seed": 1, "category": "架空球団用", "batting_throwing": "右投右打"}
+        fielder = {"role": "野手", "name": "佐藤 次郎", "position": "三塁手", "seed": 2, "category": "ドラフト候補用", "batting_throwing": "左投左打"}
+        pitcher_html = app.render_header_html(pitcher)
+        self.assertIn("山田 太郎", pitcher_html)
+        for text in ["pp-category-mark", "pp-number-box", "pp-face", "成績", "フォーム", "投打", "適性"]:
+            self.assertIn(text, pitcher_html)
+        for text in ["★", "pp-score", "seed", "タイプ"]:
+            self.assertNotIn(text, pitcher_html)
+        self.assertIn("守備位置　三", app.render_header_html(fielder))
+
+    def test_header_name_has_escaped_title_and_text(self):
+        name = 'A&B <Ace> "Slugger"'
+        html = app.render_header_html({"role": "野手", "name": name, "position": "三塁手", "seed": 1, "category": "架空球団用", "batting_throwing": "右投右打"})
+        parser = ClassTreeParser()
+        parser.feed(html)
+        self.assertEqual(parser.name_attrs.get("title"), name)
+        self.assertEqual("".join(parser.name_text).strip(), name)
+        self.assertIn('title="A&amp;B &lt;Ace&gt; &quot;Slugger&quot;"', html)
+        self.assertIn('A&amp;B &lt;Ace&gt; &quot;Slugger&quot;', html)
+        self.assertNotIn("<Ace>", html)
+
+    def test_layout_css_has_three_header_columns_and_horizontal_info(self):
         source = Path("app.py").read_text(encoding="utf-8")
-        self.assertIn(".pp-header {display:grid; grid-template-columns:minmax(230px,1.05fr) 52px 72px 112px minmax(450px,1.7fr);", source)
-        self.assertIn(".pp-info {display:grid; grid-template-columns:minmax(190px,1.45fr) minmax(160px,1fr) minmax(104px,.8fr);", source)
+        self.assertIn(".pp-header {display:grid; grid-template-columns:minmax(330px, 1.2fr) 126px minmax(400px, 1.45fr);", source)
+        self.assertIn(".pp-header-main {display:grid; grid-template-rows:76px 43px;", source)
+        self.assertIn(".pp-name-line {display:grid; grid-template-columns:minmax(0, 1fr) 48px 62px;", source)
+        self.assertIn(".pp-info {display:grid; grid-template-columns:minmax(170px, 1.3fr) minmax(130px, 1fr) minmax(100px, .72fr);", source)
+        self.assertNotIn("pp-header-left", source)
+
+    def test_player_browser_uses_single_row_columns_without_state_changes(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        browser_source = source[source.index("def render_player_browser"):source.index("def main")]
+        self.assertIn("""previous_col, select_col, next_col = st.columns(
+        [0.16, 0.68, 0.16],
+        gap="small",
+    )""", browser_source)
+        self.assertIn('st.selectbox("選手一覧", player_ids, format_func=lambda player_id: label_by_id[player_id], key=selected_player_id_key, label_visibility="collapsed")', browser_source)
+        self.assertIn('selected_player_id_key = f"{key_prefix}_selected_player_id"', browser_source)
+        self.assertEqual(browser_source.count("on_click=select_relative_player"), 2)
+        self.assertIn("with previous_col:", browser_source)
+        self.assertIn("with select_col:", browser_source)
+        self.assertIn("with next_col:", browser_source)
+        self.assertIn("def relative_player_id", source)
+        self.assertNotIn("selected_index", source)
 
 
     def test_relative_player_id_empty_list(self):
@@ -218,19 +293,26 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertIn("background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%)", block)
         self.assertIn("border:2px solid #65c6d6", block)
 
-    def test_profile_game_area_excludes_generation_fields(self):
-        player = {"name": "山田", "age": 20, "batting_throwing": "右投右打", "nationality": "日本", "birthplace": "東京", "height": 180, "weight": 80, "category": "架空球団用", "player_type": "巧打型", "seed": 123}
+    def test_profile_game_area_is_ordered_table_and_excludes_generation_fields(self):
+        player = {"name": "山田", "age": 20, "batting_throwing": "右投右打", "nationality": "日本", "birthplace": "東京", "height": 180, "weight": 80, "back_name": "YAMADA", "category": "架空球団用", "player_type": "巧打型", "seed": 123}
         html = app.render_profile_right(player)
-        self.assertNotIn("seed", html)
-        self.assertNotIn("カテゴリ", html)
-        self.assertNotIn("タイプ", html)
-        self.assertIn("表示名", html)
+        for cls in ["pp-profile-table", "pp-profile-label", "pp-profile-value", "pp-profile-span-3"]:
+            self.assertIn(cls, html)
+        labels = re.findall(r'<div class="pp-profile-label">([^<]+)</div>', html)
+        self.assertEqual(labels, ["氏名", "年齢", "投打", "国籍", "出身地", "身長", "体重", "表示名"])
+        self.assertIn('class="pp-profile-value pp-profile-span-3">山田</div>', html)
+        self.assertIn('class="pp-profile-value pp-profile-span-3">YAMADA</div>', html)
+        for text in ["seed", "カテゴリ", "タイプ", "pp-profile-grid", "pp-mini-card"]:
+            self.assertNotIn(text, html)
 
     def test_generation_info_contains_seed_category_and_type(self):
         html = app.render_generation_info_html({"category": "架空球団用", "player_type": "巧打型", "seed": 123})
         self.assertIn("seed", html)
         self.assertIn("カテゴリ", html)
         self.assertIn("タイプ", html)
+        self.assertIn("pp-generation-grid", html)
+        self.assertNotIn("pp-profile-grid", html)
+        self.assertNotIn("pp-mini-card", html)
 
     def test_defense_table_always_renders_six_positions_with_split_rank_and_value(self):
         player = {"role": "野手", "position": "一塁手", "seed": 1, "abilities": {"走力": app.ability(50), "肩力": app.ability(50), "守備力": app.ability(56), "捕球": app.ability(50)}, "sub_positions": []}
