@@ -256,8 +256,8 @@ class UiLayoutHelpersTest(unittest.TestCase):
 
     def test_same_direction_pitch_labels_are_split_horizontally(self):
         html = app.render_pitch_chart_svg([
-            {"kind": "breaking", "direction_code": "3", "name": "SFF", "movement": 3},
-            {"kind": "breaking", "direction_code": "3", "name": "フォーク", "movement": 4},
+            {"kind": "breaking", "direction_code": "3", "name": "SFF", "movement": 3, "is_second_pitch": False, "slot": 1},
+            {"kind": "breaking", "direction_code": "3", "name": "フォーク", "movement": 4, "is_second_pitch": True, "slot": 2},
         ])
         labels = re.findall(r'<text x="([0-9.]+)" y="[0-9.]+" text-anchor="(end|start)"[^>]*>(SFF|フォーク)</text>', html)
         self.assertEqual(len(labels), 2)
@@ -265,7 +265,85 @@ class UiLayoutHelpersTest(unittest.TestCase):
         xs = {label: float(x) for x, _anchor, label in labels}
         self.assertEqual(anchors["SFF"], "end")
         self.assertEqual(anchors["フォーク"], "start")
-        self.assertLess(xs["SFF"], xs["フォーク"])
+        self.assertEqual(xs["SFF"], 128)
+        self.assertEqual(xs["フォーク"], 152)
+
+    def test_trajectory_row_clamps_values(self):
+        cases = [(None, 1), ("abc", 1), (0, 1), (1, 1), (2, 2), (3, 3), (4, 4), (5, 4)]
+        for value, expected in cases:
+            with self.subTest(value=value):
+                html = app.render_trajectory_row_html(value)
+                self.assertIn("pp-trajectory-row", html)
+                self.assertIn("pp-trajectory-icon", html)
+                self.assertIn("pp-trajectory-value", html)
+                self.assertIn(f"trajectory-{expected}", html)
+                self.assertIn(f'>{expected}</div></div>', html)
+
+    def test_fielder_detail_uses_trajectory_row(self):
+        player = {
+            "role": "野手", "position": "三塁手", "abilities": {"弾道": 3},
+            "special_abilities": [],
+        }
+        html = app.render_detail_body_html(player, self.master, "野手能力")
+        self.assertIn("pp-trajectory-row", html)
+        self.assertIn("trajectory-3", html)
+        self.assertNotIn('<div class="pp-label">弾道</div><div class="pp-rank"', html)
+
+    def test_pitch_chart_uses_fixed_svg_size(self):
+        html = app.render_pitch_chart_svg([])
+        for expected in ['viewBox="0 0 280 210"', 'width="270"', 'height="200"', 'rx="7"']:
+            self.assertIn(expected, html)
+        for old in ['viewBox="0 0 240 218"', 'width="230"', 'height="208"', 'rx="12"']:
+            self.assertNotIn(old, html)
+
+    def test_pitch_chart_wrap_is_compact_and_clipped(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        block = css_block(source, ".pp-chart-wrap")
+        for expected in ["height:286px", "min-height:286px", "max-height:286px", "overflow:hidden"]:
+            self.assertIn(expected, block)
+        self.assertNotIn("height:346px", block)
+        self.assertNotIn("overflow:visible", block)
+
+    def test_left_pitcher_mirrors_direction_one_label(self):
+        ball = [{"kind": "breaking", "direction_code": "1", "name": "スライダー", "movement": 3}]
+        right = app.render_pitch_chart_svg(ball, "右投右打")
+        left = app.render_pitch_chart_svg(ball, "左投左打")
+        self.assertIn('<text x="250" y="72" text-anchor="end"', right)
+        self.assertIn('<text x="30" y="72" text-anchor="start"', left)
+
+    def test_second_fastball_uses_first_fixed_lane_and_short_name(self):
+        html = app.render_pitch_chart_svg([
+            {"kind": "second_fastball", "name": "ツーシームファスト"},
+            {"kind": "second_fastball", "name": "ムービングファスト"},
+        ])
+        self.assertIn('<text x="140" y="25" text-anchor="middle"', html)
+        self.assertIn('<text x="140" y="43" text-anchor="middle"', html)
+        self.assertIn("ツーシーム", html)
+        self.assertNotIn("ムービング", html)
+
+    def test_pitch_display_names_are_shortened(self):
+        expected = {
+            "サークルチェンジ": "Cチェンジ",
+            "シンキングスプリット": "Sスプリット",
+            "超スローボール": "超スロー",
+            "123456789": "1234567…",
+        }
+        for formal, display in expected.items():
+            with self.subTest(formal=formal):
+                self.assertEqual(app.pitch_display_name(formal), display)
+
+    def test_pitch_chart_handles_invalid_input(self):
+        self.assertIn("ストレート", app.render_pitch_chart_svg(None))
+        html = app.render_pitch_chart_svg([
+            {"kind": "breaking", "direction_code": "9", "name": "無効球", "movement": 3},
+            {"kind": "breaking", "direction_code": "1", "name": "第一球", "movement": "abc"},
+            {"kind": "breaking", "direction_code": "1", "name": "第二球", "movement": 2, "is_second_pitch": True},
+            {"kind": "breaking", "direction_code": "1", "name": "第三球", "movement": 2, "is_second_pitch": True, "slot": 2},
+        ])
+        self.assertNotIn("無効球", html)
+        self.assertIn("第一球", html)
+        self.assertIn("第二球", html)
+        self.assertNotIn("第三球", html)
 
 
 if __name__ == "__main__":
