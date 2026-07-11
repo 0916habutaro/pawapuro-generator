@@ -256,8 +256,8 @@ class UiLayoutHelpersTest(unittest.TestCase):
 
     def test_same_direction_pitch_labels_are_split_horizontally(self):
         html = app.render_pitch_chart_svg([
-            {"kind": "breaking", "direction_code": "3", "name": "SFF", "movement": 3},
-            {"kind": "breaking", "direction_code": "3", "name": "フォーク", "movement": 4},
+            {"kind": "breaking", "direction_code": "3", "name": "SFF", "movement": 3, "is_second_pitch": False, "slot": 1},
+            {"kind": "breaking", "direction_code": "3", "name": "フォーク", "movement": 4, "is_second_pitch": True, "slot": 2},
         ])
         labels = re.findall(r'<text x="([0-9.]+)" y="[0-9.]+" text-anchor="(end|start)"[^>]*>(SFF|フォーク)</text>', html)
         self.assertEqual(len(labels), 2)
@@ -265,7 +265,131 @@ class UiLayoutHelpersTest(unittest.TestCase):
         xs = {label: float(x) for x, _anchor, label in labels}
         self.assertEqual(anchors["SFF"], "end")
         self.assertEqual(anchors["フォーク"], "start")
-        self.assertLess(xs["SFF"], xs["フォーク"])
+        self.assertEqual(xs["SFF"], 126)
+        self.assertEqual(xs["フォーク"], 154)
+        self.assertIn('<text x="126" y="192" text-anchor="end"', html)
+        self.assertIn('<text x="154" y="192" text-anchor="start"', html)
+        self.assertNotIn('<text x="128" y="202"', html)
+        self.assertNotIn('<text x="152" y="202"', html)
+
+    def test_trajectory_row_clamps_values(self):
+        cases = [(None, 1), ("abc", 1), (0, 1), (1, 1), (2, 2), (3, 3), (4, 4), (5, 4)]
+        for value, expected in cases:
+            with self.subTest(value=value):
+                html = app.render_trajectory_row_html(value)
+                self.assertIn("pp-trajectory-row", html)
+                self.assertIn("pp-trajectory-icon", html)
+                self.assertIn("pp-trajectory-value", html)
+                self.assertIn(f"trajectory-{expected}", html)
+                self.assertIn(f'>{expected}</div></div>', html)
+
+    def test_fielder_detail_uses_trajectory_row(self):
+        player = {
+            "role": "野手", "position": "三塁手", "abilities": {"弾道": 3},
+            "special_abilities": [],
+        }
+        html = app.render_detail_body_html(player, self.master, "野手能力")
+        self.assertIn("pp-trajectory-row", html)
+        self.assertIn("trajectory-3", html)
+        self.assertNotIn('<div class="pp-label">弾道</div><div class="pp-rank"', html)
+
+    def test_pitch_chart_uses_fixed_svg_size(self):
+        html = app.render_pitch_chart_svg([])
+        for expected in ['viewBox="0 0 280 210"', 'width="270"', 'height="200"', 'rx="7"']:
+            self.assertIn(expected, html)
+        for old in ['viewBox="0 0 240 218"', 'width="230"', 'height="208"', 'rx="12"']:
+            self.assertNotIn(old, html)
+
+    def test_pitch_chart_wrap_is_compact_and_clipped(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        block = css_block(source, ".pp-chart-wrap")
+        for expected in ["height:286px", "min-height:286px", "max-height:286px", "overflow:hidden"]:
+            self.assertIn(expected, block)
+        self.assertNotIn("height:346px", block)
+        self.assertNotIn("overflow:visible", block)
+
+    def test_left_pitcher_mirrors_direction_one_label(self):
+        ball = [{"kind": "breaking", "direction_code": "1", "name": "スライダー", "movement": 3}]
+        right = app.render_pitch_chart_svg(ball, "右投右打")
+        left = app.render_pitch_chart_svg(ball, "左投左打")
+        self.assertIn('<text x="260" y="86" text-anchor="end"', right)
+        self.assertIn('<text x="20" y="86" text-anchor="start"', left)
+        self.assertNotIn('<text x="250" y="72"', right)
+        self.assertNotIn('<text x="30" y="72"', left)
+
+    def test_second_fastball_uses_first_fixed_lane_and_short_name(self):
+        html = app.render_pitch_chart_svg([
+            {"kind": "second_fastball", "name": "ツーシームファスト"},
+            {"kind": "second_fastball", "name": "ムービングファスト"},
+        ])
+        self.assertIn('<text x="140" y="25" text-anchor="middle"', html)
+        self.assertIn('<text x="140" y="42" text-anchor="middle" fill="#126bb0" font-size="12"', html)
+        self.assertIn('<rect x="135" y="47" width="4" height="8" rx="1" fill="#ff9b19"/>', html)
+        self.assertIn('<rect x="142" y="47" width="4" height="8" rx="1" fill="#ff9b19"/>', html)
+        self.assertNotIn('<text x="140" y="43" text-anchor="middle" fill="#126bb0" font-size="13"', html)
+        self.assertNotIn('<rect x="134" y="48" width="5" height="10"', html)
+        self.assertIn("ツーシーム", html)
+        self.assertNotIn("ムービング", html)
+
+    def test_pitch_display_names_are_shortened(self):
+        expected = {
+            "サークルチェンジ": "Cチェンジ",
+            "シンキングスプリット": "Sスプリット",
+            "超スローボール": "超スロー",
+            "123456789": "1234567…",
+        }
+        for formal, display in expected.items():
+            with self.subTest(formal=formal):
+                self.assertEqual(app.pitch_display_name(formal), display)
+
+    def test_pitch_chart_handles_invalid_input(self):
+        self.assertIn("ストレート", app.render_pitch_chart_svg(None))
+        html = app.render_pitch_chart_svg([
+            {"kind": "breaking", "direction_code": "9", "name": "無効球", "movement": 3},
+            {"kind": "breaking", "direction_code": "1", "name": "第一球", "movement": "abc"},
+            {"kind": "breaking", "direction_code": "1", "name": "第二球", "movement": 2, "is_second_pitch": True},
+            {"kind": "breaking", "direction_code": "1", "name": "第三球", "movement": 2, "is_second_pitch": True, "slot": 2},
+        ])
+        self.assertNotIn("無効球", html)
+        self.assertIn("第一球", html)
+        self.assertIn("第二球", html)
+        self.assertNotIn("第三球", html)
+
+    def test_pitch_chart_draw_order_keeps_labels_in_front(self):
+        svg = app.render_pitch_chart_svg([
+            {"kind": "breaking", "direction_code": "1", "name": "スライダー", "movement": 3},
+        ])
+        self.assertLess(svg.index('<line x1="140" y1="66"'), svg.index('<rect x="80" y="57"'))
+        self.assertLess(svg.index('<rect x="80" y="57"'), svg.index('<circle cx="140" cy="66"'))
+        self.assertLess(svg.index('<circle cx="140" cy="66"'), svg.index('width="8" height="8"'))
+        self.assertLess(svg.index('width="8" height="8"'), svg.index('>スライダー</text>'))
+
+    def test_pitch_chart_straight_bars_use_compact_fixed_geometry(self):
+        svg = app.render_pitch_chart_svg([])
+        self.assertIn('<rect x="80" y="57" width="43" height="6" rx="3"', svg)
+        self.assertIn('<rect x="157" y="57" width="43" height="6" rx="3"', svg)
+        self.assertNotIn('<rect x="78" y="59" width="46" height="7"', svg)
+        self.assertNotIn('<rect x="156" y="59" width="46" height="7"', svg)
+
+    def test_direction_pitch_labels_use_12px_font(self):
+        svg = app.render_pitch_chart_svg([
+            {"kind": "breaking", "direction_code": "1", "name": "スライダー", "movement": 1},
+        ])
+        self.assertIn('font-size="16" font-weight="900">ストレート</text>', svg)
+        self.assertIn('font-size="12" font-weight="900">スライダー</text>', svg)
+
+    def test_short_block_progression_stays_closer_to_center(self):
+        regular = app.block_points(140, 66, 250, 92, -1, 7)
+        shortened = app.block_points(140, 66, 250, 92, -1, 7, start_t=0.20, step_t=0.075)
+        self.assertEqual(len(regular), 7)
+        self.assertEqual(len(shortened), 7)
+        self.assertLess(shortened[-1][0], regular[-1][0])
+        self.assertLess(shortened[-1][1], regular[-1][1])
+        self.assertAlmostEqual(regular[-1][0], 241.390204, places=5)
+        self.assertAlmostEqual(regular[-1][1], 81.744523, places=5)
+        self.assertAlmostEqual(shortened[-1][0], 221.590204, places=5)
+        self.assertAlmostEqual(shortened[-1][1], 77.064523, places=5)
+        self.assertEqual(app.block_points(140, 66, 250, 92, -1, 0), [])
 
 
 if __name__ == "__main__":

@@ -54,12 +54,31 @@ USAGE_SPECIAL_NAMES = {
 }
 PITCHER_USAGE_ORDER = ["フル出場", "調子次第", "速球中心", "変化球中心", "投球位置左", "投球位置右", "テンポ○", "人気者"]
 FIELDER_USAGE_ORDER = ["フル出場", "調子次第", "ミート多用", "強振多用", "積極打法", "慎重打法", "積極盗塁", "慎重盗塁", "積極走塁", "積極守備", "チームプレイ○", "チームプレイ×", "人気者"]
-LABEL_LANE_OFFSETS = {
-    "1": [(8, -18), (-8, 12)],
-    "2": [(-14, -10), (10, 13)],
-    "3": [(-34, -2), (34, 10)],
-    "4": [(-16, -12), (12, 12)],
-    "5": [(16, -12), (-12, 12)],
+PITCH_CHART_DIRECTION_POINTS = {
+    "1": (250, 92),
+    "2": (218, 157),
+    "3": (140, 188),
+    "4": (62, 157),
+    "5": (30, 92),
+}
+PITCH_CHART_LABEL_LANES = {
+    "1": [(260, 86, "end"), (260, 105, "end")],
+    "2": [(238, 156, "end"), (238, 177, "end")],
+    "3": [(126, 192, "end"), (154, 192, "start")],
+    "4": [(42, 156, "start"), (42, 177, "start")],
+    "5": [(20, 86, "start"), (20, 105, "start")],
+}
+PITCH_DISPLAY_NAMES = {
+    "ツーシームファスト": "ツーシーム",
+    "ムービングファスト": "ムービング",
+    "超スローボール": "超スロー",
+    "シンキングツーシーム": "Sツーシーム",
+    "ドロップカーブ": "Dカーブ",
+    "ナックルカーブ": "Nカーブ",
+    "パワーカーブ": "Pカーブ",
+    "サークルチェンジ": "Cチェンジ",
+    "シンキングスプリット": "Sスプリット",
+    "ファストチェンジ": "Fチェンジ",
 }
 TAB_LABELS = ["投手能力", "野手能力", "守備・起用", "プロフィール"]
 TAB_COLORS = {"投手能力": "#d7193f", "野手能力": "#0876c9", "守備・起用": "#d49a00", "プロフィール": "#087d23"}
@@ -1904,7 +1923,15 @@ def inject_powerpro_ui_css() -> None:
     .pp-pitcher-usage-item {white-space:nowrap; display:inline-flex; gap:2px; align-items:baseline;}
     .pp-pitcher-defense-values {display:flex; gap:10px; align-items:baseline; justify-content:flex-end; padding-right:12px; white-space:nowrap; color:#0b72bd; font-weight:950;}
     @media (max-width: 980px) {.pp-pitcher-usage-values {font-size:15px; gap:8px;}}
-    .pp-chart-wrap {height:346px; margin-top:6px; overflow:visible;}
+    .pp-chart-wrap {height:286px; min-height:286px; max-height:286px; margin-top:6px; overflow:hidden;}
+    .pp-trajectory-row {overflow:hidden;}
+    .pp-trajectory-icon {display:flex; align-items:center; justify-content:center; width:50px; height:100%; overflow:visible;}
+    .pp-trajectory-icon svg {overflow:visible;}
+    .pp-trajectory-icon.trajectory-1 svg {transform:rotate(-10deg); transform-origin:6px 25px;}
+    .pp-trajectory-icon.trajectory-2 svg {transform:rotate(-22deg); transform-origin:6px 25px;}
+    .pp-trajectory-icon.trajectory-3 svg {transform:rotate(-35deg); transform-origin:6px 25px;}
+    .pp-trajectory-icon.trajectory-4 svg {transform:rotate(-48deg); transform-origin:6px 25px;}
+    .pp-trajectory-value {color:#0b72bd;}
     .pp-defense-grid,.pp-profile-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px;}
     .pp-defense-compact {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; margin:5px 0; border:2px solid #cce8ff; border-radius:9px; overflow:hidden; background:#cce8ff;}
     .pp-defense-pos {display:grid; grid-template-columns:34px 34px 1fr; align-items:center; gap:4px; background:#f8fcff; border:0; border-radius:0; padding:8px 8px; color:#0a69b0; font-weight:900; min-height:42px;}
@@ -1993,6 +2020,24 @@ def render_ability_rows(items: list[tuple[str, Any]]) -> str:
             color = "#cbd5e1"
         rows.append(f'<div class="pp-ability-row"><div class="pp-label">{e(label)}</div><div class="pp-rank" style="color:{color}">{rank_text}</div><div class="pp-value">{value}</div></div>')
     return "".join(rows)
+
+
+def render_trajectory_row_html(value: Any) -> str:
+    try:
+        trajectory = int(value)
+    except (TypeError, ValueError):
+        trajectory = 1
+    trajectory = max(1, min(4, trajectory))
+    return (
+        '<div class="pp-ability-row pp-trajectory-row">'
+        '<div class="pp-label">弾道</div>'
+        f'<div class="pp-trajectory-icon trajectory-{trajectory}">'
+        '<svg viewBox="0 0 52 32" width="52" height="32" aria-hidden="true">'
+        '<line x1="6" y1="25" x2="44" y2="25" stroke="#168bd1" stroke-width="5" stroke-linecap="round"/>'
+        '<polygon points="44,25 35,18 35,32" fill="#168bd1"/>'
+        '</svg></div>'
+        f'<div class="pp-value pp-trajectory-value">{trajectory}</div></div>'
+    )
 
 
 def special_kind(name: str, master: MasterData) -> str:
@@ -2085,100 +2130,90 @@ def render_special_grid_html(p: dict[str, Any], master: MasterData, mode: str = 
 
 def pitch_display_name(name: Any) -> str:
     text = str(name or "")
-    aliases = {
-        "ツーシームファスト": "ツーシーム",
-        "ムービングファスト": "ムービング",
-        "シンキングツーシーム": "Sツーシーム",
-        "ドロップカーブ": "Dカーブ",
-        "ナックルカーブ": "Nカーブ",
-        "サークルチェンジ": "Cチェンジ",
-        "シンキングスプリット": "Sスプリット",
-    }
-    return aliases.get(text, text if len(text) <= 8 else text[:7] + "…")
+    return PITCH_DISPLAY_NAMES.get(text, text if len(text) <= 8 else text[:7] + "…")
 
 
-def block_points(x1: int, y1: int, x2: int, y2: int, lane: int, movement: int) -> list[tuple[float, float, float]]:
+def block_points(
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    lane: int,
+    movement: int,
+    *,
+    start_t: float = 0.24,
+    step_t: float = 0.095,
+) -> list[tuple[float, float, float]]:
     dx, dy = x2 - x1, y2 - y1
     length = max((dx * dx + dy * dy) ** 0.5, 1)
     nx, ny = -dy / length, dx / length
     points = []
     for step in range(1, min(7, max(0, movement)) + 1):
-        t = 0.24 + step * 0.095
+        t = start_t + step * step_t
         points.append((x1 + dx * t + nx * lane * 8, y1 + dy * t + ny * lane * 8, length))
     return points
 
 
-def render_pitch_chart_svg(balls: list[dict[str, Any]], batting_throwing: str = "") -> str:
-    right_map = {"1": (205, 78), "2": (64, 150), "3": (120, 190), "4": (52, 185), "5": (188, 185)}
-    directions = {code: (240 - x, y) for code, (x, y) in right_map.items()} if str(batting_throwing).startswith("左投") else right_map
-    label_positions = {"1": (194, 58), "2": (49, 132), "3": (120, 204), "4": (50, 202), "5": (190, 202)}
-    if str(batting_throwing).startswith("左投"):
-        label_positions = {code: (240 - x, y) for code, (x, y) in label_positions.items()}
+def render_pitch_chart_svg(balls: list[dict[str, Any]] | None, batting_throwing: str = "") -> str:
+    is_left = str(batting_throwing).startswith("左投")
+    directions = {
+        code: (280 - x if is_left else x, y)
+        for code, (x, y) in PITCH_CHART_DIRECTION_POINTS.items()
+    }
+    label_lanes = PITCH_CHART_LABEL_LANES
+    if is_left:
+        label_lanes = {
+            code: [(280 - x, y, {"start": "end", "end": "start"}.get(anchor, anchor)) for x, y, anchor in lanes]
+            for code, lanes in PITCH_CHART_LABEL_LANES.items()
+        }
+        # 下方の2球種は画面上の左右を常に維持する。
+        label_lanes["3"] = PITCH_CHART_LABEL_LANES["3"]
     grouped: dict[str, list[dict[str, Any]]] = {}
     second_fastballs = []
     for ball in balls or []:
-        if ball.get("kind") == "breaking":
+        if ball.get("kind") == "breaking" and str(ball.get("direction_code")) in directions:
             grouped.setdefault(str(ball.get("direction_code")), []).append(ball)
         elif ball.get("kind") == "second_fastball":
             second_fastballs.append(ball)
     lines = [
-        '<svg viewBox="0 0 240 218" width="100%" height="100%" role="img" aria-label="変化球方向図">',
-        '<rect x="5" y="5" width="230" height="208" rx="12" fill="#f7fcff" stroke="#cce8ff" stroke-width="4"/>',
-        '<text x="120" y="25" text-anchor="middle" fill="#126bb0" font-size="16" font-weight="900">ストレート</text>',
-        '<rect x="34" y="62" width="72" height="9" rx="4" fill="#2ab8ff" stroke="#0788d0" stroke-width="2"/>',
-        '<rect x="134" y="62" width="72" height="9" rx="4" fill="#2ab8ff" stroke="#0788d0" stroke-width="2"/>',
-        '<circle cx="120" cy="72" r="14" fill="#fff" stroke="#118ee8" stroke-width="4"/>',
-        '<text x="120" y="77" text-anchor="middle" fill="#ff4a2d" font-size="17" font-weight="900">⚾</text>',
+        '<svg viewBox="0 0 280 210" width="100%" height="100%" role="img" aria-label="変化球方向図">',
+        '<rect x="5" y="5" width="270" height="200" rx="7" fill="#f7fcff" stroke="#cce8ff" stroke-width="3"/>',
     ]
     for code, (x2, y2) in directions.items():
-        lines.append(f'<line x1="120" y1="72" x2="{x2}" y2="{y2}" stroke="#19a6ee" stroke-width="11" stroke-linecap="round" opacity=".38"/>')
-        lines.append(f'<line x1="120" y1="72" x2="{x2}" y2="{y2}" stroke="#0b8fe0" stroke-width="3" stroke-linecap="round" opacity=".55"/>')
+        lines.append(f'<line x1="140" y1="66" x2="{x2}" y2="{y2}" stroke="#53b7eb" stroke-width="6" stroke-linecap="round" opacity="0.28"/>')
+        lines.append(f'<line x1="140" y1="66" x2="{x2}" y2="{y2}" stroke="#168bd1" stroke-width="2.5" stroke-linecap="round" opacity="0.55"/>')
+    lines.append('<text x="140" y="25" text-anchor="middle" fill="#126bb0" font-size="16" font-weight="900">ストレート</text>')
     if second_fastballs:
-        names = " / ".join(e(pitch_display_name(ball.get("name"))) for ball in second_fastballs)
-        lines.append(f'<text x="120" y="43" text-anchor="middle" fill="#126bb0" font-size="14" font-weight="900">{names}</text>')
-        lines.append('<rect x="112" y="50" width="6" height="11" rx="2" fill="#ff9b19"/><rect x="122" y="50" width="6" height="11" rx="2" fill="#ff9b19"/>')
-    placed_labels: list[tuple[float, float]] = []
-    for code, balls_in_direction in grouped.items():
-        x2, y2 = directions.get(code, (120, 190))
-        lx, ly = label_positions.get(code, (x2, y2))
-        for lane_index, ball in enumerate(balls_in_direction[:2]):
+        second_fastball = second_fastballs[0]
+        name = e(pitch_display_name(second_fastball.get("name")))
+        lines.append(f'<text x="140" y="42" text-anchor="middle" fill="#126bb0" font-size="12" font-weight="900">{name}</text>')
+        lines.append('<rect x="135" y="47" width="4" height="8" rx="1" fill="#ff9b19"/><rect x="142" y="47" width="4" height="8" rx="1" fill="#ff9b19"/>')
+    lines.extend([
+        '<rect x="80" y="57" width="43" height="6" rx="3" fill="#2ab8ff" stroke="#0788d0" stroke-width="2"/>',
+        '<rect x="157" y="57" width="43" height="6" rx="3" fill="#2ab8ff" stroke="#0788d0" stroke-width="2"/>',
+        '<circle cx="140" cy="66" r="13" fill="#fff" stroke="#118ee8" stroke-width="4"/>',
+        '<text x="140" y="71" text-anchor="middle" fill="#ff4a2d" font-size="17" font-weight="900">⚾</text>',
+    ])
+    block_lines: list[str] = []
+    label_lines: list[str] = []
+    for code in PITCH_CHART_DIRECTION_POINTS:
+        balls_in_direction = sorted(grouped.get(code, []), key=lambda ball: (bool(ball.get("is_second_pitch")), int(ball.get("slot", 1) or 1)))[:2]
+        x2, y2 = directions[code]
+        for lane_index, ball in enumerate(balls_in_direction):
             lane = -1 if lane_index == 0 else 1
-            color = "#0fa8f5" if lane_index == 0 else "#ff9518"
-            stroke = "#0788d0" if lane_index == 0 else "#d67500"
-            for bx, by, _ in block_points(120, 72, x2, y2, lane, pitch_movement(ball)):
-                lines.append(f'<rect x="{bx - 5:.1f}" y="{by - 5:.1f}" width="10" height="10" rx="1.5" fill="{color}" stroke="{stroke}" stroke-width="1"/>')
-            dx, dy = x2 - 120, y2 - 72
-            length = max((dx * dx + dy * dy) ** 0.5, 1)
-            nx, ny = -dy / length, dx / length
-            offset = -10 if lane_index == 0 else 12
-            extra_x, extra_y = LABEL_LANE_OFFSETS.get(code, [(0, -8), (0, 8)])[min(lane_index, 1)]
-            raw_x = lx + nx * offset + extra_x
-            raw_y = ly + ny * offset + extra_y
-            anchor = "middle"
-            if code == "3" and len(balls_in_direction) > 1:
-                if lane_index == 0:
-                    raw_x, anchor = 108, "end"
-                else:
-                    raw_x, anchor = 132, "start"
-            name_x = min(215, max(25, raw_x))
-            name_y = min(202, max(40, raw_y))
-            if code != "3":
-                for placed_x, placed_y in placed_labels:
-                    if abs(name_x - placed_x) < 55 and abs(name_y - placed_y) < 18:
-                        name_y += 8 if name_y >= placed_y else -8
-                name_y = min(202, max(40, name_y))
-                if name_x < 84:
-                    anchor = "start"
-                    name_x = max(25, name_x - 4)
-                elif name_x > 156:
-                    anchor = "end"
-                    name_x = min(215, name_x + 4)
-            else:
-                name_x = min(215, max(25, name_x))
-                name_y = min(202, max(40, name_y))
-            placed_labels.append((name_x, name_y))
-            lines.append(f'<text x="{name_x:.1f}" y="{name_y:.1f}" text-anchor="{anchor}" fill="#126bb0" font-size="15" font-weight="900">{e(pitch_display_name(ball.get("name")))}</text>')
-    return "".join(lines) + "</svg>"
+            color = "#19a9ef" if lane_index == 0 else "#ff9c20"
+            stroke = "#087fc1" if lane_index == 0 else "#d87600"
+            try:
+                movement = int(ball.get("movement", ball.get("level", 0)) or 0)
+            except (TypeError, ValueError):
+                movement = 0
+            movement = max(0, movement)
+            block_kwargs = {"start_t": 0.20, "step_t": 0.075} if code in {"1", "5"} else {}
+            for bx, by, _ in block_points(140, 66, x2, y2, lane, movement, **block_kwargs):
+                block_lines.append(f'<rect x="{bx - 4:.1f}" y="{by - 4:.1f}" width="8" height="8" rx="1" fill="{color}" stroke="{stroke}" stroke-width="1"/>')
+            name_x, name_y, anchor = label_lanes[code][lane_index]
+            label_lines.append(f'<text x="{name_x}" y="{name_y}" text-anchor="{anchor}" fill="#126bb0" font-size="12" font-weight="900">{e(pitch_display_name(ball.get("name")))}</text>')
+    return "".join(lines + block_lines + label_lines) + "</svg>"
 
 
 def compact_pitcher_aptitude_text(player: dict[str, Any]) -> str:
@@ -2442,7 +2477,7 @@ def render_detail_body_html(p: dict[str, Any], master: MasterData, effective_tab
     elif effective_tab == "野手能力":
         fa = displayed_fielder_abilities(p)
         pos = p.get("position") if p.get("role") == "野手" else "投"
-        left = render_ability_rows([("守備位置", pos), ("弾道", fa.get("弾道")), ("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
+        left = render_ability_rows([("守備位置", pos)]) + render_trajectory_row_html(fa.get("弾道")) + render_ability_rows([("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
         right = render_special_grid_html(p, master, mode="fielder")
     elif effective_tab == "守備・起用":
         left = render_defense_usage_left(p)
@@ -2453,7 +2488,7 @@ def render_detail_body_html(p: dict[str, Any], master: MasterData, effective_tab
             left = render_ability_rows([("球速", pa.get("球速")), ("コントロール", pa.get("コントロール")), ("スタミナ", pa.get("スタミナ"))]) + f'<div class="pp-chart-wrap">{render_pitch_chart_svg(p.get("breaking_balls", []), str(p.get("batting_throwing", "")))}</div>'
         else:
             fa = displayed_fielder_abilities(p)
-            left = render_ability_rows([("弾道", fa.get("弾道")), ("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
+            left = render_trajectory_row_html(fa.get("弾道")) + render_ability_rows([("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
         right = render_profile_right(p) + render_generation_info_html(p)
     body_class = "pp-body pp-body-pitcher" if effective_tab == "投手能力" else "pp-body"
     return f'<div class="{body_class}"><div>{left}</div><div>{right}</div></div>'
