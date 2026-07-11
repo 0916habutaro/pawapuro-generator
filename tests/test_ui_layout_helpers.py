@@ -90,6 +90,18 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertNotIn("pp-score", html)
         self.assertIn("守備位置　三", html)
 
+
+    def test_header_direct_children_stay_in_single_grid_row(self):
+        html = app.render_header_html({"role": "野手", "name": "山田", "position": "三塁手", "seed": 1, "category": "架空球団用", "batting_throwing": "右投右打"})
+        for cls in ["pp-header-left", "pp-category-mark", "pp-number-box", "pp-face", "pp-info"]:
+            self.assertIn(f'class="{cls}', html)
+        self.assertLess(html.index('class="pp-info"'), html.index('</div>"') if '</div>"' in html else len(html))
+
+    def test_layout_css_has_five_header_columns_and_horizontal_info(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertIn(".pp-header {display:grid; grid-template-columns:minmax(230px,1.05fr) 52px 72px 112px minmax(450px,1.7fr);", source)
+        self.assertIn(".pp-info {display:grid; grid-template-columns:minmax(190px,1.45fr) minmax(160px,1fr) minmax(104px,.8fr);", source)
+
     def test_profile_game_area_excludes_generation_fields(self):
         player = {"name": "山田", "age": 20, "batting_throwing": "右投右打", "nationality": "日本", "birthplace": "東京", "height": 180, "weight": 80, "category": "架空球団用", "player_type": "巧打型", "seed": 123}
         html = app.render_profile_right(player)
