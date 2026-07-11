@@ -1635,7 +1635,7 @@ def breaking_balance_tables(df: pd.DataFrame) -> dict[str, Any]:
 
 def render_balance_check(master: MasterData) -> None:
     st.header("バランス確認")
-    st.write("保存済み選手をSQLiteから読み込み、生成結果の偏りを確認します。")
+    render_page_description("保存済み選手をSQLiteから読み込み、生成結果の偏りを確認します。")
     df = load_history_for_balance()
     total_saved_count = len(df)
     if df.empty:
@@ -1647,7 +1647,7 @@ def render_balance_check(master: MasterData) -> None:
     if st.button("保存済み選手を全削除", type="secondary", disabled=not confirm_delete):
         deleted_count = delete_all_players()
         st.session_state.pop("latest_players", None)
-        st.success(f"保存済み選手を{deleted_count}件削除しました。")
+        render_success_message(f"保存済み選手を{deleted_count}件削除しました。")
         st.rerun()
 
     st.subheader("絞り込み")
@@ -1855,6 +1855,22 @@ def e(value: Any) -> str:
     return escape(str(value if value is not None else ""), quote=True)
 
 
+def page_description_html(text: str) -> str:
+    return f'<p class="pp-page-description">{e(text)}</p>'
+
+
+def render_page_description(text: str) -> None:
+    st.markdown(page_description_html(text), unsafe_allow_html=True)
+
+
+def success_message_html(text: str) -> str:
+    return f'<div class="pp-success-message">{e(text)}</div>'
+
+
+def render_success_message(text: str) -> None:
+    st.markdown(success_message_html(text), unsafe_allow_html=True)
+
+
 def inject_powerpro_ui_css() -> None:
     st.markdown("""
     <style>
@@ -1884,7 +1900,7 @@ def inject_powerpro_ui_css() -> None:
     .pp-rank {font-size:26px; font-weight:950; text-align:center; -webkit-text-stroke:.45px rgba(255,255,255,.75); text-shadow:0 1px rgba(255,255,255,.42); line-height:1; width:42px;}
     .pp-value {font-size:24px; color:#0b72bd; font-weight:950; text-align:right; padding-right:12px; overflow-wrap:anywhere;}
     .pp-special-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:3px;}
-    .pp-special {height:42px; min-width:0; border-radius:7px; border:2px solid #65c6d6; background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%); color:#0871ad; font-weight:800; display:grid; grid-template-columns:minmax(0,1fr); place-items:center; padding:0 6px; font-size:17px; box-shadow:inset 0 1px rgba(255,255,255,.64), inset 0 -1px rgba(83,202,232,.08);}
+    .pp-special {height:42px; min-width:0; border-radius:7px; border:2px solid #3fb5cb; background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%); color:#075f94; font-weight:850; display:grid; grid-template-columns:minmax(0,1fr); place-items:center; padding:0 6px; font-size:17px; box-shadow:inset 0 1px rgba(255,255,255,.72),0 1px 1px rgba(7,95,148,.14);}
     .pp-special-name {overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; max-width:100%; text-align:center;}
     .pp-special-ranked {display:grid; grid-template-columns:minmax(0,1fr) 26px; padding:0; overflow:hidden; gap:0; align-items:stretch;}
     .pp-special-ranked .pp-special-name {display:flex; align-items:center; justify-content:center; padding:0 4px; min-width:0;}
@@ -1892,23 +1908,36 @@ def inject_powerpro_ui_css() -> None:
     .pp-special.long .pp-special-name {font-size:15px; letter-spacing:-.065em;}
     .pp-special.xlong .pp-special-name {font-size:13px; letter-spacing:-.085em;}
     .pp-special.red {background:linear-gradient(#fff8f8,#ffe0e0); border-color:#f29a9a; color:#bd1624;}
-    .pp-special.green {background:linear-gradient(180deg,#f3fff5 0%,#c9f2d2 100%); border-color:#56c978; color:#13783a;}
-    .pp-special.neutral {background:linear-gradient(180deg,#fbffff 0%,#e4f8fb 100%); border-color:#9bdbe6; color:#0871ad;}
+    .pp-special.green {background:linear-gradient(180deg,#effff2 0%,#bcebc7 100%); border-color:#36aa5b; color:#086b30;}
+    .pp-special.neutral {background:linear-gradient(180deg,#f9fdff 0%,#e0f2f6 100%); border-color:#82bdca; color:#285e75;}
     .pp-special.gold {background:linear-gradient(#fffdf1,#fff0ad); border-color:#e0be3c; color:#836200;}
-    .pp-special-ranked.rank-ab {background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%); border-color:#65c6d6; color:#0871ad;}
+    .pp-special-ranked.rank-ab {background:linear-gradient(180deg,#eefcff 0%,#ade8ef 58%,#78d3df 100%); border-color:#39afc4; color:#075f94;}
     .pp-special-ranked.rank-ab .pp-special-rank-badge {background:linear-gradient(180deg,#38c9dc 0%,#1595b5 100%); color:#fff;}
-    .pp-special-ranked.rank-cde {background:linear-gradient(180deg,#fbffff 0%,#e8fbfe 55%,#cef4f9 100%); border-color:#83dceb; color:#0871ad;}
-    .pp-special-ranked.rank-cde .pp-special-rank-badge {background:linear-gradient(180deg,#9be4ec 0%,#61bfd1 100%); color:#fff;}
+    .pp-special-ranked.rank-cde {background:linear-gradient(180deg,#fbfdff 0%,#e3f1f5 55%,#c9e5eb 100%); border-color:#78b5c2; color:#285e75;}
+    .pp-special-ranked.rank-cde .pp-special-rank-badge {background:linear-gradient(180deg,#72c5d2 0%,#388fa3 100%); color:#fff;}
     .pp-special-ranked.rank-fg {background:linear-gradient(180deg,#fff5f5 0%,#ffd3d3 55%,#ffadad 100%); border-color:#ef6c72; color:#c71c24;}
     .pp-special-ranked.rank-fg .pp-special-rank-badge {background:linear-gradient(180deg,#ed5a60 0%,#c8212b 100%); color:#fff;}
-    .pp-special.empty {height:42px; background:linear-gradient(180deg,#fbfeff 0%,#f2fbfd 58%,#e3f5f8 100%); border-color:#c7e5eb; color:transparent; box-shadow:none;}
+    .pp-special.empty {height:42px; background:linear-gradient(180deg,#ffffff 0%,#fbfdfe 58%,#f5fafb 100%); border-color:#dcebef; color:transparent; box-shadow:none;}
     .pp-section-title {color:#075f9e; font-weight:900; font-size:17px; margin:2px 0 7px;}
-    .pp-help {position:static; background:#062247; color:white; padding:11px 18px; font-size:18px; font-weight:800; border-top:4px solid #0b4f8c; border-radius:8px; margin:16px 0;}
-    .pp-list-note {color:#0a4773; font-weight:800; margin-bottom:8px;}
+    .pp-help {position:static; background:#062247; color:#f7fbff; padding:12px 18px; font-size:17px; line-height:1.55; font-weight:800; border-top:4px solid #0b4f8c; border-radius:8px; margin:16px 0; overflow-wrap:anywhere;}
+    .pp-list-note {color:#073f68; font-weight:900; background:rgba(255,255,255,.78); border-left:5px solid #0b78bd; padding:7px 10px; border-radius:5px; margin-bottom:8px;}
+    .pp-page-description {color:#073f68; font-size:16px; line-height:1.6; font-weight:650; margin:0 0 14px;}
+    .pp-success-message {color:#075f3b; background:rgba(133,225,177,.38); border:1px solid rgba(18,143,84,.38); border-left:5px solid #168a54; border-radius:8px; padding:12px 14px; font-size:16px; line-height:1.5; font-weight:800; margin:8px 0 14px;}
     .pp-player-row {width:100%; text-align:left; margin-bottom:4px;}
+    .stApp [data-testid="stCaptionContainer"] {font-weight:650;}
+    .stApp [data-testid="stSelectbox"] {min-width:0;}
+    .stApp [data-testid="stSidebar"] {color:#eef7ff;}
+    .stApp [data-testid="stSidebar"] p, .stApp [data-testid="stSidebar"] label, .stApp [data-testid="stSidebar"] span, .stApp [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {color:#d8ecf7;}
+    .stApp [data-testid="stSidebar"] h1, .stApp [data-testid="stSidebar"] h2, .stApp [data-testid="stSidebar"] h3 {color:#f4fbff;}
+    .stApp [data-testid="stSidebar"] [data-baseweb="select"] * {color:#f4fbff;}
+    .stApp [data-testid="stHeadingWithActionElements"] h1, .stApp [data-testid="stHeadingWithActionElements"] h2, .stApp [data-testid="stHeadingWithActionElements"] h3 {color:#073f68; text-shadow:none;}
+    .stApp [data-testid="stExpander"] summary, .stApp [data-testid="stExpander"] summary * {color:#f4fbff!important;}
     div[data-testid="stButton"] > button {min-height:2.2rem; opacity:1!important;}
+    div[data-testid="stButton"] > button:not(:disabled), div[data-testid="stButton"] > button:not(:disabled) *, div[data-testid="stDownloadButton"] > button, div[data-testid="stDownloadButton"] > button * {color:#ffffff!important;}
+    button[kind="primary"], button[kind="primary"] * {color:#ffffff!important;}
     div[class*="st-key-latest_prev"] button, div[class*="st-key-latest_next"] button, div[class*="st-key-history_prev"] button, div[class*="st-key-history_next"] button {min-height:38px; height:38px; white-space:nowrap;}
-    div[data-testid="stButton"] > button:disabled {opacity:.45!important;}
+    div[class*="st-key-latest_prev"] button:disabled, div[class*="st-key-latest_next"] button:disabled, div[class*="st-key-history_prev"] button:disabled, div[class*="st-key-history_next"] button:disabled {opacity:1!important; color:#5f7484!important; background:#e5edf2!important; border-color:#b7c7d2!important; cursor:not-allowed;}
+    div[class*="st-key-latest_prev"] button:disabled *, div[class*="st-key-latest_next"] button:disabled *, div[class*="st-key-history_prev"] button:disabled *, div[class*="st-key-history_next"] button:disabled * {color:#5f7484!important;}
     @media (max-width: 980px) {
       .pp-header {grid-template-columns:1fr;}
       .pp-face {width:100%;}
@@ -1918,6 +1947,9 @@ def inject_powerpro_ui_css() -> None:
       .pp-body,.pp-body-pitcher {grid-template-columns:1fr; min-height:0;}
       .pp-special-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
       .pp-usage-grid {grid-template-columns:repeat(4,minmax(0,1fr));}
+      .pp-help {font-size:15px; padding:10px 12px;}
+      .pp-defense-compact {width:100%;}
+      div[class*="st-key-latest_prev"] button, div[class*="st-key-latest_next"] button, div[class*="st-key-history_prev"] button, div[class*="st-key-history_next"] button {font-size:14px; padding-left:6px; padding-right:6px;}
     }
     .pp-aptitude-line {background:#f9fdff; border:2px solid #cfe9ff; border-radius:9px; color:#0a69b0; font-weight:900; padding:5px 9px; margin-bottom:6px; white-space:nowrap; font-size:15px;}
     .pp-pitcher-usage-row,.pp-pitcher-defense-row {display:grid; grid-template-columns:40% 1fr; align-items:center; margin:4px 0; background:#fff; border:2px solid #cfe9ff; border-radius:9px; min-height:39px; overflow:hidden; box-shadow:inset 0 2px rgba(255,255,255,.8);}
@@ -1935,13 +1967,13 @@ def inject_powerpro_ui_css() -> None:
     .pp-trajectory-icon.trajectory-4 svg {transform:rotate(-48deg); transform-origin:6px 25px;}
     .pp-trajectory-value {color:#0b72bd;}
     .pp-defense-grid,.pp-profile-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px;}
-    .pp-defense-compact {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; margin:5px 0; border:2px solid #cce8ff; border-radius:9px; overflow:hidden; background:#cce8ff;}
-    .pp-defense-pos {display:grid; grid-template-columns:34px 34px 1fr; align-items:center; gap:4px; background:#f8fcff; border:0; border-radius:0; padding:8px 8px; color:#0a69b0; font-weight:900; min-height:42px;}
-    .pp-defense-short {text-align:left;}
+    .pp-defense-compact {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px; margin:5px 0; border:2px solid #a9d4e8; border-radius:9px; overflow:hidden; background:#a9d4e8;}
+    .pp-defense-pos {display:grid; grid-template-columns:34px 34px minmax(0,1fr); align-items:center; gap:4px; background:#f7fbfd; border:0; border-radius:0; padding:8px; color:#28617f; font-weight:850; min-height:42px; min-width:0;}
+    .pp-defense-short {text-align:left; color:#245c78;}
     .pp-defense-rank {text-align:center; font-size:18px; font-weight:950;}
-    .pp-defense-num {text-align:right; color:#0b72bd;}
-    .pp-defense-empty {grid-column:2 / 4; text-align:center; color:#b5d7f3; font-weight:950;}
-    .pp-defense-pos.main {border-color:#0b8fe0; background:#eaf8ff;}
+    .pp-defense-num {text-align:right; color:#0b629d; font-variant-numeric:tabular-nums;}
+    .pp-defense-empty {grid-column:2 / 4; text-align:center; color:#aec5d1; font-weight:800;}
+    .pp-defense-pos.main {background:#dff3ff; box-shadow:inset 4px 0 0 #0b8fe0; color:#063f68; font-weight:950;}
     .pp-usage-grid {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px;}
     .pp-usage-cell {min-height:46px; border:2px solid #bde7f0; border-radius:7px; display:flex; align-items:center; justify-content:center; padding:0 6px; font-weight:900; color:#0b72bd; background:rgba(235,250,253,.46); min-width:0; text-align:center;}
     .pp-usage-label {background:linear-gradient(180deg,#fff 0%,#e9f9fd 100%); color:#126bb0;}
@@ -1954,10 +1986,15 @@ def inject_powerpro_ui_css() -> None:
     .pp-profile-label {min-height:44px; display:flex; align-items:center; padding:0 9px; background:#f5fbfd; border-right:1px solid #cfe8ee; border-bottom:1px solid #cfe8ee; color:#1973a5; font-size:14px; font-weight:850;}
     .pp-profile-value {min-height:44px; display:flex; align-items:center; padding:0 10px; background:#ffffff; border-right:1px solid #cfe8ee; border-bottom:1px solid #cfe8ee; color:#123f61; font-size:17px; font-weight:800; min-width:0; overflow-wrap:anywhere;}
     .pp-profile-span-3 {grid-column:span 3;}
+    @media (max-width: 980px) {
+      .pp-profile-table {grid-template-columns:88px minmax(0,1fr);}
+      .pp-profile-span-3 {grid-column:span 1;}
+    }
     .pp-generation-grid {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px;}
     .pp-generation-card {background:#f8fcff; border:2px solid #cce8ff; border-radius:9px; padding:7px; color:#0a69b0; font-weight:900; min-height:50px;}
     div[class*="st-key-latest_tab_"], div[class*="st-key-history_tab_"] {margin-bottom:-2px;}
     div[class*="st-key-latest_tab_"] button, div[class*="st-key-history_tab_"] button {background:#06396f!important; color:white!important; border-color:#052e5a!important; font-weight:900; border-radius:11px 11px 0 0!important; margin-right:0!important; min-height:3rem;}
+    div[class*="st-key-latest_tab_"] button *, div[class*="st-key-history_tab_"] button * {color:#ffffff!important;}
     div[class*="st-key-latest_tab_"] button[kind="primary"], div[class*="st-key-history_tab_"] button[kind="primary"] {border-bottom-color:transparent!important;}
     div[class*="st-key-latest_tab_player"] button[kind="primary"], div[class*="st-key-history_tab_player"] button[kind="primary"] {background:#075fbd!important; border-color:#075fbd!important;}
     div[class*="st-key-latest_tab_pitcher"] button[kind="primary"], div[class*="st-key-history_tab_pitcher"] button[kind="primary"] {background:#d7193f!important; border-color:#d7193f!important;}
@@ -2573,7 +2610,7 @@ def main() -> None:
     master = load_master_data()
     inject_powerpro_ui_css()
     st.markdown('<div class="pp-title">⚾ 選手能力詳細ジェネレーター</div>', unsafe_allow_html=True)
-    st.write("投手/野手、カテゴリ、生成人数だけを選ぶと、ゲーム風の能力詳細画面で確認できます。")
+    render_page_description("投手/野手、カテゴリ、生成人数だけを選ぶと、ゲーム風の能力詳細画面で確認できます。")
     with st.sidebar:
         st.header("画面")
         page = st.radio("表示する画面", ["選手生成", "バランス確認"], label_visibility="collapsed")
@@ -2599,7 +2636,7 @@ def main() -> None:
         st.session_state["latest_players"] = players
         st.session_state["latest_selected_player_id"] = player_unique_id(players[0], 0) if players else None
         st.session_state["latest_selected_player_tab"] = "投手能力" if role == "投手" else "野手能力"
-        st.success(f"{len(players)}人の選手を生成し、SQLiteに{saved_count}件保存しました。")
+        render_success_message(f"{len(players)}人の選手を生成し、SQLiteに{saved_count}件保存しました。")
     render_player_browser(st.session_state.get("latest_players", []), master, "latest")
     latest_players = st.session_state.get("latest_players", [])
     latest_ids = [player_unique_id(player, index) for index, player in enumerate(latest_players)]
@@ -2612,7 +2649,7 @@ def main() -> None:
         "投手能力": "球速、制球、スタミナ、変化球と投手特殊能力を確認します。",
         "野手能力": "打撃、走塁、守備の基礎能力と野手特殊能力を確認します。",
         "守備・起用": "メインポジション、サブポジション、起用適性を確認します。",
-        "プロフィール": "年齢、国籍、出身地、体格、生成カテゴリを確認します。",
+        "プロフィール": "氏名、年齢、投打、国籍、出身地、体格を確認します。生成条件は「生成情報」から確認できます。",
     }
     st.markdown(f'<div class="pp-help">{e(help_messages.get(latest_tab, role_help))}</div>', unsafe_allow_html=True)
     st.divider()
