@@ -26,7 +26,7 @@ TYPE_WEIGHTS = {
     "投手": [("本格派", 28), ("技巧派", 24), ("速球派", 18), ("変化球派", 18), ("スタミナ型", 12)],
     "野手": [("バランス型", 24), ("巧打型", 20), ("長距離砲", 16), ("俊足型", 16), ("守備職人", 14), ("強肩型", 10)],
 }
-RANK_COLORS = {"A": "#ff5a5a", "B": "#ff9f43", "C": "#ffd166", "D": "#6ee7b7", "E": "#60a5fa", "F": "#a78bfa", "G": "#cbd5e1"}
+RANK_COLORS = {"S": "#ff5da2", "A": "#ff5a5a", "B": "#ff9f43", "C": "#ffd166", "D": "#6ee7b7", "E": "#60a5fa", "F": "#a78bfa", "G": "#cbd5e1"}
 SEED_MAX = 10_000_000_000
 SPECIAL_ROLE_FALLBACKS = {
     "投手": {"nobi", "kire", "strikeout", "walk", "pinch"},
@@ -322,17 +322,18 @@ def inappropriate_special_count(df: pd.DataFrame, master: MasterData) -> int:
 
 
 def rank(value: int) -> str:
+    if value >= 90: return "S"
     if value >= 80: return "A"
     if value >= 70: return "B"
     if value >= 60: return "C"
     if value >= 50: return "D"
     if value >= 40: return "E"
-    if value >= 30: return "F"
+    if value >= 20: return "F"
     return "G"
 
 
 def ability(value: int) -> dict[str, Any]:
-    value = max(1, min(99, value))
+    value = max(0, min(100, value))
     return {"value": value, "rank": rank(value)}
 
 
@@ -2057,7 +2058,7 @@ def render_player_icon_svg(p: dict[str, Any]) -> str:
 
 def ui_rank_color(rank_text: str) -> str:
     return {
-        "S": "#f3b400",
+        "S": "#ff5da2",
         "A": "#ff3bbd",
         "B": "#ff315d",
         "C": "#ff9d00",
