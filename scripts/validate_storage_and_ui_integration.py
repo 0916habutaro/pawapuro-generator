@@ -218,10 +218,18 @@ def main() -> int:
     assert len(pd.read_csv(out / "players_export.csv", encoding="utf-8-sig")) == len(multi_hist)
     assert len(pd.read_excel(out / "players_export.xlsx", sheet_name="選手一覧")) == len(multi_hist)
 
+    rank_expectations = {
+        -1: (0, "G"), 0: (0, "G"), 19: (19, "G"), 20: (20, "F"), 39: (39, "F"),
+        40: (40, "E"), 49: (49, "E"), 50: (50, "D"), 59: (59, "D"),
+        60: (60, "C"), 69: (69, "C"), 70: (70, "B"), 79: (79, "B"),
+        80: (80, "A"), 89: (89, "A"), 90: (90, "S"), 99: (99, "S"),
+        100: (100, "S"), 101: (100, "S"),
+    }
     rank_rows=[]
-    for value in [1,19,20,29,30,39,40,49,50,59,60,69,70,79,80,89,90,99,100,0,101]:
-        clamped=max(1,min(99,value)); expected=app.rank(clamped); got=app.ability(value)["rank"]
-        rank_rows.append({"値":value,"丸め後":clamped,"期待ランク":expected,"実ランク":got,"結果":"OK" if expected==got else "NG"})
+    for value, (clamped, expected) in rank_expectations.items():
+        ability = app.ability(value)
+        got = ability["rank"]
+        rank_rows.append({"値":value,"丸め後":clamped,"期待ランク":expected,"実ランク":got,"結果":"OK" if ability["value"]==clamped and expected==got else "NG"})
     write_csv(out / "ability_rank_boundary_audit.csv", rank_rows); assert all(r["結果"]=="OK" for r in rank_rows)
 
     proc = subprocess.Popen([sys.executable, "-m", "streamlit", "run", "app.py", "--server.headless", "true", "--server.port", "8509"], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

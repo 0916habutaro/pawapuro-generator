@@ -1,9 +1,13 @@
+import json
 import re
 import sys
+import tempfile
 import unittest
 import unicodedata
 from html.parser import HTMLParser
 from pathlib import Path
+
+import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -241,7 +245,7 @@ class UiLayoutHelpersTest(unittest.TestCase):
 
     def test_ui_rank_colors_except_e_are_unchanged(self):
         expected = {
-            "S": "#f3b400",
+            "S": "#ff5da2",
             "A": "#ff3bbd",
             "B": "#ff315d",
             "C": "#ff9d00",
@@ -252,6 +256,93 @@ class UiLayoutHelpersTest(unittest.TestCase):
         for rank_text, color in expected.items():
             with self.subTest(rank=rank_text):
                 self.assertEqual(app.ui_rank_color(rank_text), color)
+
+    def test_basic_ability_rank_boundaries_include_s(self):
+        expected = {
+            0: "G", 19: "G", 20: "F", 39: "F", 40: "E", 49: "E",
+            50: "D", 59: "D", 60: "C", 69: "C", 70: "B", 79: "B",
+            80: "A", 89: "A", 90: "S", 100: "S",
+        }
+        for value, rank_text in expected.items():
+            with self.subTest(value=value):
+                self.assertEqual(app.rank(value), rank_text)
+
+    def test_ability_clamps_to_zero_and_one_hundred(self):
+        self.assertEqual(app.ability(-1), {"value": 0, "rank": "G"})
+        self.assertEqual(app.ability(101), {"value": 100, "rank": "S"})
+
+    def test_rank_colors_add_s_without_changing_a_to_g(self):
+        expected = {
+            "S": "#ff5da2",
+            "A": "#ff5a5a",
+            "B": "#ff9f43",
+            "C": "#ffd166",
+            "D": "#6ee7b7",
+            "E": "#60a5fa",
+            "F": "#a78bfa",
+            "G": "#cbd5e1",
+        }
+        self.assertEqual(app.RANK_COLORS, expected)
+
+    def test_basic_ability_rows_render_zero_and_s_rank_values(self):
+        html = app.render_ability_rows([
+            ("A0", app.ability(0)),
+            ("A90", app.ability(90)),
+            ("A99", app.ability(99)),
+            ("A100", app.ability(100)),
+        ])
+        self.assertIn(">G</div><div class=\"pp-value\">0</div>", html)
+        self.assertEqual(html.count(">S</div>"), 3)
+        self.assertIn("#ff5da2", html)
+
+    def test_csv_and_excel_preserve_s_rank_ability_json(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            df = pd.DataFrame([{
+                "name": "S-rank test",
+                "abilities_json": json.dumps({"A90": app.ability(90), "A100": app.ability(100)}, ensure_ascii=False),
+            }])
+            csv_path = tmp / "players.csv"
+            xlsx_path = tmp / "players.xlsx"
+            df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+            with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
+                df.to_excel(writer, sheet_name="players", index=False)
+
+            csv_abilities = json.loads(pd.read_csv(csv_path, encoding="utf-8-sig").loc[0, "abilities_json"])
+            excel_abilities = json.loads(pd.read_excel(xlsx_path).loc[0, "abilities_json"])
+            self.assertEqual(csv_abilities["A90"], {"value": 90, "rank": "S"})
+            self.assertEqual(excel_abilities["A100"], {"value": 100, "rank": "S"})
+
+    def test_sqlite_history_reload_preserves_s_rank_and_zero_value(self):
+        original_db_path = app.DB_PATH
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
+            app.DB_PATH = Path(tmp_dir) / "players.sqlite3"
+            try:
+                app.save_players([{
+                    "seed": 1,
+                    "role": "fielder",
+                    "category": "test",
+                    "name": "S-rank test",
+                    "age": 20,
+                    "nationality": "test",
+                    "birthplace": "test",
+                    "position": "test",
+                    "player_type": "test",
+                    "handedness": "right",
+                    "batting_throwing": "right/right",
+                    "height": 180,
+                    "weight": 80,
+                    "abilities": {"A90": app.ability(90), "A0": app.ability(0)},
+                    "special_abilities": [],
+                    "breaking_balls": [],
+                    "sub_positions": [],
+                }])
+                player = app.player_from_history_row(app.load_history().iloc[0])
+            finally:
+                app.DB_PATH = original_db_path
+
+        self.assertEqual(player["abilities"]["A90"], {"value": 90, "rank": "S"})
+        self.assertEqual(player["abilities"]["A0"], {"value": 0, "rank": "G"})
 
     def test_ability_body_ratios_match_game_screen(self):
         source = Path("app.py").read_text(encoding="utf-8")
