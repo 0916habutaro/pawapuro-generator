@@ -1,6 +1,7 @@
 import re
 import sys
 import unittest
+import unicodedata
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -71,7 +72,7 @@ class UiLayoutHelpersTest(unittest.TestCase):
             ],
         )
 
-    def test_legacy_player_tab_is_converted_by_role(self):
+    def test_saved_player_tab_is_converted_by_role(self):
         self.assertEqual(app.normalize_selected_tab_value({"role": "投手"}, "選手能力"), "投手能力")
         self.assertEqual(app.normalize_selected_tab_value({"role": "野手"}, "選手能力"), "野手能力")
 
@@ -403,24 +404,6 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertNotIn("st.markdown(f'<div class=\"pp-panel", source)
         self.assertNotIn("</div></div>', unsafe_allow_html=True)", source)
 
-    def test_same_direction_pitch_labels_are_split_horizontally(self):
-        html = app.render_pitch_chart_svg([
-            {"kind": "breaking", "direction_code": "3", "name": "SFF", "movement": 3, "is_second_pitch": False, "slot": 1},
-            {"kind": "breaking", "direction_code": "3", "name": "フォーク", "movement": 4, "is_second_pitch": True, "slot": 2},
-        ])
-        labels = re.findall(r'<text x="([0-9.]+)" y="[0-9.]+" text-anchor="(end|start)"[^>]*>(SFF|フォーク)</text>', html)
-        self.assertEqual(len(labels), 2)
-        anchors = {label: anchor for _x, anchor, label in labels}
-        xs = {label: float(x) for x, _anchor, label in labels}
-        self.assertEqual(anchors["SFF"], "end")
-        self.assertEqual(anchors["フォーク"], "start")
-        self.assertEqual(xs["SFF"], 126)
-        self.assertEqual(xs["フォーク"], 154)
-        self.assertIn('<text x="126" y="192" text-anchor="end"', html)
-        self.assertIn('<text x="154" y="192" text-anchor="start"', html)
-        self.assertNotIn('<text x="128" y="202"', html)
-        self.assertNotIn('<text x="152" y="202"', html)
-
     def test_trajectory_row_clamps_values(self):
         cases = [(None, 1), ("abc", 1), (0, 1), (1, 1), (2, 2), (3, 3), (4, 4), (5, 4)]
         for value, expected in cases:
@@ -457,32 +440,16 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertNotIn("height:346px", block)
         self.assertNotIn("overflow:visible", block)
 
-    def test_left_pitcher_mirrors_direction_one_label(self):
-        ball = [{"kind": "breaking", "direction_code": "1", "name": "スライダー", "movement": 3}]
-        right = app.render_pitch_chart_svg(ball, "右投右打")
-        left = app.render_pitch_chart_svg(ball, "左投左打")
-        self.assertIn('<text x="260" y="86" text-anchor="end"', right)
-        self.assertIn('<text x="20" y="86" text-anchor="start"', left)
-        self.assertNotIn('<text x="250" y="72"', right)
-        self.assertNotIn('<text x="30" y="72"', left)
-
-    def test_second_fastball_uses_first_fixed_lane_and_short_name(self):
-        html = app.render_pitch_chart_svg([
-            {"kind": "second_fastball", "name": "ツーシームファスト"},
-            {"kind": "second_fastball", "name": "ムービングファスト"},
-        ])
-        self.assertIn('<text x="140" y="25" text-anchor="middle"', html)
-        self.assertIn('<text x="140" y="42" text-anchor="middle" fill="#126bb0" font-size="12"', html)
-        self.assertIn('<rect x="135" y="47" width="4" height="8" rx="1" fill="#ff9b19"/>', html)
-        self.assertIn('<rect x="142" y="47" width="4" height="8" rx="1" fill="#ff9b19"/>', html)
-        self.assertNotIn('<text x="140" y="43" text-anchor="middle" fill="#126bb0" font-size="13"', html)
-        self.assertNotIn('<rect x="134" y="48" width="5" height="10"', html)
-        self.assertIn("ツーシーム", html)
-        self.assertNotIn("ムービング", html)
-
     def test_pitch_display_names_are_shortened(self):
         expected = {
+            "シンキングツーシーム": "Sツーシーム",
+            "シンキングスプリット": "Sスプリット",
             "サークルチェンジ": "Cチェンジ",
+            "シンキングファスト": "Sファスト",
+            "ドロップカーブ": "Dカーブ",
+            "ナックルカーブ": "Nカーブ",
+            "パワーカーブ": "Pカーブ",
+            "ツーシームファスト": "ツーシーム",
             "シンキングスプリット": "Sスプリット",
             "超スローボール": "超スロー",
             "123456789": "1234567…",
@@ -504,41 +471,268 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertIn("第二球", html)
         self.assertNotIn("第三球", html)
 
-    def test_pitch_chart_draw_order_keeps_labels_in_front(self):
-        svg = app.render_pitch_chart_svg([
-            {"kind": "breaking", "direction_code": "1", "name": "スライダー", "movement": 3},
-        ])
-        self.assertLess(svg.index('<line x1="140" y1="66"'), svg.index('<rect x="80" y="57"'))
-        self.assertLess(svg.index('<rect x="80" y="57"'), svg.index('<circle cx="140" cy="66"'))
-        self.assertLess(svg.index('<circle cx="140" cy="66"'), svg.index('width="8" height="8"'))
-        self.assertLess(svg.index('width="8" height="8"'), svg.index('>スライダー</text>'))
+class PitchBlockChartTest(unittest.TestCase):
+    @staticmethod
+    def breaking(movement, direction="1", name="球種A", **extra):
+        return {"kind": "breaking", "direction_code": direction, "name": name, "movement": movement, **extra}
 
-    def test_pitch_chart_straight_bars_use_compact_fixed_geometry(self):
+    def test_fixed_frame_ball_straight_marker_and_wrap(self):
         svg = app.render_pitch_chart_svg([])
-        self.assertIn('<rect x="80" y="57" width="43" height="6" rx="3"', svg)
-        self.assertIn('<rect x="157" y="57" width="43" height="6" rx="3"', svg)
-        self.assertNotIn('<rect x="78" y="59" width="46" height="7"', svg)
-        self.assertNotIn('<rect x="156" y="59" width="46" height="7"', svg)
+        self.assertIn('viewBox="0 0 280 210"', svg)
+        self.assertIn('<rect x="5" y="5" width="270" height="200"', svg)
+        self.assertIn('<circle cx="140" cy="66"', svg)
+        self.assertEqual(svg.count('class="straight-marker"'), 1)
+        source = Path("app.py").read_text(encoding="utf-8")
+        wrap = css_block(source, ".pp-chart-wrap")
+        for expected in ("height:286px", "min-height:286px", "max-height:286px", "overflow:hidden"):
+            self.assertIn(expected, wrap)
 
-    def test_direction_pitch_labels_use_12px_font(self):
+    def test_first_and_second_pitch_share_the_same_block_color(self):
         svg = app.render_pitch_chart_svg([
-            {"kind": "breaking", "direction_code": "1", "name": "スライダー", "movement": 1},
+            self.breaking(1, "2", "球種A"),
+            self.breaking(1, "2", "球種B", is_second_pitch=True, slot=2),
         ])
-        self.assertIn('font-size="16" font-weight="900">ストレート</text>', svg)
-        self.assertIn('font-size="12" font-weight="900">スライダー</text>', svg)
+        self.assertEqual(svg.count('fill="#ff8b25" stroke="#dd5f12"'), 3)  # straight + two breaking balls
+        self.assertNotIn('fill="#19a9ef"', svg)
 
-    def test_short_block_progression_stays_closer_to_center(self):
-        regular = app.block_points(140, 66, 250, 92, -1, 7)
-        shortened = app.block_points(140, 66, 250, 92, -1, 7, start_t=0.20, step_t=0.075)
-        self.assertEqual(len(regular), 7)
-        self.assertEqual(len(shortened), 7)
-        self.assertLess(shortened[-1][0], regular[-1][0])
-        self.assertLess(shortened[-1][1], regular[-1][1])
-        self.assertAlmostEqual(regular[-1][0], 241.390204, places=5)
-        self.assertAlmostEqual(regular[-1][1], 81.744523, places=5)
-        self.assertAlmostEqual(shortened[-1][0], 221.590204, places=5)
-        self.assertAlmostEqual(shortened[-1][1], 77.064523, places=5)
-        self.assertEqual(app.block_points(140, 66, 250, 92, -1, 0), [])
+    def lane(self, direction, movement=3, lane_index=0, is_left=False, name="球種"):
+        return app.PitchChartLane(direction, lane_index, name, name, movement, is_left)
+
+    def test_straight_area_uses_at_most_two_horizontal_markers(self):
+        with_second = app.render_pitch_chart_svg([
+            {"kind": "second_fastball", "name": "ツーシームファスト"},
+            {"kind": "second_fastball", "name": "ムービングファスト"},
+        ])
+        self.assertEqual(app.render_pitch_chart_svg([]).count('class="straight-marker"'), 1)
+        self.assertEqual(with_second.count('class="straight-marker"'), 2)
+        self.assertIn('data-center-x="133"', with_second)
+        self.assertIn('data-center-x="147"', with_second)
+        self.assertIn('x="132" y="40" text-anchor="end"', with_second)
+        self.assertIn('x="148" y="40" text-anchor="start"', with_second)
+        self.assertEqual(with_second.count('class="straight-label"'), 2)
+        self.assertIn("ツーシーム", with_second)
+        self.assertNotIn("ムービング", with_second)
+        self.assertNotIn('class="pitch-block"', with_second)
+
+    def test_center_marker_is_baseball_not_star(self):
+        svg = app.render_pitch_chart_svg([])
+        self.assertIn('class="pitch-center-ball"', svg)
+        self.assertIn('<circle cx="140" cy="66" r="12"', svg)
+        self.assertEqual(svg.count('stroke="#e64d4d"'), 2)
+        self.assertNotIn("★", svg)
+
+    def test_draw_order_is_straight_ball_blocks_labels(self):
+        svg = app.render_pitch_chart_svg([self.breaking(2)])
+        self.assertLess(svg.index('class="pitch-straight-area"'), svg.index('class="pitch-gauge-segment"'))
+        self.assertLess(svg.index('class="pitch-gauge-segment"'), svg.index('class="pitch-center-ball"'))
+        self.assertLess(svg.index('class="pitch-center-ball"'), svg.index('class="pitch-label"'))
+
+    def test_movement_normalization_and_orange_block_count(self):
+        cases = [(1, 1), (3, 3), (7, 7), (8, 7), (0, 0), (-2, 0), ("bad", 0)]
+        for movement, expected in cases:
+            with self.subTest(movement=movement):
+                svg = app.render_pitch_chart_svg([self.breaking(movement)])
+                self.assertEqual(svg.count('class="pitch-gauge-segment"'), 30)
+                self.assertEqual(svg.count('class="pitch-gauge-tip"'), 5)
+                self.assertEqual(svg.count('data-active="true"'), expected)
+                self.assertEqual(svg.count('data-active="false"'), 35 - expected)
+
+    def test_independent_lane_geometry_has_clear_origins_and_no_guides(self):
+        svg = app.render_pitch_chart_svg([])
+        self.assertNotIn('class="pitch-guide"', svg)
+        self.assertEqual(set(app.PITCH_GAUGE_GEOMETRY), set("12345"))
+        self.assertEqual(svg.count('class="pitch-gauge-segment"'), 30)
+        self.assertEqual(svg.count('class="pitch-gauge-tip"'), 5)
+        self.assertEqual(svg.count('fill="#35b5ef"'), 35)
+        self.assertNotIn('class="pitch-label"', svg)
+
+    def test_same_direction_uses_two_independent_lanes_and_ignores_third(self):
+        balls = [
+            self.breaking(2, "3", "球種A", slot=1),
+            self.breaking(4, "3", "球種B", slot=2, is_second_pitch=True),
+            self.breaking(7, "3", "球種C", slot=3, is_second_pitch=True),
+        ]
+        lanes = app.build_pitch_chart_lanes(balls, False)
+        self.assertEqual(len(lanes), 2)
+        first = app.pitch_gauge_segment_positions("3", 0, False, True)
+        second = app.pitch_gauge_segment_positions("3", 1, False, True)
+        self.assertEqual((first[0][0], second[0][0]), (135.5, 144.5))
+        svg = app.render_pitch_chart_svg(balls)
+        self.assertEqual(svg.count('class="paired-pitch-segment"'), 12)
+        self.assertEqual(svg.count('class="paired-pitch-tip"'), 2)
+        self.assertNotIn('class="pitch-gauge-segment" data-direction="3"', svg)
+        self.assertNotIn("球種C", svg)
+
+    def test_all_second_lanes_have_non_touching_block_centers(self):
+        for direction in "12345":
+            first = app.pitch_gauge_segment_positions(direction, 0, False, True)[0]
+            second = app.pitch_gauge_segment_positions(direction, 1, False, True)[0]
+            distance = ((first[0] - second[0]) ** 2 + (first[1] - second[1]) ** 2) ** 0.5
+            edge_gap = distance - app.PAIRED_SEGMENT_HEIGHT
+            self.assertAlmostEqual(edge_gap, app.PAIRED_LANE_GAP, places=3)
+
+    def test_diagonal_second_lane_has_at_least_one_block_width_of_separation(self):
+        for direction in ("2", "4"):
+            first = app.pitch_gauge_segment_positions(direction, 0, False, True)[0]
+            second = app.pitch_gauge_segment_positions(direction, 1, False, True)[0]
+            distance = ((first[0] - second[0]) ** 2 + (first[1] - second[1]) ** 2) ** 0.5
+            edge_gap = distance - app.PAIRED_SEGMENT_HEIGHT
+            self.assertAlmostEqual(edge_gap, app.PAIRED_LANE_GAP, places=3)
+
+    def test_labels_are_fixed_and_all_segments_stay_in_svg(self):
+        expected_labels = {
+            "1": (255, 96, "end"), "2": (242, 160, "end"), "3": (140, 200, "middle"),
+            "4": (38, 160, "start"), "5": (25, 96, "start"),
+        }
+        for direction in "12345":
+            self.assertEqual(app.pitch_gauge_label_geometry(direction, 0, False), expected_labels[direction])
+            label_x, label_y, anchor = expected_labels[direction]
+            self.assertGreaterEqual(label_x, 25 if anchor == "start" else 5)
+            self.assertLessEqual(label_x, 255 if anchor == "end" else 275)
+            self.assertGreaterEqual(label_y, 5)
+            self.assertLessEqual(label_y, 200)
+            for lane_index in (0, 1):
+                for x, y, _angle in app.pitch_gauge_segment_positions(direction, lane_index, False):
+                    self.assertGreaterEqual(x - 9, 5)
+                    self.assertLessEqual(x + 9, 275)
+                    self.assertGreaterEqual(y - 9, 5)
+                    self.assertLessEqual(y + 9, 205)
+
+    def test_labels_follow_lane_end_and_stay_in_svg(self):
+        one = app.render_pitch_chart_svg([self.breaking(1, "1", "スライダー")])
+        seven = app.render_pitch_chart_svg([self.breaking(7, "1", "スライダー")])
+        label_pattern = r'<text class="pitch-label"[^>]+x="([0-9.]+)" y="([0-9.]+)" text-anchor="([^"]+)"'
+        self.assertEqual(re.findall(label_pattern, one), re.findall(label_pattern, seven))
+
+    def test_left_pitcher_mirrors_side_and_diagonal_but_not_center(self):
+        for direction in ("1", "2", "4", "5"):
+            right = app.pitch_gauge_segment_positions(direction, 0, False)
+            left = app.pitch_gauge_segment_positions(direction, 0, True)
+            self.assertEqual([round(280 - x, 5) for x, _y, _a in right], [round(x, 5) for x, _y, _a in left])
+            self.assertEqual([(180 - a) % 360 for _x, _y, a in right], [a for _x, _y, a in left])
+            rx, ry, ra = app.pitch_gauge_label_geometry(direction, 0, False)
+            lx, ly, la = app.pitch_gauge_label_geometry(direction, 0, True)
+            self.assertEqual((lx, ly), (280 - rx, ry))
+            self.assertNotEqual(la, ra)
+        self.assertEqual(app.pitch_gauge_segment_positions("3", 0, False), app.pitch_gauge_segment_positions("3", 0, True))
+
+    def test_fixed_segment_geometry_and_tip_shape(self):
+        svg = app.render_pitch_chart_svg([])
+        self.assertEqual(app.PITCH_GAUGE_SEGMENT_LENGTH, 12)
+        self.assertEqual(app.PITCH_GAUGE_SEGMENT_THICKNESS, 9)
+        self.assertEqual(app.PITCH_GAUGE_SEGMENT_GAP, 1)
+        self.assertGreater(app.PITCH_GAUGE_SEGMENT_LENGTH, app.PITCH_GAUGE_SEGMENT_THICKNESS)
+        self.assertIn('<polygon points="-6,-4.5 2,-4.5 7,0 2,4.5 -6,4.5"', svg)
+        angles = {app.PITCH_GAUGE_GEOMETRY[code]["angle"] for code in "12345"}
+        self.assertEqual(angles, {0, 45, 90, 135, 180})
+
+    def test_segment_coordinates_and_label_do_not_depend_on_movement(self):
+        positions = app.pitch_gauge_segment_positions("2", 0, False)
+        self.assertEqual(len(positions), 7)
+        one = app.render_pitch_chart_svg([self.breaking(1, "2", "カーブ")])
+        seven = app.render_pitch_chart_svg([self.breaking(7, "2", "カーブ")])
+        transforms = r'transform="(translate\([^"]+\) rotate\([^"]+\))"'
+        self.assertEqual(re.findall(transforms, one)[:35], re.findall(transforms, seven)[:35])
+
+    def test_direction_three_centers_and_splits_only_when_second_pitch_exists(self):
+        centered = app.pitch_gauge_segment_positions("3", 0, False)
+        split_first = app.pitch_gauge_segment_positions("3", 0, False, True)
+        split_second = app.pitch_gauge_segment_positions("3", 1, False, True)
+        self.assertEqual({x for x, _y, _a in centered}, {140})
+        self.assertEqual({x for x, _y, _a in split_first}, {135.5})
+        self.assertEqual({x for x, _y, _a in split_second}, {144.5})
+        self.assertEqual(centered, app.pitch_gauge_segment_positions("3", 0, True))
+        self.assertEqual(app.pitch_gauge_label_geometry("3", 0, False), (140, 200, "middle"))
+        self.assertEqual(app.pitch_gauge_label_geometry("3", 0, False, True), (134, 200, "end"))
+        self.assertEqual(app.pitch_gauge_label_geometry("3", 1, False, True), (146, 200, "start"))
+
+    def test_second_pitch_gauge_is_fixed_seven_steps_with_active_color_count(self):
+        for movement, expected in ((1, 1), (3, 3), (7, 7), (0, 0), ("bad", 0)):
+            svg = app.render_pitch_chart_svg([
+                self.breaking(4, "1", "スライダー"),
+                self.breaking(movement, "1", "Hスライダー", is_second_pitch=True, slot=2),
+            ])
+            active = re.findall(r'class="paired-pitch-(?:segment|tip)" data-direction="1" data-lane="1"[^>]+data-active="true"', svg)
+            inactive = re.findall(r'class="paired-pitch-(?:segment|tip)" data-direction="1" data-lane="1"[^>]+data-active="false"', svg)
+            self.assertEqual(len(active), expected)
+            self.assertEqual(len(inactive), 7 - expected)
+            self.assertEqual(svg.count('class="paired-pitch-segment"'), 12)
+            self.assertEqual(svg.count('class="paired-pitch-tip"'), 2)
+            self.assertIn('<polygon points="-5,-3.5 1.5,-3.5 6,0 1.5,3.5 -5,3.5"', svg)
+        self.assertEqual(app.PAIRED_SEGMENT_WIDTH, 10)
+        self.assertEqual(app.PAIRED_SEGMENT_HEIGHT, 7)
+        self.assertEqual(app.PAIRED_SEGMENT_GAP, 1)
+        self.assertEqual(app.PAIRED_SEGMENT_COUNT, 7)
+
+    def test_paired_lanes_use_identical_geometry_and_independent_active_counts(self):
+        for first_movement, second_movement in ((7, 1), (1, 7), (3, 5)):
+            with self.subTest(first=first_movement, second=second_movement):
+                svg = app.render_pitch_chart_svg([
+                    self.breaking(first_movement, "2", "カーブ"),
+                    self.breaking(second_movement, "2", "Dカーブ", is_second_pitch=True, slot=2),
+                ])
+                self.assertNotIn('class="pitch-gauge-segment" data-direction="2"', svg)
+                self.assertNotIn('class="pitch-gauge-tip" data-direction="2"', svg)
+                for lane, expected in ((0, first_movement), (1, second_movement)):
+                    lane_elements = re.findall(
+                        rf'class="paired-pitch-(?:segment|tip)" data-direction="2" data-lane="{lane}"[^>]+', svg,
+                    )
+                    self.assertEqual(len(lane_elements), 7)
+                    self.assertEqual(sum('data-active="true"' in element for element in lane_elements), expected)
+                self.assertEqual(svg.count(f'points="{app.PAIRED_ARROW_POINTS}"'), 2)
+
+    def test_fixed_label_rectangles_do_not_overlap_for_same_direction_lanes(self):
+        def estimated_label_width(text):
+            return sum(12 if unicodedata.east_asian_width(character) in {"W", "F", "A"} else 7 for character in text)
+
+        def label_rect(direction, lane_index):
+            x, y, anchor = app.pitch_gauge_label_geometry(direction, lane_index, False, direction == "3")
+            width = estimated_label_width("長球種名AB12")
+            left = x - width if anchor == "end" else x - width / 2 if anchor == "middle" else x
+            return left - 3, y - 14, left + width + 3, y + 2
+
+        def overlaps(first, second):
+            return first[0] < second[2] and second[0] < first[2] and first[1] < second[3] and second[1] < first[3]
+
+        rectangles = [label_rect(direction, lane_index) for direction in "12345" for lane_index in (0, 1)]
+        for index, first in enumerate(rectangles):
+            self.assertGreaterEqual(first[0], 5)
+            self.assertLessEqual(first[2], 275)
+            self.assertGreaterEqual(first[1], 5)
+            self.assertLessEqual(first[3], 205)
+            for second in rectangles[index + 1:]:
+                self.assertFalse(overlaps(first, second))
+
+        self.assertEqual(estimated_label_width("SFF"), 21)
+        self.assertEqual(estimated_label_width("カーブ"), 36)
+
+    def test_straight_markers_are_compact_and_close_to_center_ball(self):
+        single = app.render_pitch_chart_svg([])
+        double = app.render_pitch_chart_svg([
+            {"kind": "second_fastball", "name": "ツーシームファスト"},
+            {"kind": "second_fastball", "name": "ムービングファスト"},
+        ])
+        self.assertIn('data-center-x="140" data-center-y="49"><polygon points="136,52 140,46 144,52"', single)
+        self.assertIn('data-center-x="133"', double)
+        self.assertIn('data-center-x="147"', double)
+        self.assertEqual(double.count('class="straight-marker"'), 2)
+        self.assertNotIn("ムービング", double)
+
+    def test_fixed_visual_samples_a_to_e_render_expected_lanes(self):
+        samples = {
+            "A": ([self.breaking(4, "1", "スライダー"), self.breaking(3, "2", "カーブ"), self.breaking(5, "3", "フォーク")], False, 3),
+            "B": ([self.breaking(4, "1", "スライダー"), self.breaking(2, "1", "Hスライダー", is_second_pitch=True), self.breaking(3, "3", "フォーク"), self.breaking(2, "3", "Vスライダー", is_second_pitch=True)], False, 4),
+            "C": ([self.breaking(5, "1", "カットボール"), self.breaking(2, "2", "カーブ"), self.breaking(4, "3", "SFF"), self.breaking(3, "4", "シンカー")], True, 4),
+            "D": ([{"kind": "second_fastball", "name": "ツーシームファスト"}, self.breaking(3, "1", "スライダー"), self.breaking(4, "3", "フォーク")], False, 2),
+            "E": ([self.breaking(3, code, f"球種{code}") for code in "12345"], False, 5),
+        }
+        for name, (balls, is_left, expected_lanes) in samples.items():
+            with self.subTest(sample=name):
+                lanes = app.build_pitch_chart_lanes(balls, is_left)
+                self.assertEqual(len(lanes), expected_lanes)
+                svg = app.render_pitch_chart_svg(balls, "左投左打" if is_left else "右投右打")
+                self.assertNotIn('class="pitch-guide"', svg)
+                self.assertNotIn("★", svg)
 
 
 if __name__ == "__main__":
