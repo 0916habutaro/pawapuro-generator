@@ -27,6 +27,7 @@ app = importlib.import_module("app")
 
 REQUIRED_COLUMNS = [
     "id", "name", "nationality", "region", "age", "category", "role", "player_type",
+    "player_class", "archetype", "position_style", "development_stage", "acquisition_role", "weakness_profile",
     "batting_throwing", "position", "abilities_json", "special_abilities_json",
     "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json",
     "sub_positions_json", "created_at",
@@ -96,6 +97,9 @@ def flatten_player(p: dict[str, Any]) -> dict[str, str]:
         "name": p.get("name", ""), "nationality": p.get("nationality", ""),
         "region": p.get("region") or p.get("birthplace", ""), "age": str(p.get("age", "")),
         "category": p.get("category", ""), "role": p.get("role", ""), "player_type": p.get("player_type", ""),
+        "player_class": p.get("player_class", ""), "archetype": p.get("archetype", ""),
+        "position_style": p.get("position_style", ""), "development_stage": p.get("development_stage", ""),
+        "acquisition_role": p.get("acquisition_role", ""), "weakness_profile": p.get("weakness_profile", ""),
         "batting_throwing": p.get("batting_throwing", ""), "position": p.get("position", ""),
         "abilities": dumps(abilities), "special_abilities": dumps(p.get("special_abilities", [])),
         "ranked_specials": dumps(abilities.get("ranked_specials", p.get("ranked_specials", {}))),
@@ -108,7 +112,7 @@ def flatten_player(p: dict[str, Any]) -> dict[str, str]:
 def export_rows(df: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame()
     out["選手ID"] = df["id"]
-    for jp, col in [("名前","name"),("国籍","nationality"),("地域","region"),("年齢","age"),("カテゴリ","category"),("投手野手","role"),("player_type","player_type"),("投打","batting_throwing"),("メインポジション","position")]:
+    for jp, col in [("名前","name"),("国籍","nationality"),("地域","region"),("年齢","age"),("カテゴリ","category"),("投手野手","role"),("player_type","player_type"),("選手格","player_class"),("アーキタイプ","archetype"),("ポジションスタイル","position_style"),("完成度","development_stage"),("獲得目的","acquisition_role"),("弱点プロファイル","weakness_profile"),("投打","batting_throwing"),("メインポジション","position")]:
         out[jp] = df.get(col, "")
     out["サブポジ"] = df.get("sub_positions", pd.Series([[]]*len(df))).apply(app.format_sub_positions)
     out["野手能力"] = df["abilities"].apply(lambda x: dumps({k:v for k,v in x.items() if k in ["弾道","ミート","パワー","走力","肩力","守備力","捕球"]}) if isinstance(x, dict) else "{}")

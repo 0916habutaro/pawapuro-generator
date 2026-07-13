@@ -26,6 +26,119 @@ TYPE_WEIGHTS = {
     "投手": [("本格派", 28), ("技巧派", 24), ("速球派", 18), ("変化球派", 18), ("スタミナ型", 12)],
     "野手": [("バランス型", 24), ("巧打型", 20), ("長距離砲", 16), ("俊足型", 16), ("守備職人", 14), ("強肩型", 10)],
 }
+CLASSIFICATION_COLUMNS = ["player_class", "archetype", "position_style", "development_stage", "acquisition_role", "weakness_profile"]
+CLASSIFICATION_LABELS = {
+    "player_class": "選手格",
+    "archetype": "アーキタイプ",
+    "position_style": "ポジションスタイル",
+    "development_stage": "完成度",
+    "acquisition_role": "獲得目的",
+    "weakness_profile": "弱点プロファイル",
+}
+PLAYER_CLASS_WEIGHTS = {
+    "架空球団用": [("スター級", 3), ("一軍主力級", 32), ("一軍控え級", 25), ("二軍級", 18), ("若手素材型", 12), ("ベテラン型", 10)],
+    "ドラフト候補用": [("超上位候補", 2), ("上位候補", 10), ("中位候補", 28), ("下位候補", 40), ("育成候補", 20)],
+    "助っ人外国人用": [("大物実績者", 5), ("主力期待級", 40), ("レギュラー競争級", 25), ("保険・バックアップ級", 12), ("育成素材型", 10), ("再生候補", 8)],
+}
+ARCHETYPE_WEIGHTS = {
+    "投手": [("総合", 28), ("制球", 24), ("速球", 18), ("変化球", 18), ("スタミナ", 12)],
+    "野手": [("バランス", 24), ("巧打", 20), ("長打", 16), ("俊足", 16), ("守備", 14), ("強肩", 10)],
+}
+FOREIGN_ARCHETYPE_WEIGHTS = {
+    "投手": [("総合", 34), ("制球", 18), ("速球", 26), ("変化球", 14), ("スタミナ", 8)],
+    "野手": [("バランス", 16), ("巧打", 16), ("長打", 28), ("俊足", 8), ("守備", 12), ("強肩", 20)],
+}
+DRAFT_DEVELOPMENT_WEIGHTS = {
+    "18-19": [("素材型", 75), ("標準型", 23), ("即戦力型", 2)],
+    "20-21": [("素材型", 50), ("標準型", 42), ("即戦力型", 8)],
+    "22-23": [("素材型", 20), ("標準型", 50), ("即戦力型", 30)],
+}
+LEGACY_PLAYER_TYPE_BY_ARCHETYPE = {
+    "野手": {"巧打": "巧打型", "長打": "長距離砲", "俊足": "俊足型", "守備": "守備職人", "強肩": "強肩型", "バランス": "バランス型"},
+    "投手": {"総合": "本格派", "制球": "技巧派", "速球": "速球派", "変化球": "変化球派", "スタミナ": "スタミナ型"},
+}
+LEGACY_ROSTER_TIER_BY_PLAYER_CLASS = {
+    "スター級": "一軍級",
+    "一軍主力級": "一軍級",
+    "一軍控え級": "控え級",
+    "二軍級": "二軍級",
+    "若手素材型": "若手",
+    "ベテラン型": "ベテラン",
+}
+FIELDER_POSITION_STYLE_WEIGHTS = {
+    "捕手": {
+        "守備": [("守備型捕手", 80), ("平均型捕手", 20)],
+        "強肩": [("守備型捕手", 70), ("平均型捕手", 30)],
+        "長打": [("打撃型捕手", 75), ("平均型捕手", 25)],
+        "巧打": [("打撃型捕手", 60), ("平均型捕手", 40)],
+        "俊足": [("平均型捕手", 100)],
+        "バランス": [("平均型捕手", 70), ("守備型捕手", 20), ("打撃型捕手", 10)],
+    },
+    "一塁手": {
+        "長打": [("強打一塁手", 85), ("平均型一塁手", 15)],
+        "守備": [("守備型一塁手", 80), ("平均型一塁手", 20)],
+        "巧打": [("平均型一塁手", 70), ("強打一塁手", 20), ("守備型一塁手", 10)],
+        "俊足": [("平均型一塁手", 100)],
+        "強肩": [("平均型一塁手", 70), ("守備型一塁手", 30)],
+        "バランス": [("平均型一塁手", 70), ("強打一塁手", 15), ("守備型一塁手", 15)],
+    },
+    "二塁手": {
+        "俊足": [("守備走塁二塁手", 80), ("平均型二塁手", 20)],
+        "守備": [("守備走塁二塁手", 80), ("平均型二塁手", 20)],
+        "巧打": [("打撃型二塁手", 60), ("平均型二塁手", 40)],
+        "長打": [("打撃型二塁手", 50), ("平均型二塁手", 50)],
+        "強肩": [("守備走塁二塁手", 50), ("平均型二塁手", 50)],
+        "バランス": [("平均型二塁手", 60), ("守備走塁二塁手", 25), ("打撃型二塁手", 15)],
+    },
+    "三塁手": {
+        "長打": [("強打三塁手", 80), ("平均型三塁手", 20)],
+        "強肩": [("強打三塁手", 45), ("守備型三塁手", 35), ("平均型三塁手", 20)],
+        "守備": [("守備型三塁手", 75), ("平均型三塁手", 25)],
+        "巧打": [("平均型三塁手", 70), ("強打三塁手", 20), ("守備型三塁手", 10)],
+        "俊足": [("平均型三塁手", 100)],
+        "バランス": [("平均型三塁手", 60), ("強打三塁手", 20), ("守備型三塁手", 20)],
+    },
+    "遊撃手": {
+        "守備": [("守備走塁遊撃手", 80), ("平均型遊撃手", 20)],
+        "俊足": [("守備走塁遊撃手", 75), ("平均型遊撃手", 25)],
+        "巧打": [("巧打遊撃手", 65), ("平均型遊撃手", 35)],
+        "長打": [("強打遊撃手", 55), ("平均型遊撃手", 45)],
+        "強肩": [("守備走塁遊撃手", 60), ("平均型遊撃手", 40)],
+        "バランス": [("平均型遊撃手", 60), ("守備走塁遊撃手", 20), ("巧打遊撃手", 12), ("強打遊撃手", 8)],
+    },
+    "外野手": {
+        "俊足": [("俊足外野手", 75), ("走攻守外野手", 15), ("守備外野手", 10)],
+        "守備": [("守備外野手", 70), ("俊足外野手", 20), ("走攻守外野手", 10)],
+        "長打": [("強打外野手", 80), ("走攻守外野手", 10), ("守備外野手", 10)],
+        "強肩": [("守備外野手", 60), ("走攻守外野手", 25), ("強打外野手", 15)],
+        "巧打": [("走攻守外野手", 35), ("俊足外野手", 30), ("強打外野手", 20), ("守備外野手", 15)],
+        "バランス": [("走攻守外野手", 45), ("俊足外野手", 20), ("強打外野手", 20), ("守備外野手", 15)],
+    },
+}
+PITCHER_POSITION_STYLE_BY_ROLE = {
+    "先発": {"総合": "総合型先発", "制球": "制球型先発", "速球": "速球型先発", "変化球": "変化球型先発", "スタミナ": "スタミナ型先発"},
+    "中継ぎ": {"総合": "総合型中継ぎ", "制球": "制球型中継ぎ", "速球": "剛腕中継ぎ", "変化球": "変化球型中継ぎ", "スタミナ": "ロングリリーフ型"},
+    "抑え": {"総合": "総合型クローザー", "制球": "制球型クローザー", "速球": "剛腕クローザー", "変化球": "変化球型クローザー", "スタミナ": "総合型クローザー"},
+}
+FIELDER_ACQUISITION_ROLES_BY_POSITION = {
+    "捕手": ["中軸候補", "保険要員"],
+    "一塁手": ["主砲候補", "中軸候補", "保険要員"],
+    "二塁手": ["中軸候補", "内野守備補強", "ユーティリティ", "保険要員"],
+    "三塁手": ["主砲候補", "中軸候補", "内野守備補強", "保険要員"],
+    "遊撃手": ["内野守備補強", "ユーティリティ", "保険要員"],
+    "外野手": ["主砲候補", "中軸候補", "外野補強", "ユーティリティ", "若手育成", "保険要員"],
+}
+PITCHER_ACQUISITION_ROLE_WEIGHTS = {
+    "先発候補": 24,
+    "勝ちパターン候補": 22,
+    "クローザー候補": 14,
+    "ロングリリーフ": 16,
+    "左腕補強": 10,
+    "若手育成": 8,
+    "再生候補": 6,
+}
+FIELDER_WEAKNESS_PROFILES = ["低ミート", "低走力", "低守備", "低捕球", "送球不安", "明確な弱点なし"]
+PITCHER_WEAKNESS_PROFILES = ["低制球", "球種不足", "スタミナ不足", "球速不足", "変化量不足", "安定性不安", "明確な弱点なし"]
 RANK_COLORS = {"S": "#ff5da2", "A": "#ff5a5a", "B": "#ff9f43", "C": "#ffd166", "D": "#6ee7b7", "E": "#60a5fa", "F": "#a78bfa", "G": "#cbd5e1"}
 SEED_MAX = 10_000_000_000
 SPECIAL_ROLE_FALLBACKS = {
@@ -196,6 +309,12 @@ def init_db() -> None:
                 region TEXT NOT NULL DEFAULT '',
                 position TEXT NOT NULL DEFAULT '',
                 player_type TEXT NOT NULL DEFAULT '',
+                player_class TEXT NOT NULL DEFAULT '',
+                archetype TEXT NOT NULL DEFAULT '',
+                position_style TEXT NOT NULL DEFAULT '',
+                development_stage TEXT NOT NULL DEFAULT '',
+                acquisition_role TEXT NOT NULL DEFAULT '',
+                weakness_profile TEXT NOT NULL DEFAULT '',
                 handedness TEXT NOT NULL DEFAULT '',
                 batting_throwing TEXT NOT NULL DEFAULT '',
                 height INTEGER NOT NULL DEFAULT 0,
@@ -221,6 +340,12 @@ def init_db() -> None:
             "region": "TEXT NOT NULL DEFAULT ''",
             "position": "TEXT NOT NULL DEFAULT ''",
             "player_type": "TEXT NOT NULL DEFAULT ''",
+            "player_class": "TEXT NOT NULL DEFAULT ''",
+            "archetype": "TEXT NOT NULL DEFAULT ''",
+            "position_style": "TEXT NOT NULL DEFAULT ''",
+            "development_stage": "TEXT NOT NULL DEFAULT ''",
+            "acquisition_role": "TEXT NOT NULL DEFAULT ''",
+            "weakness_profile": "TEXT NOT NULL DEFAULT ''",
             "handedness": "TEXT NOT NULL DEFAULT ''",
             "batting_throwing": "TEXT NOT NULL DEFAULT ''",
             "height": "INTEGER NOT NULL DEFAULT 0",
@@ -240,6 +365,123 @@ def init_db() -> None:
 
 def weighted_choice(rng: random.Random, items: list[tuple[Any, int]]) -> Any:
     return rng.choices([i[0] for i in items], weights=[i[1] for i in items], k=1)[0]
+
+
+def positive_weight_items(items: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    return [(label, int(weight)) for label, weight in items if int(weight) > 0]
+
+
+def choose_player_class(rng: random.Random, category: str, age: int) -> str:
+    items = list(PLAYER_CLASS_WEIGHTS.get(category, []))
+    adjusted: list[tuple[str, int]] = []
+    for label, weight in items:
+        if category == "架空球団用":
+            if 18 <= age <= 22 and label == "ベテラン型":
+                continue
+            if 30 <= age and label == "若手素材型":
+                continue
+            if 18 <= age <= 19 and label == "スター級":
+                weight = max(1, round(weight * 0.25))
+            if age >= 35 and label == "ベテラン型":
+                weight *= 3
+        elif category == "助っ人外国人用":
+            if age <= 23 and label in {"大物実績者", "再生候補"}:
+                continue
+            if age >= 26 and label == "育成素材型":
+                continue
+            if age >= 32 and label in {"大物実績者", "再生候補"}:
+                weight *= 2
+            if age >= 32 and label == "主力期待級":
+                weight = max(1, round(weight * 0.5))
+        adjusted.append((label, weight))
+    return weighted_choice(rng, positive_weight_items(adjusted))
+
+
+def choose_development_stage(rng: random.Random, category: str, age: int, player_class: str) -> str:
+    if category != "ドラフト候補用":
+        return ""
+    if age <= 19:
+        items = list(DRAFT_DEVELOPMENT_WEIGHTS["18-19"])
+    elif age <= 21:
+        items = list(DRAFT_DEVELOPMENT_WEIGHTS["20-21"])
+    else:
+        items = list(DRAFT_DEVELOPMENT_WEIGHTS["22-23"])
+    if player_class == "育成候補":
+        items = [(label, weight) for label, weight in items if label != "即戦力型"]
+    return weighted_choice(rng, positive_weight_items(items))
+
+
+def choose_archetype(rng: random.Random, role: str, category: str) -> str:
+    weights = FOREIGN_ARCHETYPE_WEIGHTS[role] if category == "助っ人外国人用" else ARCHETYPE_WEIGHTS[role]
+    return weighted_choice(rng, weights)
+
+
+def pitcher_acquisition_candidates(aptitudes: dict[str, str], batting_throwing: str) -> list[str]:
+    starter = aptitudes.get("starter_aptitude", "-")
+    reliever = aptitudes.get("reliever_aptitude", "-")
+    closer = aptitudes.get("closer_aptitude", "-")
+    candidates: set[str] = set()
+    if starter == "◎":
+        candidates.update({"先発候補", "ロングリリーフ", "若手育成", "再生候補"})
+    if reliever == "◎" and closer == "-":
+        candidates.update({"勝ちパターン候補", "ロングリリーフ", "若手育成", "再生候補"})
+    if closer == "◎":
+        candidates.update({"クローザー候補", "勝ちパターン候補", "再生候補"})
+    if batting_throwing.startswith("左投"):
+        candidates.add("左腕補強")
+    if not candidates:
+        candidates.update({"勝ちパターン候補", "ロングリリーフ", "再生候補"})
+    return sorted(candidates, key=list(PITCHER_ACQUISITION_ROLE_WEIGHTS).index)
+
+
+def choose_acquisition_role(rng: random.Random, category: str, role: str, player_class: str, position: str, aptitudes: dict[str, str] | None = None, batting_throwing: str = "") -> str:
+    if category != "助っ人外国人用":
+        return ""
+    if role == "野手":
+        candidates = list(FIELDER_ACQUISITION_ROLES_BY_POSITION.get(position, ["保険要員"]))
+        if player_class == "育成素材型" and "若手育成" not in candidates:
+            candidates.append("若手育成")
+        items = [(label, 20) for label in candidates]
+        if player_class == "保険・バックアップ級":
+            items = [(label, weight * 2 if label == "保険要員" else weight) for label, weight in items]
+        return weighted_choice(rng, positive_weight_items(items))
+    candidates = pitcher_acquisition_candidates(aptitudes or {}, batting_throwing)
+    if player_class == "育成素材型" and "若手育成" not in candidates:
+        candidates.append("若手育成")
+    items = [(label, PITCHER_ACQUISITION_ROLE_WEIGHTS.get(label, 10)) for label in candidates]
+    if player_class == "再生候補":
+        items = [(label, weight * 2 if label == "再生候補" else weight) for label, weight in items]
+    return weighted_choice(rng, positive_weight_items(items))
+
+
+def choose_position_style(rng: random.Random, role: str, position: str, archetype: str) -> str:
+    if role == "投手":
+        return PITCHER_POSITION_STYLE_BY_ROLE.get(position, {}).get(archetype, "")
+    weights = FIELDER_POSITION_STYLE_WEIGHTS.get(position, {}).get(archetype)
+    return weighted_choice(rng, weights) if weights else ""
+
+
+def choose_weakness_profile(rng: random.Random, category: str, role: str, player_class: str) -> str:
+    if category != "助っ人外国人用":
+        return ""
+    profiles = PITCHER_WEAKNESS_PROFILES if role == "投手" else FIELDER_WEAKNESS_PROFILES
+    if player_class == "大物実績者":
+        items = [(label, 40 if label == "明確な弱点なし" else 10) for label in profiles]
+    elif player_class == "主力期待級":
+        items = [(label, 20 if label == "明確な弱点なし" else 16) for label in profiles]
+    else:
+        items = [(label, 5 if label == "明確な弱点なし" else 19) for label in profiles]
+    if player_class in {"育成素材型", "再生候補"}:
+        items = [(label, weight) for label, weight in items if label != "明確な弱点なし"]
+    return weighted_choice(rng, positive_weight_items(items))
+
+
+def legacy_player_type_from_archetype(role: str, archetype: str) -> str:
+    return LEGACY_PLAYER_TYPE_BY_ARCHETYPE.get(role, {}).get(archetype, "")
+
+
+def legacy_roster_tier_from_player_class(player_class: str) -> str:
+    return LEGACY_ROSTER_TIER_BY_PLAYER_CLASS.get(player_class, "")
 
 
 def infer_special_target_role(group: str) -> str:
@@ -732,22 +974,22 @@ def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, 
         selected[group_name] = names_by_rank[rank_value]
     return selected
 
-def generate_fielder_abilities(rng: random.Random, age: int, position: str, player_type: str, category: str) -> dict[str, Any]:
+def generate_fielder_abilities(rng: random.Random, age: int, position: str, player_type: str, category: str, position_style: str = "", roster_tier: str = "") -> dict[str, Any]:
     veteran_keep = age >= 35 and (player_type == "巧打型" or rng.random() < 0.18)
     base = 47 + (7 if 23 <= age <= 29 else 3 if 30 <= age <= 34 else 0) - (6 if age <= 19 else 3 if age <= 22 else 0) - (2 if age >= 35 and not veteran_keep else 0)
     mods = {"ミート": 0, "パワー": 0, "走力": 0, "肩力": 0, "守備力": 0, "捕球": 0}
     for key in mods:
         spread = 18 if category in {"ドラフト候補用", "助っ人外国人用"} else 15
         mods[key] += rng.randint(-spread, spread)
-    position_styles = {
-        "捕手": [("守備型捕手", 58), ("打撃型捕手", 13), ("平均型捕手", 29)],
-        "一塁手": [("強打一塁手", 54), ("守備型一塁手", 23), ("平均型一塁手", 23)],
-        "二塁手": [("守備走塁二塁手", 62), ("打撃型二塁手", 10), ("平均型二塁手", 28)],
-        "三塁手": [("強打三塁手", 40), ("守備型三塁手", 31), ("平均型三塁手", 29)],
-        "遊撃手": [("守備走塁遊撃手", 58), ("強打遊撃手", 8), ("巧打遊撃手", 10), ("平均型遊撃手", 24)],
-        "外野手": [("走攻守外野手", 26), ("俊足外野手", 25), ("強打外野手", 25), ("守備外野手", 24)],
+    default_styles = {
+        "捕手": "平均型捕手",
+        "一塁手": "平均型一塁手",
+        "二塁手": "平均型二塁手",
+        "三塁手": "平均型三塁手",
+        "遊撃手": "平均型遊撃手",
+        "外野手": "走攻守外野手",
     }
-    style = weighted_choice(rng, position_styles.get(position, [("平均型", 1)]))
+    style = position_style or default_styles.get(position, "平均型")
     type_mods = {
         "巧打型": {"ミート": 16, "パワー": -4}, "長距離砲": {"パワー": 20, "走力": -8, "ミート": -4},
         "俊足型": {"走力": 20, "守備力": 6, "パワー": -8}, "守備職人": {"守備力": 18, "捕球": 14, "ミート": -3},
@@ -810,8 +1052,7 @@ def generate_fielder_abilities(rng: random.Random, age: int, position: str, play
         if rng.random() < 0.16:
             mods[rng.choice(["パワー", "走力", "肩力"])] += rng.randint(10, 18)
     elif category == "架空球団用":
-        roster_tier = weighted_choice(rng, [("一軍級", 35), ("控え級", 25), ("二軍級", 18), ("若手", 12), ("ベテラン", 10)])
-        tier_mod = {"一軍級": 5, "控え級": 0, "二軍級": -7, "若手": -4, "ベテラン": 1}[roster_tier]
+        tier_mod = {"一軍級": 5, "控え級": 0, "二軍級": -7, "若手": -4, "ベテラン": 1}.get(roster_tier or "控え級", 0)
         for k in mods:
             mods[k] += tier_mod
     if age >= 35:
@@ -1360,24 +1601,31 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     rng = random.Random(seed)
     age = age_for(rng, category)
     nationality = choose_nationality(rng, category)
+    player_class = choose_player_class(rng, category, age)
+    development_stage = choose_development_stage(rng, category, age, player_class)
     pitcher_aptitudes: dict[str, str] = {}
     if role == "投手":
         pitcher_aptitudes = choose_pitcher_aptitudes(rng, category)
         position = primary_pitcher_role(pitcher_aptitudes)
-        type_weights = [("本格派", 34), ("技巧派", 18), ("速球派", 26), ("変化球派", 14), ("スタミナ型", 8)] if category == "助っ人外国人用" else TYPE_WEIGHTS[role]
     else:
         position_weights = [("捕手", 8), ("一塁手", 20), ("二塁手", 9), ("三塁手", 18), ("遊撃手", 10), ("外野手", 35)] if category == "助っ人外国人用" else [("捕手", 12), ("一塁手", 14), ("二塁手", 14), ("三塁手", 14), ("遊撃手", 16), ("外野手", 30)]
         position = weighted_choice(rng, position_weights)
-        type_weights = [("バランス型", 16), ("巧打型", 16), ("長距離砲", 28), ("俊足型", 8), ("守備職人", 12), ("強肩型", 20)] if category == "助っ人外国人用" else TYPE_WEIGHTS[role]
-    player_type = weighted_choice(rng, type_weights)
-    abilities = generate_pitcher_abilities(rng, age, player_type, category, pitcher_aptitudes) if role == "投手" else generate_fielder_abilities(rng, age, position, player_type, category)
     batting_throwing = generate_batting_throwing(rng, role, position)
+    acquisition_role = choose_acquisition_role(rng, category, role, player_class, position, pitcher_aptitudes, batting_throwing)
+    archetype = choose_archetype(rng, role, category)
+    position_style = choose_position_style(rng, role, position, archetype)
+    weakness_profile = choose_weakness_profile(rng, category, role, player_class)
+    player_type = legacy_player_type_from_archetype(role, archetype)
+    roster_tier = legacy_roster_tier_from_player_class(player_class)
+    abilities = generate_pitcher_abilities(rng, age, player_type, category, pitcher_aptitudes) if role == "投手" else generate_fielder_abilities(rng, age, position, player_type, category, position_style, roster_tier)
     breaking_balls = generate_breaking_balls(rng, player_type, category, pitcher_aptitudes, batting_throwing) if role == "投手" else []
     sub_positions = generate_sub_positions(rng, role, position, player_type, category, age, batting_throwing, abilities)
     special_abilities = generate_specials(rng, master, role, player_type, position, age, abilities, breaking_balls, category)
     return {
         "seed": seed, "role": role, "category": category, "name": choose_name(rng, master.names, nationality), "age": age,
         "nationality": nationality, "birthplace": choose_birthplace(rng, master.places, nationality), "position": position, "player_type": player_type,
+        "player_class": player_class, "archetype": archetype, "position_style": position_style,
+        "development_stage": development_stage, "acquisition_role": acquisition_role, "weakness_profile": weakness_profile,
         "handedness": handedness_from_batting_throwing(batting_throwing),
         "batting_throwing": batting_throwing,
         "height": rng.randint(168, 196) + (3 if role == "投手" else 0), "weight": rng.randint(68, 105),
@@ -1396,9 +1644,9 @@ def save_players(players: list[dict[str, Any]]) -> int:
             ranked_specials = abilities.get("ranked_specials", {}) if isinstance(abilities, dict) else {}
             pitcher_aptitudes = {key: p.get(key) for key in PITCHER_APTITUDE_KEYS if p.get(key) is not None}
             region = p.get("region") or p.get("birthplace") or ""
-            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, nationality, birthplace, region, position, player_type, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json)
-                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("nationality", ""), p.get("birthplace", region), region, p.get("position", ""), p.get("player_type", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False)))
+            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, nationality, birthplace, region, position, player_type, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json)
+                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("nationality", ""), p.get("birthplace", region), region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False)))
         return len(players)
 
 
@@ -1423,12 +1671,17 @@ def load_history() -> pd.DataFrame:
     init_db()
     with sqlite3.connect(DB_PATH) as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
-        wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "nationality", "birthplace", "region", "position", "player_type", "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json"]
+        wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "nationality", "birthplace", "region", "position", "player_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json"]
         selected = [column for column in wanted if column in columns]
         history = pd.read_sql_query(f"SELECT {', '.join(selected)} FROM players ORDER BY id DESC", conn)
     if not history.empty:
         if "region" not in history.columns:
             history["region"] = history.get("birthplace", "")
+        for column in CLASSIFICATION_COLUMNS:
+            if column not in history.columns:
+                history[column] = ""
+            history[column] = history[column].fillna("").astype(str)
+            history[CLASSIFICATION_LABELS[column]] = history[column]
         abilities = history["abilities_json"].apply(lambda value: parse_json_column(value, {}))
         pitcher_aptitudes = history["pitcher_aptitudes_json"].apply(lambda value: parse_json_column(value, {})) if "pitcher_aptitudes_json" in history.columns else pd.Series([{}] * len(history))
         for key in PITCHER_APTITUDE_KEYS:
@@ -1536,7 +1789,7 @@ def ranked_special_distribution(df: pd.DataFrame, group_names: list[str] | None 
     return base.merge(counts, on=["グループ", "ランク"], how="left").fillna({"人数": 0}).astype({"人数": int})
 
 def player_fingerprint(row: pd.Series) -> str:
-    keys = ["role", "category", "name", "age", "nationality", "birthplace", "position", "player_type", "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "breaking_balls_json"]
+    keys = ["role", "category", "name", "age", "nationality", "birthplace", "position", "player_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "breaking_balls_json"]
     return json.dumps({key: row.get(key) for key in keys}, ensure_ascii=False, sort_keys=True)
 
 
@@ -1558,6 +1811,21 @@ def grouped_special_count_distribution(df: pd.DataFrame, group_columns: list[str
     work = df.copy()
     work["特殊能力数"] = work["special_abilities"].apply(special_count_bucket)
     return work.groupby([*group_columns, "特殊能力数"]).size().reset_index(name="人数")
+
+
+def classification_distribution_table(df: pd.DataFrame, group_columns: list[str], value_column: str) -> pd.DataFrame:
+    columns = [*group_columns, CLASSIFICATION_LABELS.get(value_column, value_column), "人数", "構成比%"]
+    if df.empty or value_column not in df.columns:
+        return pd.DataFrame(columns=columns)
+    work = df.copy()
+    work[value_column] = work[value_column].fillna("").astype(str)
+    work = work[work[value_column] != ""]
+    if work.empty:
+        return pd.DataFrame(columns=columns)
+    counts = work.groupby([*group_columns, value_column]).size().reset_index(name="人数")
+    totals = counts.groupby(group_columns)["人数"].transform("sum") if group_columns else counts["人数"].sum()
+    counts["構成比%"] = (counts["人数"] / totals * 100).round(2)
+    return counts.rename(columns={value_column: CLASSIFICATION_LABELS.get(value_column, value_column)})
 
 
 def handedness_batting_mismatch_count(df: pd.DataFrame) -> int:
@@ -1735,6 +2003,17 @@ def render_balance_check(master: MasterData) -> None:
     st.subheader("投手/野手 × カテゴリ別人数")
     role_category = pd.crosstab(df["role"], df["category"], margins=True, margins_name="合計")
     st.dataframe(role_category, use_container_width=True)
+
+    st.subheader("新分類分布")
+    class_col1, class_col2 = st.columns(2)
+    with class_col1:
+        st.dataframe(classification_distribution_table(df, ["category"], "player_class").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
+        st.dataframe(classification_distribution_table(df, ["position"], "position_style").rename(columns={"position": "ポジション"}), use_container_width=True, hide_index=True)
+        st.dataframe(classification_distribution_table(df[df["category"].eq("助っ人外国人用")], ["category"], "weakness_profile").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
+    with class_col2:
+        st.dataframe(classification_distribution_table(df, ["category"], "archetype").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
+        st.dataframe(classification_distribution_table(df[df["category"].eq("ドラフト候補用")], ["category"], "development_stage").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
+        st.dataframe(classification_distribution_table(df[df["category"].eq("助っ人外国人用")], ["category"], "acquisition_role").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
 
     st.subheader("年齢分布")
     age_dist = df["age"].value_counts().sort_index().rename_axis("年齢").reset_index(name="人数")
@@ -2035,6 +2314,9 @@ def player_from_history_row(row: pd.Series) -> dict[str, Any]:
     })
     if isinstance(row.get("pitcher_aptitudes_json"), str):
         player.update(parse_json_column(row.get("pitcher_aptitudes_json"), {}))
+    for column in CLASSIFICATION_COLUMNS:
+        value = player.get(column, "")
+        player[column] = "" if value is None or (isinstance(value, float) and pd.isna(value)) else str(value)
     return player
 
 
@@ -2572,7 +2854,18 @@ def render_profile_right(player: dict[str, Any]) -> str:
 
 
 def render_generation_info_html(player: dict[str, Any]) -> str:
-    items = [("カテゴリ", player.get("category")), ("タイプ", player.get("player_type")), ("seed", player.get("seed"))]
+    items = [
+        ("カテゴリ", player.get("category")),
+        ("タイプ", player.get("player_type")),
+        ("選手格", player.get("player_class")),
+        ("アーキタイプ", player.get("archetype")),
+        ("ポジションスタイル", player.get("position_style")),
+        ("完成度", player.get("development_stage")),
+        ("獲得目的", player.get("acquisition_role")),
+        ("弱点プロファイル", player.get("weakness_profile")),
+        ("seed", player.get("seed")),
+    ]
+    items = [(label, value) for label, value in items if value not in (None, "")]
     cards = ''.join(f'<div class="pp-generation-card"><span class="pp-mini-label">{e(label)}</span>{e(value)}</div>' for label, value in items)
     return '<details class="pp-generation-info"><summary>生成情報</summary><div class="pp-generation-grid">' + cards + '</div></details>'
 
