@@ -344,6 +344,70 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertEqual(player["abilities"]["A90"], {"value": 90, "rank": "S"})
         self.assertEqual(player["abilities"]["A0"], {"value": 0, "rank": "G"})
 
+    def test_new_classification_generation_is_deterministic_and_legacy_compatible(self):
+        master = app.load_master_data()
+        stable_keys = [
+            "player_class", "archetype", "position_style", "development_stage", "acquisition_role",
+            "weakness_profile", "name", "age", "nationality", "position", "player_type",
+            "starter_aptitude", "reliever_aptitude", "closer_aptitude", "abilities",
+            "breaking_balls", "special_abilities", "sub_positions",
+        ]
+        for seed, role, category in [
+            (10101, "投手", "架空球団用"),
+            (10102, "野手", "架空球団用"),
+            (10103, "投手", "ドラフト候補用"),
+            (10104, "野手", "ドラフト候補用"),
+            (10105, "投手", "助っ人外国人用"),
+            (10106, "野手", "助っ人外国人用"),
+        ]:
+            with self.subTest(role=role, category=category):
+                first = app.generate_player(role, category, master, seed=seed)
+                second = app.generate_player(role, category, master, seed=seed)
+                self.assertEqual({key: first.get(key) for key in stable_keys}, {key: second.get(key) for key in stable_keys})
+                self.assertTrue(first["player_class"])
+                self.assertTrue(first["archetype"])
+                self.assertTrue(first["position_style"])
+                self.assertEqual(first["player_type"], app.legacy_player_type_from_archetype(role, first["archetype"]))
+                if category == "ドラフト候補用":
+                    self.assertTrue(first["development_stage"])
+                else:
+                    self.assertEqual(first["development_stage"], "")
+                if category == "助っ人外国人用":
+                    self.assertTrue(first["acquisition_role"])
+                    self.assertTrue(first["weakness_profile"])
+                else:
+                    self.assertEqual(first["acquisition_role"], "")
+                    self.assertEqual(first["weakness_profile"], "")
+
+    def test_new_classification_is_saved_loaded_and_displayed(self):
+        original_db_path = app.DB_PATH
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
+            app.DB_PATH = Path(tmp_dir) / "players.sqlite3"
+            try:
+                player = app.generate_player("野手", "助っ人外国人用", app.load_master_data(), seed=20240713)
+                app.save_players([player])
+                history = app.load_history()
+                loaded = app.player_from_history_row(history.iloc[0])
+            finally:
+                app.DB_PATH = original_db_path
+
+        for column in app.CLASSIFICATION_COLUMNS:
+            self.assertIn(column, history.columns)
+            self.assertEqual(loaded[column], player[column])
+        for label in ["選手格", "アーキタイプ", "ポジションスタイル", "獲得目的", "弱点プロファイル"]:
+            self.assertIn(label, history.columns)
+        html = app.render_generation_info_html(loaded)
+        self.assertIn("選手格", html)
+        self.assertIn("アーキタイプ", html)
+        self.assertIn("ポジションスタイル", html)
+
+    def test_generation_info_omits_empty_classification_fields(self):
+        html = app.render_generation_info_html({"category": "架空球団用", "player_type": "巧打型", "player_class": "一軍主力級", "archetype": "巧打", "position_style": "打撃型二塁手", "development_stage": "", "acquisition_role": "", "weakness_profile": "", "seed": 123})
+        self.assertIn("選手格", html)
+        self.assertNotIn("完成度", html)
+        self.assertNotIn("獲得目的", html)
+        self.assertNotIn("弱点プロファイル", html)
+
     def test_ability_body_ratios_match_game_screen(self):
         source = Path("app.py").read_text(encoding="utf-8")
         self.assertIn(".pp-body {display:grid; grid-template-columns:33% 67%;", source)
