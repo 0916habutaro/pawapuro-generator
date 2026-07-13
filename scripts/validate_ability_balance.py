@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from app import (  # noqa: E402
     CATEGORIES,
+    CLASSIFICATION_COLUMNS,
     SPECIAL_KIND_LABELS,
     SPECIAL_KIND_ORDER,
     ability_numeric_value,
@@ -25,7 +26,7 @@ from app import (  # noqa: E402
 
 ROLES = ["投手", "野手"]
 FIELDING_KEYS = ["ミート", "パワー", "走力", "肩力", "守備力", "捕球", "弾道"]
-PITCHING_KEYS = ["球速", "コントロール", "スタミナ", "total_movement_including_second", "pitch_type_count_including_second", "second_pitch_count"]
+PITCHING_KEYS = ["球速", "コントロール", "スタミナ", "総変化量", "変化球数_第一球種のみ", "second_pitch_count"]
 AGE_BINS = [0, 19, 22, 26, 30, 34, 99]
 AGE_LABELS = ["18-19歳", "20-22歳", "23-26歳", "27-30歳", "31-34歳", "35歳以上"]
 REPORT_FILENAMES = {
@@ -108,9 +109,13 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
     for player in players:
         abilities = player["abilities"]
         breaking_balls = player["breaking_balls"]
-        break_levels = [pitch_movement(ball) for ball in breaking_balls]
-        second_balls = [ball for ball in breaking_balls if bool(ball.get("is_second_pitch", False))]
+        primary_breaking = [ball for ball in breaking_balls if ball.get("kind", "breaking") == "breaking" and not bool(ball.get("is_second_pitch", False))]
+        all_breaking = [ball for ball in breaking_balls if ball.get("kind", "breaking") == "breaking"]
+        break_levels = [pitch_movement(ball) for ball in primary_breaking]
+        second_balls = [ball for ball in all_breaking if bool(ball.get("is_second_pitch", False))]
         row = {key: player[key] for key in ["seed", "role", "category", "name", "age", "nationality", "birthplace", "position", "player_type", "handedness", "batting_throwing", "height", "weight"]}
+        for key in CLASSIFICATION_COLUMNS:
+            row[key] = player.get(key, "")
         for key in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]:
             row[key] = player.get(key) or abilities.get(key)
         row["年齢帯"] = age_band(player["age"])
@@ -121,11 +126,12 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
         row["コントロール"] = ability_numeric_value(abilities, "コントロール")
         row["スタミナ"] = ability_numeric_value(abilities, "スタミナ")
         row["総変化量"] = sum(break_levels)
-        row["総変化量_第一球種のみ"] = sum(pitch_movement(ball) for ball in breaking_balls if not bool(ball.get("is_second_pitch", False)))
-        row["total_movement_including_second"] = row["総変化量"]
+        row["総変化量_第二球種込み"] = sum(pitch_movement(ball) for ball in all_breaking)
+        row["総変化量_第一球種のみ"] = row["総変化量"]
+        row["total_movement_including_second"] = row["総変化量_第二球種込み"]
         row["総変化量偏差用"] = row["総変化量"] * 8
-        row["変化球数"] = len(breaking_balls)
-        row["変化球数_第一球種のみ"] = sum(1 for ball in breaking_balls if not bool(ball.get("is_second_pitch", False)))
+        row["変化球数"] = len(all_breaking)
+        row["変化球数_第一球種のみ"] = len(primary_breaking)
         row["pitch_type_count_including_second"] = row["変化球数"]
         row["second_pitch_count"] = len(second_balls)
         row["has_second_pitch"] = bool(second_balls)
@@ -156,7 +162,12 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
 
 def ability_stats(df: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
-    group_sets = [[], ["role"], ["category"], ["年齢帯"], ["position"], ["role", "category"], ["category", "年齢帯"], ["category", "position"]]
+    group_sets = [
+        [], ["role"], ["category"], ["年齢帯"], ["position"], ["player_class"], ["archetype"],
+        ["position_style"], ["development_stage"], ["acquisition_role"], ["weakness_profile"],
+        ["role", "category"], ["category", "年齢帯"], ["category", "position"], ["category", "player_class"],
+        ["category", "archetype"], ["category", "position_style"],
+    ]
     for role, keys in [("野手", FIELDING_KEYS), ("投手", PITCHING_KEYS)]:
         role_df = df[df["role"] == role].copy()
         for groups in group_sets:
@@ -179,8 +190,17 @@ def ability_stats(df: pd.DataFrame) -> pd.DataFrame:
                         "平均": round(values.mean(), 3) if not values.empty else None,
                         "中央値": round(values.median(), 3) if not values.empty else None,
                         "標準偏差": round(values.std(), 3) if len(values) > 1 else 0,
+                        "P10": round(values.quantile(0.10), 3) if not values.empty else None,
+                        "P25": round(values.quantile(0.25), 3) if not values.empty else None,
+                        "P50": round(values.quantile(0.50), 3) if not values.empty else None,
+                        "P75": round(values.quantile(0.75), 3) if not values.empty else None,
+                        "P90": round(values.quantile(0.90), 3) if not values.empty else None,
+                        "P95": round(values.quantile(0.95), 3) if not values.empty else None,
                         "最大": values.max() if not values.empty else None,
                         "最小": values.min() if not values.empty else None,
+                        "S率%": round((values >= 90).mean() * 100, 3) if not values.empty else None,
+                        "A以上率%": round((values >= 80).mean() * 100, 3) if not values.empty else None,
+                        "G率%": round((values < 20).mean() * 100, 3) if not values.empty else None,
                     })
     return pd.DataFrame(rows)
 
