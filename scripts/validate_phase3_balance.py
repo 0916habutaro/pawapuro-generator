@@ -11,7 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app import CATEGORIES, load_master_data, generate_player, ability_numeric_value, pitch_movement
+from app import CATEGORIES, load_master_data, generate_player, ability_numeric_value, pitch_movement, POSITION_RESTRICTED_SPECIALS, RELIEF_REQUIRED_SPECIALS, has_position_aptitude, has_pitcher_aptitude, normalize_sub_positions
 from scripts.validate_ability_balance import flatten_players
 
 THRESHOLDS = {
@@ -22,7 +22,6 @@ THRESHOLDS = {
     "subpos_3plus_nonutility_max": 0, "draft18_3plus_max": 0, "cleanup_3plus_max": 0,
 }
 CONFLICT_PAIRS = [("積極打法", "慎重打法"), ("強振多用", "ミート多用"), ("ミート多用", "強振多用"), ("積極盗塁", "慎重盗塁"), ("速球中心", "変化球中心"), ("投球位置左", "投球位置右"), ("チームプレイ○", "チームプレイ×")]
-CATCHER_ONLY = {"フレーミング○", "フレーミング◎", "ブロッキング", "ホーム死守"}
 UTILITY_ROLES = {"ユーティリティ"}
 UTILITY_STYLES = {"走攻守外野手", "守備走塁遊撃手", "守備走塁二塁手"}
 
@@ -53,11 +52,39 @@ def generate(count: int, seed: int) -> list[dict[str, Any]]:
     return players
 
 
+def special_constraint_violations(player: dict[str, Any]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    role = player.get("role", "")
+    position = player.get("position", "")
+    subs = normalize_sub_positions(player.get("sub_positions", []))
+    pitcher_aptitudes = {key: player.get(key) or player.get("abilities", {}).get(key) for key in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]}
+    all_specs = list(player.get("special_abilities", [])) + list(player.get("abilities", {}).get("ranked_specials", {}).values())
+    for name in all_specs:
+        reason = ""
+        if role == "野手" and name in POSITION_RESTRICTED_SPECIALS and not has_position_aptitude(position, subs, POSITION_RESTRICTED_SPECIALS[name]):
+            reason = f"{','.join(sorted(POSITION_RESTRICTED_SPECIALS[name]))}適性なし"
+        elif role == "野手" and str(name).startswith("キャッチャー") and not has_position_aptitude(position, subs, {"捕手"}):
+            reason = "捕手適性なし"
+        elif role == "投手" and name in RELIEF_REQUIRED_SPECIALS and not has_pitcher_aptitude(pitcher_aptitudes, {"reliever_aptitude", "closer_aptitude"}):
+            reason = "救援適性なし"
+        if reason:
+            rows.append({
+                "seed": str(player.get("seed", "")), "category": str(player.get("category", "")), "role": str(role),
+                "position": str(position), "sub_positions": " / ".join(f"{s['position']}{s['aptitude']}" for s in subs),
+                "starter_aptitude": str(pitcher_aptitudes.get("starter_aptitude") or ""),
+                "reliever_aptitude": str(pitcher_aptitudes.get("reliever_aptitude") or ""),
+                "closer_aptitude": str(pitcher_aptitudes.get("closer_aptitude") or ""),
+                "special": str(name), "reason": reason,
+            })
+    return rows
+
 def special_tables(players: list[dict[str, Any]], df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     events=[]
     for p in players:
+        violations = {v["special"]: v["reason"] for v in special_constraint_violations(p)}
+        subs = normalize_sub_positions(p.get("sub_positions", []))
         for name in p.get("special_abilities", []):
-            events.append({"seed":p["seed"], "category":p["category"], "role":p["role"], "position":p["position"], "player_class":p.get("player_class",""), "archetype":p.get("archetype",""), "position_style":p.get("position_style",""), "development_stage":p.get("development_stage",""), "acquisition_role":p.get("acquisition_role",""), "weakness_profile":p.get("weakness_profile",""), "special":name, "kind":classify_special(name)})
+            events.append({"seed":p["seed"], "category":p["category"], "role":p["role"], "position":p["position"], "sub_positions":" / ".join(f"{s['position']}{s['aptitude']}" for s in subs), "starter_aptitude":p.get("starter_aptitude", ""), "reliever_aptitude":p.get("reliever_aptitude", ""), "closer_aptitude":p.get("closer_aptitude", ""), "constraint_ok": name not in violations, "violation_reason": violations.get(name, ""), "player_class":p.get("player_class",""), "archetype":p.get("archetype",""), "position_style":p.get("position_style",""), "development_stage":p.get("development_stage",""), "acquisition_role":p.get("acquisition_role",""), "weakness_profile":p.get("weakness_profile",""), "special":name, "kind":classify_special(name)})
     ev=pd.DataFrame(events)
     work=df.copy()
     work["通常特殊能力数_検証"] = pd.to_numeric(work.get("特殊能力数", 0), errors="coerce").fillna(0).astype(int)
@@ -112,9 +139,9 @@ def warnings(players: list[dict[str, Any]]) -> pd.DataFrame:
         specs=p.get("special_abilities",[]); specset=set(specs); subs=p.get("sub_positions",[])
         for a,b in CONFLICT_PAIRS:
             if a in specset and b in specset: rows.append({"seed":p["seed"],"type":"競合能力","detail":f"{a}/{b}"})
-        if p["position"]!="捕手" and specset & CATCHER_ONLY: rows.append({"seed":p["seed"],"type":"捕手限定能力","detail":"/".join(sorted(specset&CATCHER_ONLY))})
+        for violation in special_constraint_violations(p):
+            rows.append({"seed": p["seed"], "type": "特殊能力制約違反", "detail": f"{violation['special']}:{violation['reason']}", **{k: violation[k] for k in ["category", "role", "position", "sub_positions", "starter_aptitude", "reliever_aptitude", "closer_aptitude"]}})
         rks=p["abilities"].get("ranked_specials",{})
-        if p["position"]!="捕手" and "キャッチャー" in rks: rows.append({"seed":p["seed"],"type":"キャッチャーランク不正","detail":rks["キャッチャー"]})
         positions=[s.get("position") for s in subs]
         if p["position"] in positions: rows.append({"seed":p["seed"],"type":"メインと同じサブポジション","detail":p["position"]})
         for pos,cnt in Counter(positions).items():
@@ -127,7 +154,7 @@ def warnings(players: list[dict[str, Any]]) -> pd.DataFrame:
         for s in subs:
             if s.get("position")=="捕手" and (ability_numeric_value(p["abilities"], "肩力") or 0)<60: rows.append({"seed":p["seed"],"type":"捕手適性条件不足","detail":str(s)})
             if s.get("position")=="遊撃手" and min(ability_numeric_value(p["abilities"], "肩力") or 0, ability_numeric_value(p["abilities"], "守備力") or 0)<50: rows.append({"seed":p["seed"],"type":"遊撃手適性条件不足","detail":str(s)})
-    return pd.DataFrame(rows, columns=["seed","type","detail"])
+    return pd.DataFrame(rows)
 
 
 def main() -> None:

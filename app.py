@@ -556,11 +556,41 @@ def role_allowed_specials(master: MasterData, role: str) -> set[str]:
     return {row["name"] for row in master.abilities if special_target_role(row) in (role, "共通")}
 
 
+def special_constraint_violations(player: dict[str, Any] | pd.Series) -> list[dict[str, str]]:
+    get = player.get
+    role = str(get("role", ""))
+    position = str(get("position", ""))
+    abilities = get("abilities", {}) or {}
+    sub_positions = get("sub_positions", get("サブポジ", []))
+    pitcher_aptitudes = {key: get(key) for key in PITCHER_APTITUDE_KEYS}
+    if isinstance(abilities, dict):
+        for key in PITCHER_APTITUDE_KEYS:
+            pitcher_aptitudes[key] = pitcher_aptitudes.get(key) or abilities.get(key)
+    normal = list(get("special_abilities", []) or [])
+    ranked = get("ranked_specials", None)
+    if ranked is None and isinstance(abilities, dict):
+        ranked = abilities.get("ranked_specials", {})
+    ranked_names = list((ranked or {}).values()) if isinstance(ranked, dict) else []
+    rows: list[dict[str, str]] = []
+    for name in [*normal, *ranked_names]:
+        special_name = str(name)
+        reason = ""
+        if role == "野手" and special_name in POSITION_RESTRICTED_SPECIALS and not has_position_aptitude(position, sub_positions, POSITION_RESTRICTED_SPECIALS[special_name]):
+            reason = f"{','.join(sorted(POSITION_RESTRICTED_SPECIALS[special_name]))}適性なし"
+        elif role == "野手" and special_name.startswith("キャッチャー") and not has_position_aptitude(position, sub_positions, {"捕手"}):
+            reason = "捕手適性なし"
+        elif role == "投手" and special_name in RELIEF_REQUIRED_SPECIALS and not has_pitcher_aptitude(pitcher_aptitudes, {"reliever_aptitude", "closer_aptitude"}):
+            reason = "救援適性なし"
+        if reason:
+            rows.append({"special": special_name, "reason": reason})
+    return rows
+
 def inappropriate_special_count(df: pd.DataFrame, master: MasterData) -> int:
     allowed = {role: role_allowed_specials(master, role) for role in ("投手", "野手")}
     normal_invalid = df.apply(lambda row: sum(name not in allowed.get(row["role"], set()) for name in row["special_abilities"]), axis=1).sum()
     ranked_invalid = df.apply(lambda row: sum(name not in allowed.get(row["role"], set()) for name in (row.get("ranked_specials") or {}).values()), axis=1).sum() if "ranked_specials" in df.columns else 0
-    return int(normal_invalid + ranked_invalid)
+    constraint_invalid = df.apply(lambda row: len(special_constraint_violations(row)), axis=1).sum()
+    return int(normal_invalid + ranked_invalid + constraint_invalid)
 
 
 def rank(value: int) -> str:
@@ -769,7 +799,56 @@ def classification_special_scale(category: str | None, player_class: str | None,
         scale *= 0.18 if player_class in {"二軍級", "育成候補", "育成素材型"} else 0.55
     return max(0.05, min(1.8, scale))
 
-def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, player_type: str, position: str | None = None, age: int | None = None, abilities: dict[str, Any] | None = None, breaking_balls: list[dict[str, Any]] | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, development_stage: str | None = None, acquisition_role: str | None = None, weakness_profile: str | None = None) -> float:
+
+
+POSITION_RESTRICTED_SPECIALS: dict[str, set[str]] = {
+    "レーザービーム": {"外野手"},
+    "高速チャージ": {"一塁手", "三塁手"},
+    "フレーミング○": {"捕手"},
+    "フレーミング◎": {"捕手"},
+    "ホーム死守": {"捕手"},
+    "ブロッキング": {"捕手"},
+}
+RELIEF_REQUIRED_SPECIALS: set[str] = {"火消し", "緊急登板○", "投手存在感", "回またぎ○"}
+PITCHER_APTITUDE_ALLOWED = {"◎", "○"}
+
+def player_position_aptitudes(main_position: str | None, sub_positions: Any = None) -> set[str]:
+    positions = {str(main_position)} if main_position else set()
+    positions.update(item["position"] for item in normalize_sub_positions(sub_positions))
+    positions.discard("")
+    return positions
+
+def has_position_aptitude(main_position: str | None, sub_positions: Any, target_positions: set[str]) -> bool:
+    return bool(player_position_aptitudes(main_position, sub_positions) & target_positions)
+
+def pitcher_aptitude_value(pitcher_aptitudes: dict[str, Any] | None, key: str) -> str | None:
+    if not isinstance(pitcher_aptitudes, dict):
+        return None
+    value = pitcher_aptitudes.get(key)
+    if value is None and isinstance(pitcher_aptitudes.get("abilities"), dict):
+        value = pitcher_aptitudes["abilities"].get(key)
+    return str(value) if value is not None else None
+
+def has_pitcher_aptitude(pitcher_aptitudes: dict[str, Any] | None, aptitude_keys: set[str]) -> bool:
+    return any(pitcher_aptitude_value(pitcher_aptitudes, key) in PITCHER_APTITUDE_ALLOWED for key in aptitude_keys)
+
+def is_special_position_allowed(special_name: str, main_position: str | None, sub_positions: Any = None) -> bool:
+    required = POSITION_RESTRICTED_SPECIALS.get(special_name)
+    return True if not required else has_position_aptitude(main_position, sub_positions, required)
+
+def is_special_pitcher_aptitude_allowed(special_name: str, pitcher_aptitudes: dict[str, Any] | None = None) -> bool:
+    if special_name not in RELIEF_REQUIRED_SPECIALS:
+        return True
+    return has_pitcher_aptitude(pitcher_aptitudes, {"reliever_aptitude", "closer_aptitude"})
+
+def is_special_allowed_for_player(special_name: str, role: str, main_position: str | None, sub_positions: Any = None, pitcher_aptitudes: dict[str, Any] | None = None) -> bool:
+    if role == "野手" and not is_special_position_allowed(special_name, main_position, sub_positions):
+        return False
+    if role == "投手" and not is_special_pitcher_aptitude_allowed(special_name, pitcher_aptitudes):
+        return False
+    return True
+
+def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, player_type: str, position: str | None = None, age: int | None = None, abilities: dict[str, Any] | None = None, breaking_balls: list[dict[str, Any]] | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, development_stage: str | None = None, acquisition_role: str | None = None, weakness_profile: str | None = None, sub_positions: Any = None, pitcher_aptitudes: dict[str, Any] | None = None) -> float:
     abilities = abilities or {}
     name = str(row.get("name", ""))
     kind = str(row.get("kind", ""))
@@ -839,10 +918,9 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
         run = {"内野安打○", "かく乱", "積極盗塁", "積極走塁", "盗塁〇", "走塁〇", "プレッシャーラン", "ヘッドスライディング"}
         defense = {"守備職人", "積極守備", "高速チャージ", "ホーム死守", "ブロッキング", "フレーミング○", "フレーミング◎"}
         arm_names = {"レーザービーム", "送球〇", "送球◎"}
-        catcher_only = {"フレーミング○", "フレーミング◎", "ささやき破り", "ホーム死守", "ブロッキング"}
-        if name in catcher_only and position != "捕手":
+        if not is_special_position_allowed(name, position, sub_positions):
             return 0
-        if name in catcher_only and position == "捕手": chance += 2
+        if name in POSITION_RESTRICTED_SPECIALS and has_position_aptitude(position, sub_positions, POSITION_RESTRICTED_SPECIALS[name]): chance += 2
         if name in slug:
             if player_type == "長距離砲": chance += 2
             chance += power_dev * 0.45
@@ -920,6 +998,8 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
         breaking = {"キレ○", "奪三振", "緩急○", "変化球中心", "ナチュラルシュート", "真っスラ"}
         stamina_names = {"尻上がり", "回またぎ○", "要所○", "根性", "立ち上がり○"}
         real_pitcher_blue = {"球速安定", "奪三振", "リリース○", "逃げ球", "球持ち○", "内角攻め", "緩急○", "キレ○", "牽制○", "ナチュラルシュート", "ゴロピッチャー", "回またぎ○", "真っスラ"}
+        if not is_special_pitcher_aptitude_allowed(name, pitcher_aptitudes):
+            return 0
         if name in real_pitcher_blue:
             chance += 1.5
         if name in fast:
@@ -978,7 +1058,7 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
     return max(0.0, min(max_chance, float(chance)))
 
 
-def generate_specials(rng: random.Random, master: MasterData, role: str, player_type: str, position: str | None = None, age: int | None = None, abilities: dict[str, Any] | None = None, breaking_balls: list[dict[str, Any]] | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, development_stage: str | None = None, acquisition_role: str | None = None, weakness_profile: str | None = None) -> list[str]:
+def generate_specials(rng: random.Random, master: MasterData, role: str, player_type: str, position: str | None = None, age: int | None = None, abilities: dict[str, Any] | None = None, breaking_balls: list[dict[str, Any]] | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, development_stage: str | None = None, acquisition_role: str | None = None, weakness_profile: str | None = None, sub_positions: Any = None, pitcher_aptitudes: dict[str, Any] | None = None) -> list[str]:
     selected, selected_names, used_groups = [], set(), set()
     conflicts = {
         "積極打法": "慎重打法", "慎重打法": "積極打法",
@@ -994,8 +1074,10 @@ def generate_specials(rng: random.Random, master: MasterData, role: str, player_
         group = str(row.get("group", "") or "").strip()
         if group and group in used_groups:
             continue
-        chance = adjust_special_chance(row, int(row.get("weight", 0) or 0), role, player_type, position, age, abilities, breaking_balls, category, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile)
         name = row["name"]
+        if not is_special_allowed_for_player(name, role, position, sub_positions, pitcher_aptitudes):
+            continue
+        chance = adjust_special_chance(row, int(row.get("weight", 0) or 0), role, player_type, position, age, abilities, breaking_balls, category, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, sub_positions, pitcher_aptitudes)
         if name in selected_names:
             continue
         if rng.random() < chance / 100 and conflicts.get(name) not in selected_names:
@@ -1062,7 +1144,7 @@ def shifted_rank(rank_value: str, shift: int) -> str:
     return RANKED_SPECIAL_RANKS[max(0, min(len(RANKED_SPECIAL_RANKS) - 1, index - shift))]
 
 
-def ranked_weight_items_for_group(group_name: str, role: str, position: str, player_type: str, abilities: dict[str, Any], age: int | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None) -> list[tuple[str, int]]:
+def ranked_weight_items_for_group(group_name: str, role: str, position: str, player_type: str, abilities: dict[str, Any], age: int | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, sub_positions: Any = None) -> list[tuple[str, int]]:
     weights = RANKED_SPECIAL_BASE_WEIGHTS.copy()
     if role == "投手" and group_name == "クイック":
         control = ability_numeric_value(abilities, "コントロール")
@@ -1090,7 +1172,7 @@ def ranked_weight_items_for_group(group_name: str, role: str, position: str, pla
     return [(rank_name, max(1, weight)) for rank_name, weight in weights.items()]
 
 
-def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, position: str, player_type: str, abilities: dict[str, Any], age: int | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, weakness_profile: str | None = None) -> dict[str, str]:
+def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, position: str, player_type: str, abilities: dict[str, Any], age: int | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, weakness_profile: str | None = None, sub_positions: Any = None, pitcher_aptitudes: dict[str, Any] | None = None) -> dict[str, str]:
     ranked_rows = [row for row in master.abilities if special_target_role(row) in (role, "共通") and is_ranked_special(row)]
     rows_by_group: dict[str, list[dict[str, Any]]] = {}
     for row in ranked_rows:
@@ -1101,9 +1183,9 @@ def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, 
         if not set(RANKED_SPECIAL_RANKS).issubset(names_by_rank):
             continue
         group_name = ranked_special_base_name(names_by_rank["D"])
-        if group_name == "キャッチャー" and position != "捕手":
+        if group_name == "キャッチャー" and not has_position_aptitude(position, sub_positions, {"捕手"}):
             continue
-        rank_value = weighted_choice(rng, ranked_weight_items_for_group(group_name, role, position, player_type, abilities, age, category, player_class, archetype, position_style))
+        rank_value = weighted_choice(rng, ranked_weight_items_for_group(group_name, role, position, player_type, abilities, age, category, player_class, archetype, position_style, sub_positions))
         if group_name == "チャンス" and player_type == "長距離砲" and rng.random() < 0.35:
             rank_value = weighted_choice(rng, [("A", 4), ("B", 12), ("C", 20), ("D", 28), ("E", 20), ("F", 12), ("G", 4)])
         rank_value = shifted_rank(rank_value, ranked_shift_for_group(rng, group_name, role, position, player_type, abilities, archetype, position_style, weakness_profile))
@@ -2506,7 +2588,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         allow_foreign_allrounder=allow_foreign_allrounder,
     )
     sub_positions = generate_sub_positions(rng, role, position, player_type, category, age, batting_throwing, abilities, player_class, archetype, position_style, acquisition_role)
-    special_abilities = generate_specials(rng, master, role, player_type, position, age, abilities, breaking_balls, category, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile)
+    special_abilities = generate_specials(rng, master, role, player_type, position, age, abilities, breaking_balls, category, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, sub_positions, pitcher_aptitudes)
     return {
         "seed": seed, "role": role, "category": category, "name": choose_name(rng, master.names, nationality), "age": age,
         "nationality": nationality, "birthplace": choose_birthplace(rng, master.places, nationality), "position": position, "player_type": player_type,
@@ -2515,7 +2597,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         "handedness": handedness_from_batting_throwing(batting_throwing),
         "batting_throwing": batting_throwing,
         "height": rng.randint(168, 196) + (3 if role == "投手" else 0), "weight": rng.randint(68, 105),
-        "abilities": {**abilities, "ranked_specials": generate_ranked_specials(rng, master, role, position, player_type, abilities, age, category, player_class, archetype, position_style, weakness_profile)}, "special_abilities": special_abilities,
+        "abilities": {**abilities, "ranked_specials": generate_ranked_specials(rng, master, role, position, player_type, abilities, age, category, player_class, archetype, position_style, weakness_profile, sub_positions, pitcher_aptitudes)}, "special_abilities": special_abilities,
         "breaking_balls": breaking_balls,
         "sub_positions": sub_positions,
         **pitcher_aptitudes,
