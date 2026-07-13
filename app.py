@@ -210,6 +210,22 @@ PITCH_DISPLAY_NAMES = {
 }
 TAB_LABELS = ["投手能力", "野手能力", "守備・起用", "プロフィール"]
 TAB_COLORS = {"投手能力": "#d7193f", "野手能力": "#0876c9", "守備・起用": "#d49a00", "プロフィール": "#087d23"}
+NAMEPLATE_COLOR_STYLES = {
+    "starter": {"top": "#ff8a7c", "bottom": "#ff6d61", "border": "#e23d35"},
+    "relief": {"top": "#ffa3cf", "bottom": "#f97fb7", "border": "#df3f86"},
+    "catcher": {"top": "#62f5ff", "bottom": "#1fd0dd", "border": "#13a9c6"},
+    "infield": {"top": "#ffe84a", "bottom": "#ffc31e", "border": "#eea30b"},
+    "outfield": {"top": "#76f36d", "bottom": "#4bdc55", "border": "#20a93b"},
+}
+POSITION_COLOR_GROUPS = {
+    "捕手": "catcher",
+    "一塁手": "infield",
+    "二塁手": "infield",
+    "三塁手": "infield",
+    "遊撃手": "infield",
+    "外野手": "outfield",
+}
+NAMEPLATE_GROUP_PRIORITY = {"catcher": 0, "infield": 1, "outfield": 2}
 
 
 @dataclass
@@ -2638,7 +2654,7 @@ def normalize_sub_positions(value: Any) -> list[dict[str, str]]:
         try:
             return normalize_sub_positions(json.loads(text))
         except json.JSONDecodeError:
-            parts = [part.strip() for part in re.split(r"[/、,]", text) if part.strip()]
+            parts = [part.strip() for part in re.split(r"[/、,;；]", text) if part.strip()]
             return [{"position": (m.group(1).strip() if (m := re.match(r"(.+?)([◎○△])?$", part)) else part), "aptitude": (m.group(2) if m and m.group(2) else "△")} for part in parts]
     if isinstance(value, dict):
         pos = str(value.get("position", "")).strip(); apt = str(value.get("aptitude", "△")).strip() or "△"
@@ -2660,6 +2676,108 @@ def normalize_sub_positions(value: Any) -> list[dict[str, str]]:
 def format_sub_positions(sub_positions: Any) -> str:
     items = normalize_sub_positions(sub_positions)
     return " / ".join(f"{item['position']}{item['aptitude']}" for item in items) if items else "なし"
+
+def normalize_aptitude_level(value: Any) -> int:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return max(0, min(2, int(value)))
+    text = str(value or "").strip().replace("－", "-")
+    return {"◎": 2, "○": 1, "〇": 1, "2": 2, "1": 1, "0": 0, "-": 0, "": 0, "－－": 0}.get(text, 0)
+
+normalize_pitcher_aptitude_level = normalize_aptitude_level
+
+def normalize_fielding_aptitude_level(value: Any) -> int:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return max(0, min(3, int(value)))
+    text = str(value or "").strip().replace("－", "-")
+    return {"◎": 3, "○": 2, "〇": 2, "△": 1, "3": 3, "2": 2, "1": 1, "0": 0, "-": 0, "": 0, "－－": 0}.get(text, 0)
+
+def get_position_color_group(position: str) -> str | None:
+    return POSITION_COLOR_GROUPS.get(str(position or "").strip())
+
+def append_unique_limited(values: list[str], value: str | None, limit: int = 3) -> None:
+    if value and value not in values and len(values) < limit:
+        values.append(value)
+
+def get_grouped_fielding_levels(player: dict[str, Any]) -> dict[str, int]:
+    levels = {"catcher": 0, "infield": 0, "outfield": 0}
+    if player.get("role") == "野手":
+        main_group = get_position_color_group(str(player.get("position", "")))
+        if main_group:
+            levels[main_group] = max(levels[main_group], 3)
+    for item in normalize_sub_positions(player.get("sub_positions")):
+        group = get_position_color_group(item.get("position", ""))
+        if group:
+            levels[group] = max(levels[group], normalize_fielding_aptitude_level(item.get("aptitude")))
+    return levels
+
+def get_fielder_nameplate_colors(player: dict[str, Any]) -> list[str]:
+    colors: list[str] = []
+    main_group = get_position_color_group(str(player.get("position", "")))
+    if not main_group:
+        return colors
+    append_unique_limited(colors, main_group)
+    grouped_levels = get_grouped_fielding_levels(player)
+    sub_groups = [
+        (group, level)
+        for group, level in grouped_levels.items()
+        if group != main_group and level > 0
+    ]
+    sub_groups.sort(key=lambda item: (-item[1], NAMEPLATE_GROUP_PRIORITY[item[0]]))
+    for group, _level in sub_groups:
+        append_unique_limited(colors, group)
+    return colors[:3]
+
+def pitcher_aptitude_values(player: dict[str, Any]) -> dict[str, Any]:
+    abilities = player.get("abilities", {}) if isinstance(player.get("abilities"), dict) else {}
+    values = {key: player.get(key) or abilities.get(key) for key in PITCHER_APTITUDE_KEYS}
+    if not any(normalize_aptitude_level(value) for value in values.values()):
+        pos = str(player.get("position", ""))
+        values = {"starter_aptitude": "◎" if pos == "先発" else "-", "reliever_aptitude": "◎" if pos == "中継ぎ" else "-", "closer_aptitude": "◎" if pos == "抑え" else "-"}
+    return values
+
+def get_pitcher_nameplate_colors(player: dict[str, Any]) -> list[str]:
+    colors: list[str] = []
+    values = pitcher_aptitude_values(player)
+    starter_level = normalize_aptitude_level(values.get("starter_aptitude"))
+    relief_level = max(normalize_aptitude_level(values.get("reliever_aptitude")), normalize_aptitude_level(values.get("closer_aptitude")))
+    if starter_level > 0 and relief_level > 0:
+        colors.extend(["starter", "relief"] if starter_level >= relief_level else ["relief", "starter"])
+    elif starter_level > 0:
+        colors.append("starter")
+    elif relief_level > 0:
+        colors.append("relief")
+    grouped_levels = get_grouped_fielding_levels(player)
+    fielding_groups = [(group, level) for group, level in grouped_levels.items() if level > 0]
+    if fielding_groups:
+        fielding_groups.sort(key=lambda item: (-item[1], NAMEPLATE_GROUP_PRIORITY[item[0]]))
+        append_unique_limited(colors, fielding_groups[0][0])
+    return colors[:3]
+
+def get_player_nameplate_colors(player: dict[str, Any]) -> list[str]:
+    colors = get_pitcher_nameplate_colors(player) if player.get("role") == "投手" else get_fielder_nameplate_colors(player)
+    deduped: list[str] = []
+    for color in colors:
+        append_unique_limited(deduped, color)
+    return deduped[:3]
+
+def nameplate_background_css(color_groups: list[str]) -> str:
+    styles = [NAMEPLATE_COLOR_STYLES[group] for group in color_groups if group in NAMEPLATE_COLOR_STYLES]
+    if not styles:
+        return ""
+    if len(styles) == 1:
+        style = styles[0]
+        return f"background:linear-gradient({style['top']},{style['bottom']});border-color:{style['border']};"
+    count = len(styles)
+    segment_width = 100 / count
+    layers = []
+    for index, style in enumerate(styles):
+        position = 0 if index == 0 else 100 if index == count - 1 else 50
+        layers.append(
+            f"linear-gradient(180deg,{style['top']} 0%,{style['bottom']} 100%) "
+            f"{position:.4f}% 0% / {segment_width:.4f}% 100% no-repeat"
+        )
+    border = styles[0]["border"]
+    return f"background:{','.join(layers)};border-color:{border};"
 
 def generate_sub_positions(rng: random.Random, role: str, position: str, player_type: str, category: str, age: int, batting_throwing: str, abilities: dict[str, Any], player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, acquisition_role: str | None = None) -> list[dict[str, str]]:
     if role != "野手": return []
@@ -4098,11 +4216,13 @@ def set_selected_tab(tab_key: str, label: str) -> None:
 def render_header_html(p: dict[str, Any]) -> str:
     category_mark = {"架空球団用": "架", "ドラフト候補用": "候", "助っ人外国人用": "外"}.get(str(p.get("category", "")), "球")
     escaped_name = e(p.get("name"))
+    nameplate_style = nameplate_background_css(get_player_nameplate_colors(p))
+    style_attr = f' style="{e(nameplate_style)}"' if nameplate_style else ""
     return f"""
       <div class="pp-header">
         <div class="pp-header-main">
           <div class="pp-name-line">
-            <div class="pp-name" title="{escaped_name}">{escaped_name}</div>
+            <div class="pp-name" title="{escaped_name}"{style_attr}>{escaped_name}</div>
             <div class="pp-category-mark" title="{e(p.get('category'))}">{e(category_mark)}</div>
             <div class="pp-number-box">{player_uniform_number(p)}</div>
           </div>
