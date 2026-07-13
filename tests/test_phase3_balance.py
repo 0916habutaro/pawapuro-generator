@@ -52,6 +52,60 @@ def test_pitcher_relief_constraint_helpers():
     assert app.is_special_allowed_for_player("投手存在感", "投手", "抑え", pitcher_aptitudes=closer)
 
 
+def test_catcher_context_multipliers_follow_main_and_sub_aptitude_strength():
+    abilities = {"守備力":{"value":70}, "捕球":{"value":70}, "肩力":{"value":70}}
+    main = app.special_context_multiplier("フレーミング○", "野手", main_position="捕手", abilities=abilities)
+    sub_double = app.special_context_multiplier("フレーミング○", "野手", main_position="一塁手", sub_positions=[{"position":"捕手","aptitude":"◎"}], abilities=abilities)
+    sub_circle = app.special_context_multiplier("フレーミング○", "野手", main_position="一塁手", sub_positions=[{"position":"捕手","aptitude":"○"}], abilities=abilities)
+    sub_triangle = app.special_context_multiplier("フレーミング○", "野手", main_position="一塁手", sub_positions=[{"position":"捕手","aptitude":"△"}], abilities=abilities)
+    assert main >= sub_double >= sub_circle >= sub_triangle > 0
+    assert not app.is_special_allowed_for_player("フレーミング○", "野手", "一塁手")
+
+
+def test_framing_double_circle_is_more_suppressed_for_sub_catcher():
+    sub_positions = [{"position":"捕手","aptitude":"○"}]
+    normal = app.special_context_multiplier("フレーミング○", "野手", main_position="一塁手", sub_positions=sub_positions)
+    strong = app.special_context_multiplier("フレーミング◎", "野手", main_position="一塁手", sub_positions=sub_positions)
+    assert strong < normal
+
+
+def test_sub_catcher_rank_weights_reduce_upper_ranks_vs_main_catcher():
+    abilities = {"守備力":{"value":85}, "捕球":{"value":85}}
+    main = dict(app.ranked_weight_items_for_group("キャッチャー", "野手", "捕手", "守備職人", abilities, age=32, player_class="一軍主力級"))
+    sub = dict(app.ranked_weight_items_for_group("キャッチャー", "野手", "一塁手", "守備職人", abilities, age=32, player_class="一軍主力級", sub_positions=[{"position":"捕手","aptitude":"△"}]))
+    main_upper = main["A"] + main["B"] + main["C"]
+    sub_upper = sub["A"] + sub["B"] + sub["C"]
+    assert sub_upper < main_upper
+    assert sub["D"] + sub["E"] + sub["F"] > sub_upper
+
+
+def test_starter_context_multipliers_follow_pitcher_aptitude_strength():
+    starter_double = {"starter_aptitude":"◎", "reliever_aptitude":"-", "closer_aptitude":"-"}
+    starter_circle = {"starter_aptitude":"○", "reliever_aptitude":"◎", "closer_aptitude":"-"}
+    reliever_only = {"starter_aptitude":"-", "reliever_aptitude":"◎", "closer_aptitude":"-"}
+    closer_only = {"starter_aptitude":"-", "reliever_aptitude":"-", "closer_aptitude":"◎"}
+    assert app.special_context_multiplier("尻上がり", "投手", pitcher_aptitudes=starter_double) > app.special_context_multiplier("尻上がり", "投手", pitcher_aptitudes=starter_circle)
+    assert app.special_context_multiplier("尻上がり", "投手", pitcher_aptitudes=reliever_only) <= 0.05
+    assert app.special_context_multiplier("スロースターター", "投手", pitcher_aptitudes=starter_double) > app.special_context_multiplier("スロースターター", "投手", pitcher_aptitudes=starter_circle)
+    assert app.special_context_multiplier("立ち上がり○", "投手", pitcher_aptitudes=reliever_only) > 0
+    low_stamina = {"スタミナ":{"value":35}}
+    assert app.special_context_multiplier("根性", "投手", pitcher_aptitudes=closer_only, abilities=low_stamina) < 0.2
+    assert app.special_context_multiplier("投打躍動", "投手", pitcher_aptitudes=reliever_only) <= 0.05
+
+
+def test_relief_context_multipliers_favor_reliever_and_closer_contexts():
+    reliever_double = {"starter_aptitude":"-", "reliever_aptitude":"◎", "closer_aptitude":"-"}
+    reliever_circle = {"starter_aptitude":"-", "reliever_aptitude":"○", "closer_aptitude":"-"}
+    closer_only = {"starter_aptitude":"-", "reliever_aptitude":"-", "closer_aptitude":"◎"}
+    starter_only = {"starter_aptitude":"◎", "reliever_aptitude":"-", "closer_aptitude":"-"}
+    assert app.special_context_multiplier("火消し", "投手", pitcher_aptitudes=reliever_double) > app.special_context_multiplier("火消し", "投手", pitcher_aptitudes=closer_only)
+    assert app.special_context_multiplier("回またぎ○", "投手", pitcher_aptitudes=reliever_double) > app.special_context_multiplier("回またぎ○", "投手", pitcher_aptitudes=closer_only)
+    closer_presence = app.special_context_multiplier("投手存在感", "投手", pitcher_aptitudes=closer_only, acquisition_role="クローザー候補", position_style="剛腕クローザー", player_class="一軍主力級")
+    middle_presence = app.special_context_multiplier("投手存在感", "投手", pitcher_aptitudes=reliever_circle)
+    assert closer_presence > middle_presence
+    assert not app.is_special_allowed_for_player("火消し", "投手", "先発", pitcher_aptitudes=starter_only)
+
+
 def test_catcher_only_normal_special_is_blocked_for_non_catcher_but_allowed_for_sub_catcher():
     master = make_master()
     specials = app.generate_specials(random.Random(1), master, "野手", "守備職人", position="外野手", age=28,

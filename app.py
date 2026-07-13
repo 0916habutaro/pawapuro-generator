@@ -811,6 +811,8 @@ POSITION_RESTRICTED_SPECIALS: dict[str, set[str]] = {
 }
 RELIEF_REQUIRED_SPECIALS: set[str] = {"火消し", "緊急登板○", "投手存在感", "回またぎ○"}
 PITCHER_APTITUDE_ALLOWED = {"◎", "○"}
+CATCHER_CONTEXT_SPECIALS: set[str] = {"フレーミング○", "フレーミング◎", "ホーム死守", "ブロッキング"}
+STARTER_CONTEXT_SPECIALS: set[str] = {"尻上がり", "スロースターター", "立ち上がり○", "根性", "要所○", "投打躍動"}
 
 def player_position_aptitudes(main_position: str | None, sub_positions: Any = None) -> set[str]:
     positions = {str(main_position)} if main_position else set()
@@ -820,6 +822,19 @@ def player_position_aptitudes(main_position: str | None, sub_positions: Any = No
 
 def has_position_aptitude(main_position: str | None, sub_positions: Any, target_positions: set[str]) -> bool:
     return bool(player_position_aptitudes(main_position, sub_positions) & target_positions)
+
+def position_aptitude_level(main_position: str | None, sub_positions: Any, target_position: str) -> str:
+    if main_position == target_position:
+        return "main"
+    best = "none"
+    rank = {"◎": 3, "○": 2, "△": 1, "none": 0}
+    for item in normalize_sub_positions(sub_positions):
+        if item.get("position") != target_position:
+            continue
+        aptitude = str(item.get("aptitude") or "none")
+        if rank.get(aptitude, 0) > rank[best]:
+            best = aptitude
+    return best
 
 def pitcher_aptitude_value(pitcher_aptitudes: dict[str, Any] | None, key: str) -> str | None:
     if not isinstance(pitcher_aptitudes, dict):
@@ -831,6 +846,10 @@ def pitcher_aptitude_value(pitcher_aptitudes: dict[str, Any] | None, key: str) -
 
 def has_pitcher_aptitude(pitcher_aptitudes: dict[str, Any] | None, aptitude_keys: set[str]) -> bool:
     return any(pitcher_aptitude_value(pitcher_aptitudes, key) in PITCHER_APTITUDE_ALLOWED for key in aptitude_keys)
+
+def pitcher_aptitude_level(pitcher_aptitudes: dict[str, Any] | None, aptitude_key: str) -> str:
+    value = pitcher_aptitude_value(pitcher_aptitudes, aptitude_key)
+    return value if value in PITCHER_APTITUDE_ALLOWED else "-"
 
 def is_special_position_allowed(special_name: str, main_position: str | None, sub_positions: Any = None) -> bool:
     required = POSITION_RESTRICTED_SPECIALS.get(special_name)
@@ -847,6 +866,148 @@ def is_special_allowed_for_player(special_name: str, role: str, main_position: s
     if role == "投手" and not is_special_pitcher_aptitude_allowed(special_name, pitcher_aptitudes):
         return False
     return True
+
+def catcher_context_multiplier(special_name: str, main_position: str | None, sub_positions: Any, abilities: dict[str, Any]) -> float:
+    if special_name not in CATCHER_CONTEXT_SPECIALS:
+        return 1.0
+    level = position_aptitude_level(main_position, sub_positions, "捕手")
+    if special_name == "フレーミング◎":
+        multiplier = {"main": 1.0, "◎": 0.50, "○": 0.25, "△": 0.10, "none": 0.0}[level]
+    else:
+        multiplier = {"main": 1.0, "◎": 0.70, "○": 0.45, "△": 0.20, "none": 0.0}[level]
+    if level != "main" and multiplier > 0:
+        fielding = ability_numeric_value(abilities, "守備力")
+        catching = ability_numeric_value(abilities, "捕球")
+        arm = ability_numeric_value(abilities, "肩力")
+        defensive_values = [v for v in (fielding, catching, arm) if isinstance(v, int | float)]
+        if defensive_values:
+            defensive_average = sum(defensive_values) / len(defensive_values)
+            if defensive_average < 55:
+                multiplier *= 0.75
+            elif defensive_average >= 70 and special_name != "フレーミング◎":
+                multiplier *= 1.05
+    return multiplier
+
+def starter_context_multiplier(special_name: str, pitcher_aptitudes: dict[str, Any] | None, abilities: dict[str, Any]) -> float:
+    starter = pitcher_aptitude_level(pitcher_aptitudes, "starter_aptitude")
+    reliever = pitcher_aptitude_level(pitcher_aptitudes, "reliever_aptitude")
+    closer = pitcher_aptitude_level(pitcher_aptitudes, "closer_aptitude")
+    stamina = ability_numeric_value(abilities, "スタミナ")
+    closer_only = starter == "-" and reliever == "-" and closer in PITCHER_APTITUDE_ALLOWED
+    if special_name == "尻上がり":
+        multiplier = {"◎": 1.0, "○": 0.55, "-": 0.05}[starter]
+    elif special_name == "スロースターター":
+        multiplier = {"◎": 1.0, "○": 0.50, "-": 0.05}[starter]
+    elif special_name == "立ち上がり○":
+        multiplier = {"◎": 1.0, "○": 0.75, "-": 0.45}[starter]
+    elif special_name == "根性":
+        if starter == "◎":
+            multiplier = 1.0
+        elif starter == "○":
+            multiplier = 0.75
+        elif reliever == "◎" and isinstance(stamina, int | float) and stamina >= 65:
+            multiplier = 0.70
+        elif closer_only:
+            multiplier = 0.15
+        else:
+            multiplier = 0.35
+        if isinstance(stamina, int | float) and stamina < 45:
+            multiplier *= 0.70
+    elif special_name == "要所○":
+        if starter == "◎":
+            multiplier = 1.0
+        elif starter == "○":
+            multiplier = 0.80
+        elif reliever == "◎":
+            multiplier = 0.60
+        elif closer_only:
+            multiplier = 0.35
+        else:
+            multiplier = 0.45
+    elif special_name == "投打躍動":
+        multiplier = {"◎": 1.0, "○": 0.50, "-": 0.05}[starter]
+        batting_values = [ability_numeric_value(abilities, key) for key in ("ミート", "パワー", "弾道", "走力")]
+        batting_values = [v for v in batting_values if isinstance(v, int | float)]
+        if batting_values:
+            batting_score = sum(batting_values) / len(batting_values)
+            if batting_score < 45:
+                multiplier *= 0.45
+            elif batting_score >= 65:
+                multiplier *= 1.10
+    else:
+        multiplier = 1.0
+    return multiplier
+
+def relief_context_multiplier(special_name: str, pitcher_aptitudes: dict[str, Any] | None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, acquisition_role: str | None = None) -> float:
+    reliever = pitcher_aptitude_level(pitcher_aptitudes, "reliever_aptitude")
+    closer = pitcher_aptitude_level(pitcher_aptitudes, "closer_aptitude")
+    has_reliever = reliever in PITCHER_APTITUDE_ALLOWED
+    closer_only = not has_reliever and closer in PITCHER_APTITUDE_ALLOWED
+    if special_name == "火消し":
+        if reliever == "◎":
+            multiplier = 1.0
+        elif closer == "◎" and has_reliever:
+            multiplier = 0.75
+        elif reliever == "○":
+            multiplier = 0.65
+        elif closer_only:
+            multiplier = 0.45
+        else:
+            multiplier = 0.55
+    elif special_name == "緊急登板○":
+        if reliever == "◎":
+            multiplier = 1.0
+        elif reliever == "○":
+            multiplier = 0.70
+        elif closer == "◎":
+            multiplier = 0.65
+        elif closer == "○":
+            multiplier = 0.45
+        else:
+            multiplier = 0.50
+    elif special_name == "投手存在感":
+        if closer == "◎":
+            multiplier = 1.05
+        elif closer == "○":
+            multiplier = 0.85
+        elif reliever == "◎":
+            multiplier = 0.75
+        elif reliever == "○":
+            multiplier = 0.55
+        else:
+            multiplier = 0.45
+        if acquisition_role in {"勝ちパターン候補", "クローザー候補"}:
+            multiplier *= 1.20
+        if position_style in {"剛腕クローザー", "剛腕中継ぎ"} or archetype in {"速球", "制球"}:
+            multiplier *= 1.08
+        if player_class in {"スター級", "大物実績者", "一軍主力級", "主力期待級"}:
+            multiplier *= 1.05
+    elif special_name == "回またぎ○":
+        if reliever == "◎":
+            multiplier = 1.0
+        elif reliever == "○":
+            multiplier = 0.70
+        elif closer_only:
+            multiplier = 0.25
+        else:
+            multiplier = 0.45
+        if position_style == "ロングリリーフ型":
+            multiplier *= 1.15
+    else:
+        multiplier = 1.0
+    return multiplier
+
+def special_context_multiplier(special_name: str, role: str, main_position: str | None = None, sub_positions: Any = None, pitcher_aptitudes: dict[str, Any] | None = None, abilities: dict[str, Any] | None = None, player_type: str | None = None, position_style: str | None = None, acquisition_role: str | None = None, player_class: str | None = None, archetype: str | None = None) -> float:
+    abilities = abilities or {}
+    multiplier = 1.0
+    if role == "野手":
+        multiplier *= catcher_context_multiplier(special_name, main_position, sub_positions, abilities)
+    elif role == "投手":
+        if special_name in STARTER_CONTEXT_SPECIALS:
+            multiplier *= starter_context_multiplier(special_name, pitcher_aptitudes, abilities)
+        if special_name in RELIEF_REQUIRED_SPECIALS:
+            multiplier *= relief_context_multiplier(special_name, pitcher_aptitudes, player_class, archetype, position_style, acquisition_role)
+    return max(0.0, min(1.8, float(multiplier)))
 
 def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, player_type: str, position: str | None = None, age: int | None = None, abilities: dict[str, Any] | None = None, breaking_balls: list[dict[str, Any]] | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, development_stage: str | None = None, acquisition_role: str | None = None, weakness_profile: str | None = None, sub_positions: Any = None, pitcher_aptitudes: dict[str, Any] | None = None) -> float:
     abilities = abilities or {}
@@ -1054,6 +1215,19 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
         if kind == "green" or name in PERSONALITY_SPECIALS:
             chance *= 0.95
 
+    chance *= special_context_multiplier(
+        name,
+        role,
+        main_position=position,
+        sub_positions=sub_positions,
+        pitcher_aptitudes=pitcher_aptitudes,
+        abilities=abilities,
+        player_type=player_type,
+        position_style=position_style,
+        acquisition_role=acquisition_role,
+        player_class=player_class,
+        archetype=archetype,
+    )
     max_chance = 8.0 if power == "strong" or name in STRONG_SPECIALS else 25.0
     return max(0.0, min(max_chance, float(chance)))
 
@@ -1152,17 +1326,25 @@ def ranked_weight_items_for_group(group_name: str, role: str, position: str, pla
             weights.update({"B": weights["B"] + 2, "C": weights["C"] + 4, "D": weights["D"] - 4, "E": weights["E"] - 2})
         if isinstance(control, int | float) and control >= 70:
             weights.update({"B": weights["B"] + 1, "C": weights["C"] + 3, "D": weights["D"] - 3, "E": weights["E"] - 1})
-    elif role == "野手" and group_name == "キャッチャー" and position == "捕手":
-        fielding = ability_numeric_value(abilities, "守備力")
-        catching = ability_numeric_value(abilities, "捕球")
-        if player_type == "守備職人":
-            weights.update({"B": weights["B"] + 1, "C": weights["C"] + 3, "D": weights["D"] - 3, "E": weights["E"] - 1})
-        if isinstance(age, int) and age >= 30:
-            weights.update({"B": weights["B"] + 1, "C": weights["C"] + 2, "D": weights["D"] - 2, "E": weights["E"] - 1})
-        if isinstance(fielding, int | float) and fielding >= 70:
-            weights.update({"B": weights["B"] + 1, "C": weights["C"] + 2, "D": weights["D"] - 2, "E": weights["E"] - 1})
-        if isinstance(catching, int | float) and catching >= 70:
-            weights.update({"B": weights["B"] + 1, "C": weights["C"] + 2, "D": weights["D"] - 2, "E": weights["E"] - 1})
+    elif role == "野手" and group_name == "キャッチャー":
+        catcher_level = position_aptitude_level(position, sub_positions, "捕手")
+        if catcher_level == "main":
+            fielding = ability_numeric_value(abilities, "守備力")
+            catching = ability_numeric_value(abilities, "捕球")
+            if player_type == "守備職人":
+                weights.update({"B": weights["B"] + 1, "C": weights["C"] + 3, "D": weights["D"] - 3, "E": weights["E"] - 1})
+            if isinstance(age, int) and age >= 30:
+                weights.update({"B": weights["B"] + 1, "C": weights["C"] + 2, "D": weights["D"] - 2, "E": weights["E"] - 1})
+            if isinstance(fielding, int | float) and fielding >= 70:
+                weights.update({"B": weights["B"] + 1, "C": weights["C"] + 2, "D": weights["D"] - 2, "E": weights["E"] - 1})
+            if isinstance(catching, int | float) and catching >= 70:
+                weights.update({"B": weights["B"] + 1, "C": weights["C"] + 2, "D": weights["D"] - 2, "E": weights["E"] - 1})
+        elif catcher_level == "◎":
+            weights.update({"A": 1, "B": 2, "C": 12, "D": 62, "E": 17, "F": 5, "G": 1})
+        elif catcher_level == "○":
+            weights.update({"A": 1, "B": 1, "C": 6, "D": 54, "E": 27, "F": 9, "G": 2})
+        elif catcher_level == "△":
+            weights.update({"A": 1, "B": 1, "C": 3, "D": 45, "E": 30, "F": 16, "G": 4})
     if category == "ドラフト候補用" and isinstance(age, int) and age <= 21:
         weights.update({"A": max(1, weights["A"] - 1), "B": max(1, weights["B"] - 2), "D": weights["D"] + 2})
     if player_class in {"スター級", "大物実績者"}:
