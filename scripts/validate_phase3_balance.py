@@ -11,7 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app import CATEGORIES, load_master_data, generate_player, ability_numeric_value, pitch_movement, POSITION_RESTRICTED_SPECIALS, RELIEF_REQUIRED_SPECIALS, has_position_aptitude, has_pitcher_aptitude, normalize_sub_positions
+from app import CATEGORIES, load_master_data, generate_player, ability_numeric_value, pitch_movement, POSITION_RESTRICTED_SPECIALS, RELIEF_REQUIRED_SPECIALS, CATCHER_CONTEXT_SPECIALS, STARTER_CONTEXT_SPECIALS, has_position_aptitude, has_pitcher_aptitude, normalize_sub_positions, position_aptitude_level, pitcher_aptitude_level, special_context_multiplier
 from scripts.validate_ability_balance import flatten_players
 
 THRESHOLDS = {
@@ -83,8 +83,9 @@ def special_tables(players: list[dict[str, Any]], df: pd.DataFrame) -> dict[str,
     for p in players:
         violations = {v["special"]: v["reason"] for v in special_constraint_violations(p)}
         subs = normalize_sub_positions(p.get("sub_positions", []))
+        pitcher_aptitudes = {key: p.get(key) or p.get("abilities", {}).get(key) for key in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]}
         for name in p.get("special_abilities", []):
-            events.append({"seed":p["seed"], "category":p["category"], "role":p["role"], "position":p["position"], "sub_positions":" / ".join(f"{s['position']}{s['aptitude']}" for s in subs), "starter_aptitude":p.get("starter_aptitude", ""), "reliever_aptitude":p.get("reliever_aptitude", ""), "closer_aptitude":p.get("closer_aptitude", ""), "constraint_ok": name not in violations, "violation_reason": violations.get(name, ""), "player_class":p.get("player_class",""), "archetype":p.get("archetype",""), "position_style":p.get("position_style",""), "development_stage":p.get("development_stage",""), "acquisition_role":p.get("acquisition_role",""), "weakness_profile":p.get("weakness_profile",""), "special":name, "kind":classify_special(name)})
+            events.append({"seed":p["seed"], "category":p["category"], "role":p["role"], "position":p["position"], "sub_positions":" / ".join(f"{s['position']}{s['aptitude']}" for s in subs), "starter_aptitude":p.get("starter_aptitude", ""), "reliever_aptitude":p.get("reliever_aptitude", ""), "closer_aptitude":p.get("closer_aptitude", ""), "constraint_ok": name not in violations, "violation_reason": violations.get(name, ""), "context_multiplier": special_context_multiplier(name, p["role"], p["position"], subs, pitcher_aptitudes, p.get("abilities", {}), p.get("player_type"), p.get("position_style"), p.get("acquisition_role"), p.get("player_class"), p.get("archetype")), "player_class":p.get("player_class",""), "archetype":p.get("archetype",""), "position_style":p.get("position_style",""), "development_stage":p.get("development_stage",""), "acquisition_role":p.get("acquisition_role",""), "weakness_profile":p.get("weakness_profile",""), "special":name, "kind":classify_special(name)})
     ev=pd.DataFrame(events)
     work=df.copy()
     work["通常特殊能力数_検証"] = pd.to_numeric(work.get("特殊能力数", 0), errors="coerce").fillna(0).astype(int)
@@ -101,6 +102,57 @@ def special_tables(players: list[dict[str, Any]], df: pd.DataFrame) -> dict[str,
     top=ev.groupby(["kind","special"]).size().reset_index(name="件数").sort_values("件数", ascending=False).groupby("kind").head(20) if not ev.empty else pd.DataFrame()
     kind=ev.groupby("kind").size().reset_index(name="件数") if not ev.empty else pd.DataFrame()
     return {"special_count_metrics":pd.DataFrame(rows), "special_kind_metrics":kind, "special_top20":top, "special_events":ev}
+
+def special_context_rate_tables(players: list[dict[str, Any]]) -> dict[str, pd.DataFrame]:
+    def rate(count: int, denom: int) -> float:
+        return round(count / max(1, denom) * 100, 3)
+
+    fielders = [p for p in players if p["role"] == "野手"]
+    catcher_contexts = {
+        "main_catcher": [p for p in fielders if position_aptitude_level(p["position"], p.get("sub_positions", []), "捕手") == "main"],
+        "sub_catcher_◎": [p for p in fielders if position_aptitude_level(p["position"], p.get("sub_positions", []), "捕手") == "◎"],
+        "sub_catcher_○": [p for p in fielders if position_aptitude_level(p["position"], p.get("sub_positions", []), "捕手") == "○"],
+        "sub_catcher_△": [p for p in fielders if position_aptitude_level(p["position"], p.get("sub_positions", []), "捕手") == "△"],
+    }
+    catcher_rows = []
+    for special in sorted(CATCHER_CONTEXT_SPECIALS) + ["キャッチャーA-G"]:
+        row = {"special": special}
+        for label, subset in catcher_contexts.items():
+            if special == "キャッチャーA-G":
+                count = sum("キャッチャー" in p.get("abilities", {}).get("ranked_specials", {}) for p in subset)
+            else:
+                count = sum(special in p.get("special_abilities", []) for p in subset)
+            row[f"{label}_count"] = count
+            row[f"{label}_rate"] = rate(count, len(subset))
+        catcher_rows.append(row)
+
+    pitchers = [p for p in players if p["role"] == "投手"]
+    pitcher_contexts = {
+        "starter_◎": [p for p in pitchers if pitcher_aptitude_level({k: p.get(k) for k in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]}, "starter_aptitude") == "◎"],
+        "starter_○": [p for p in pitchers if pitcher_aptitude_level({k: p.get(k) for k in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]}, "starter_aptitude") == "○"],
+        "starter_none": [p for p in pitchers if pitcher_aptitude_level({k: p.get(k) for k in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]}, "starter_aptitude") == "-"],
+        "reliever_◎": [p for p in pitchers if pitcher_aptitude_level({k: p.get(k) for k in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]}, "reliever_aptitude") == "◎"],
+        "reliever_○": [p for p in pitchers if pitcher_aptitude_level({k: p.get(k) for k in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]}, "reliever_aptitude") == "○"],
+        "closer_◎": [p for p in pitchers if pitcher_aptitude_level({k: p.get(k) for k in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]}, "closer_aptitude") == "◎"],
+        "closer_○": [p for p in pitchers if pitcher_aptitude_level({k: p.get(k) for k in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]}, "closer_aptitude") == "○"],
+    }
+    pitcher_rows = []
+    for special in sorted(STARTER_CONTEXT_SPECIALS | RELIEF_REQUIRED_SPECIALS):
+        row = {"special": special}
+        for label, subset in pitcher_contexts.items():
+            count = sum(special in p.get("special_abilities", []) for p in subset)
+            row[f"{label}_count"] = count
+            row[f"{label}_rate"] = rate(count, len(subset))
+        pitcher_rows.append(row)
+
+    catcher_df = pd.DataFrame(catcher_rows)
+    pitcher_df = pd.DataFrame(pitcher_rows)
+    combined = pd.concat([catcher_df.assign(context_group="捕手系"), pitcher_df.assign(context_group="投手系")], ignore_index=True, sort=False)
+    return {
+        "catcher_special_context_summary": catcher_df,
+        "pitcher_special_context_summary": pitcher_df,
+        "special_context_rate_summary": combined,
+    }
 
 def ranked_tables(players: list[dict[str, Any]], df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     rows=[]
@@ -160,7 +212,7 @@ def warnings(players: list[dict[str, Any]]) -> pd.DataFrame:
 def main() -> None:
     args=parse_args(); args.output_dir.mkdir(parents=True, exist_ok=True)
     players=generate(args.count, args.seed); df=flatten_players(players)
-    tables={"players":df, **special_tables(players, df), **ranked_tables(players, df), **subpos_tables(players, df), "warnings":warnings(players)}
+    tables={"players":df, **special_tables(players, df), **special_context_rate_tables(players), **ranked_tables(players, df), **subpos_tables(players, df), "warnings":warnings(players)}
     for name, table in tables.items(): table.to_csv(args.output_dir/f"{name}.csv", index=False, encoding="utf-8-sig")
     summary={"players":len(players), "warnings":len(tables["warnings"]), "warning_types":tables["warnings"]["type"].value_counts().to_dict() if not tables["warnings"].empty else {}}
     (args.output_dir/"phase3_summary.txt").write_text(str(summary), encoding="utf-8")
