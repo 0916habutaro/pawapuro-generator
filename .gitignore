@@ -38,5 +38,9 @@ Thumbs.db
 .idea/
 
 # Locally supplied real PowerPro source archives and generated reports
-data/raw/powerpro_2026_2027/*.zip
+# data/raw/powerpro_2026_2027/*.zip
+
+data/raw/powerpro_2026_2027/*/
+!data/raw/powerpro_2026_2027/*.zip
+!data/raw/powerpro_2026_2027/README.md
 reports/*
