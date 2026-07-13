@@ -579,6 +579,115 @@ def ability(value: int) -> dict[str, Any]:
     return {"value": value, "rank": rank(value)}
 
 
+FIELDER_ABILITY_KEYS = ["ミート", "パワー", "走力", "肩力", "守備力", "捕球"]
+TECHNICAL_FIELDER_KEYS = {"ミート", "守備力", "捕球"}
+PHYSICAL_FIELDER_KEYS = {"パワー", "走力", "肩力"}
+FIELDER_STYLE_DEFAULTS = {
+    "捕手": "平均型捕手",
+    "一塁手": "平均型一塁手",
+    "二塁手": "平均型二塁手",
+    "三塁手": "平均型三塁手",
+    "遊撃手": "平均型遊撃手",
+    "外野手": "走攻守外野手",
+}
+FOREIGN_FIELDER_POSITION_WEIGHTS = [("捕手", 1), ("一塁手", 25), ("二塁手", 5), ("三塁手", 20), ("遊撃手", 3), ("外野手", 46)]
+FOREIGN_ALLROUNDER_STYLES = {"走攻守外野手", "平均型一塁手", "平均型三塁手", "平均型二塁手"}
+FOREIGN_ALLROUNDER_FINAL_CHANCE = 1.00
+CAP_RANGES = {
+    89: (80, 89),
+    79: (65, 79),
+    78: (65, 78),
+    74: (58, 74),
+    69: (58, 69),
+    64: (50, 64),
+    59: (50, 59),
+    54: (45, 54),
+}
+MIN_RANGES = {
+    36: (36, 41),
+    38: (38, 43),
+    40: (40, 45),
+    42: (42, 47),
+    45: (45, 50),
+    48: (48, 53),
+    50: (50, 55),
+    52: (52, 57),
+    55: (55, 60),
+    58: (58, 63),
+}
+FOREIGN_PLAYER_CLASS_AGE_WEIGHTS = {
+    "大物実績者": [(27, 5), (28, 8), (29, 14), (30, 17), (31, 18), (32, 17), (33, 13), (34, 6), (35, 2)],
+    "主力期待級": [(24, 4), (25, 8), (26, 14), (27, 16), (28, 17), (29, 16), (30, 13), (31, 8), (32, 3), (33, 1)],
+    "レギュラー競争級": [(23, 4), (24, 8), (25, 14), (26, 16), (27, 16), (28, 14), (29, 12), (30, 8), (31, 5), (32, 3)],
+    "保険・バックアップ級": [(25, 3), (26, 5), (27, 8), (28, 13), (29, 15), (30, 16), (31, 15), (32, 12), (33, 8), (34, 4), (35, 1)],
+    "育成素材型": [(19, 5), (20, 10), (21, 20), (22, 24), (23, 22), (24, 14), (25, 5)],
+    "再生候補": [(28, 3), (29, 6), (30, 12), (31, 16), (32, 18), (33, 17), (34, 13), (35, 9), (36, 6)],
+}
+
+
+def clamp(value: int, low: int = 0, high: int = 100) -> int:
+    return max(low, min(high, int(round(value))))
+
+
+def reroll_under_cap(rng: random.Random, cap: int) -> int:
+    low, high = CAP_RANGES.get(cap, (max(0, cap - 14), cap))
+    return rng.randint(low, high)
+
+
+def reroll_over_minimum(rng: random.Random, minimum: int) -> int:
+    default_high = min(100, minimum + 5) if minimum <= 100 else minimum + 5
+    low, high = MIN_RANGES.get(minimum, (minimum, default_high))
+    return rng.randint(low, high)
+
+
+def cap_value(rng: random.Random, value: int, cap: int) -> int:
+    return value if value <= cap else reroll_under_cap(rng, cap)
+
+
+def floor_value(rng: random.Random, value: int, minimum: int) -> int:
+    return value if value >= minimum else reroll_over_minimum(rng, minimum)
+
+
+def add_mod(values: dict[str, int], mods: dict[str, int]) -> None:
+    for key, delta in mods.items():
+        if key in values:
+            values[key] += delta
+
+
+def ability_values(values: dict[str, int]) -> dict[str, Any]:
+    return {key: ability(value) for key, value in values.items()}
+
+
+def legacy_archetype_from_player_type(role: str, player_type: str) -> str:
+    mapping = LEGACY_PLAYER_TYPE_BY_ARCHETYPE.get(role, {})
+    return next((archetype for archetype, legacy in mapping.items() if legacy == player_type), "")
+
+
+def player_class_from_legacy_roster_tier(roster_tier: str) -> str:
+    mapping = {
+        "一軍級": "一軍主力級",
+        "控え級": "一軍控え級",
+        "二軍級": "二軍級",
+        "若手": "若手素材型",
+        "ベテラン": "ベテラン型",
+    }
+    return mapping.get(roster_tier, "")
+
+
+def curve_delta(age: int, points: list[tuple[int, int]]) -> int:
+    if age <= points[0][0]:
+        return points[0][1]
+    for (left_age, left_value), (right_age, right_value) in zip(points, points[1:], strict=False):
+        if left_age <= age <= right_age:
+            span = max(1, right_age - left_age)
+            return round(left_value + (right_value - left_value) * ((age - left_age) / span))
+    return points[-1][1]
+
+
+def choose_foreign_age_for_class(rng: random.Random, player_class: str) -> int:
+    return weighted_choice(rng, FOREIGN_PLAYER_CLASS_AGE_WEIGHTS.get(player_class, FOREIGN_PLAYER_CLASS_AGE_WEIGHTS["主力期待級"]))
+
+
 def age_for(rng: random.Random, category: str) -> int:
     if category == "ドラフト候補用": return weighted_choice(rng, [(18, 35), (19, 12), (20, 10), (21, 16), (22, 22), (23, 5)])
     if category == "助っ人外国人用": return rng.randint(24, 34)
@@ -974,167 +1083,441 @@ def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, 
         selected[group_name] = names_by_rank[rank_value]
     return selected
 
-def generate_fielder_abilities(rng: random.Random, age: int, position: str, player_type: str, category: str, position_style: str = "", roster_tier: str = "") -> dict[str, Any]:
-    veteran_keep = age >= 35 and (player_type == "巧打型" or rng.random() < 0.18)
-    base = 47 + (7 if 23 <= age <= 29 else 3 if 30 <= age <= 34 else 0) - (6 if age <= 19 else 3 if age <= 22 else 0) - (2 if age >= 35 and not veteran_keep else 0)
-    mods = {"ミート": 0, "パワー": 0, "走力": 0, "肩力": 0, "守備力": 0, "捕球": 0}
-    for key in mods:
-        spread = 18 if category in {"ドラフト候補用", "助っ人外国人用"} else 15
-        mods[key] += rng.randint(-spread, spread)
-    default_styles = {
-        "捕手": "平均型捕手",
-        "一塁手": "平均型一塁手",
-        "二塁手": "平均型二塁手",
-        "三塁手": "平均型三塁手",
-        "遊撃手": "平均型遊撃手",
-        "外野手": "走攻守外野手",
+def fielder_age_mods(age: int, archetype: str, player_class: str) -> dict[str, int]:
+    mods = {
+        "ミート": curve_delta(age, [(18, -9), (24, 0), (25, 3), (30, 5), (34, 1), (36, -3)]),
+        "パワー": curve_delta(age, [(18, -8), (21, -3), (25, 3), (31, 5), (34, 1), (36, -3)]),
+        "走力": curve_delta(age, [(18, 4), (23, 8), (27, 6), (31, -1), (34, -7), (36, -12)]),
+        "肩力": curve_delta(age, [(18, 1), (22, 4), (28, 5), (33, 1), (36, -4)]),
+        "守備力": curve_delta(age, [(18, -8), (22, -4), (28, 4), (33, 5), (36, 0)]),
+        "捕球": curve_delta(age, [(18, -8), (22, -4), (28, 4), (33, 5), (36, 0)]),
     }
-    style = position_style or default_styles.get(position, "平均型")
-    type_mods = {
-        "巧打型": {"ミート": 16, "パワー": -4}, "長距離砲": {"パワー": 20, "走力": -8, "ミート": -4},
-        "俊足型": {"走力": 20, "守備力": 6, "パワー": -8}, "守備職人": {"守備力": 18, "捕球": 14, "ミート": -3},
-        "強肩型": {"肩力": 20, "守備力": 5}, "バランス型": {"ミート": 5, "パワー": 5, "走力": 5, "肩力": 5, "守備力": 5, "捕球": 5},
+    if age >= 34 and archetype in {"巧打", "守備", "バランス"}:
+        for key in ("ミート", "守備力", "捕球"):
+            mods[key] += 3
+    if age >= 34 and player_class == "ベテラン型":
+        mods["走力"] -= 2
+        for key in ("ミート", "パワー", "守備力", "捕球"):
+            mods[key] += 2
+    return mods
+
+
+def apply_fielder_player_class_mods(values: dict[str, int], category: str, player_class: str) -> None:
+    class_mods = {
+        "架空球団用": {
+            "スター級": 16, "一軍主力級": 10, "一軍控え級": 3, "二軍級": -8, "若手素材型": -3, "ベテラン型": 4,
+        },
+        "ドラフト候補用": {
+            "超上位候補": 7, "上位候補": 3, "中位候補": -2, "下位候補": -7, "育成候補": -11,
+        },
+        "助っ人外国人用": {
+            "大物実績者": 10, "主力期待級": 5, "レギュラー競争級": 0, "保険・バックアップ級": -8, "育成素材型": -7, "再生候補": -4,
+        },
     }
-    pos_mods = {
-        "捕手": {"ミート": -8, "肩力": 12, "守備力": -1, "捕球": -2, "走力": -8},
-        "遊撃手": {"ミート": -5, "パワー": -6, "走力": 14, "肩力": 8, "守備力": 7, "捕球": 1},
-        "二塁手": {"パワー": -5, "走力": 17, "肩力": 2, "守備力": 9, "捕球": 5},
-        "三塁手": {"パワー": 4, "走力": -1, "肩力": 7, "守備力": -2, "捕球": -2},
-        "一塁手": {"パワー": 10, "走力": -6, "肩力": 2, "守備力": -3, "捕球": 0},
-        "外野手": {"パワー": 3, "走力": 14, "肩力": 9, "守備力": -1, "捕球": -3},
+    mod = class_mods.get(category, {}).get(player_class, 0)
+    for key in values:
+        values[key] += mod
+    if player_class in {"若手素材型", "育成候補", "育成素材型"}:
+        for key in TECHNICAL_FIELDER_KEYS:
+            values[key] -= 3
+    if player_class in {"ベテラン型", "再生候補"}:
+        values["走力"] -= 4
+
+
+def apply_fielder_archetype_mods(rng: random.Random, values: dict[str, int], archetype: str) -> None:
+    if archetype == "巧打":
+        add_mod(values, {"ミート": rng.randint(10, 14), "パワー": -rng.randint(2, 5), "走力": rng.randint(0, 3), "守備力": rng.randint(0, 2)})
+    elif archetype == "長打":
+        add_mod(values, {"パワー": rng.randint(13, 18), "ミート": -rng.randint(2, 5), "走力": -rng.randint(3, 7), "守備力": -rng.randint(1, 4)})
+    elif archetype == "俊足":
+        add_mod(values, {"走力": rng.randint(12, 17), "守備力": rng.randint(2, 5), "パワー": -rng.randint(4, 7)})
+    elif archetype == "守備":
+        add_mod(values, {"守備力": rng.randint(10, 15), "捕球": rng.randint(8, 12), rng.choice(["ミート", "パワー"]): -rng.randint(1, 4)})
+    elif archetype == "強肩":
+        add_mod(values, {"肩力": rng.randint(12, 17), "守備力": rng.randint(1, 4)})
+    elif archetype == "バランス":
+        avg = sum(values.values()) / len(values)
+        for key in values:
+            values[key] += rng.randint(0, 2)
+            values[key] = round(values[key] + (avg - values[key]) * rng.uniform(0.15, 0.25))
+            if values[key] < 30:
+                values[key] += rng.randint(2, 5)
+
+
+def apply_fielder_position_mods(values: dict[str, int], position: str, position_style: str) -> None:
+    position_mods = {
+        "捕手": {"ミート": -5, "走力": -7, "肩力": 8, "守備力": 3, "捕球": 3},
+        "一塁手": {"パワー": 7, "走力": -5, "肩力": -1, "守備力": -2},
+        "二塁手": {"パワー": -3, "走力": 7, "守備力": 5, "捕球": 4},
+        "三塁手": {"パワー": 5, "走力": -2, "肩力": 6, "守備力": -1},
+        "遊撃手": {"パワー": -5, "走力": 7, "肩力": 6, "守備力": 6, "捕球": 3},
+        "外野手": {"走力": 6, "肩力": 5, "守備力": -1},
     }
-    for d in (type_mods.get(player_type, {}), pos_mods.get(position, {})):
-        for k, v in d.items(): mods[k] += v
     style_mods = {
-        "守備型捕手": {"肩力": 9, "守備力": 8, "捕球": 9, "走力": -5, "ミート": -5, "パワー": -4},
-        "打撃型捕手": {"ミート": 11, "パワー": 10, "肩力": 2, "守備力": -1, "捕球": 1},
-        "平均型捕手": {"肩力": 5, "捕球": 4, "守備力": 3, "走力": -3},
-        "強打一塁手": {"パワー": 8, "弾道": 1, "走力": -2, "肩力": 2, "守備力": -2},
-        "守備型一塁手": {"守備力": 10, "捕球": 9, "肩力": 4, "パワー": 1},
-        "守備走塁二塁手": {"走力": 8, "守備力": 8, "捕球": 6, "パワー": -3},
-        "打撃型二塁手": {"ミート": 7, "パワー": 8, "守備力": -3},
-        "強打三塁手": {"パワー": 7, "肩力": 5, "守備力": -1},
-        "守備型三塁手": {"肩力": 7, "守備力": 8, "捕球": 6, "パワー": 1},
-        "守備走塁遊撃手": {"走力": 6, "肩力": 7, "守備力": 7, "捕球": 5, "パワー": -3, "ミート": -2},
-        "強打遊撃手": {"パワー": 13, "ミート": 5, "守備力": -2},
-        "巧打遊撃手": {"ミート": 11, "パワー": 4, "走力": -2, "守備力": -1},
-        "走攻守外野手": {"ミート": 4, "パワー": 4, "走力": 5, "肩力": 4, "守備力": 3},
-        "俊足外野手": {"走力": 12, "守備力": 4, "パワー": -5},
-        "強打外野手": {"パワー": 12, "弾道": 1, "走力": -3, "守備力": -3},
-        "守備外野手": {"肩力": 8, "守備力": 8, "捕球": 5, "ミート": -2},
+        "守備型捕手": {"肩力": 6, "守備力": 6, "捕球": 6, "走力": -3, "ミート": -3},
+        "打撃型捕手": {"ミート": 6, "パワー": 6, "守備力": -2},
+        "平均型捕手": {"肩力": 3, "守備力": 2, "捕球": 3},
+        "強打一塁手": {"パワー": 6, "走力": -2, "守備力": -2},
+        "守備型一塁手": {"守備力": 6, "捕球": 5, "パワー": -1},
+        "守備走塁二塁手": {"走力": 5, "守備力": 5, "捕球": 4, "パワー": -2},
+        "打撃型二塁手": {"ミート": 5, "パワー": 5, "守備力": -2},
+        "強打三塁手": {"パワー": 6, "肩力": 4, "走力": -2},
+        "守備型三塁手": {"肩力": 4, "守備力": 6, "捕球": 4},
+        "守備走塁遊撃手": {"走力": 4, "肩力": 5, "守備力": 5, "捕球": 4, "パワー": -2},
+        "強打遊撃手": {"パワー": 7, "守備力": -3, "走力": -2},
+        "巧打遊撃手": {"ミート": 6, "パワー": 2, "守備力": -1},
+        "走攻守外野手": {"ミート": 2, "パワー": 2, "走力": 3, "肩力": 3, "守備力": 2},
+        "俊足外野手": {"走力": 6, "守備力": 2, "パワー": -3},
+        "強打外野手": {"パワー": 7, "走力": -2, "守備力": -2},
+        "守備外野手": {"肩力": 5, "守備力": 5, "捕球": 3, "ミート": -2},
     }
-    for k, v in style_mods.get(style, {}).items():
-        if k in mods:
-            mods[k] += v
-    if position == "三塁手":
-        if player_type == "長距離砲":
-            mods["パワー"] += 4
-            mods["守備力"] -= 2
-            mods["捕球"] -= 1
-        elif player_type == "強肩型":
-            mods["肩力"] += 4
-            mods["パワー"] += 1
-        elif player_type == "守備職人":
-            mods["守備力"] += 4
-            mods["捕球"] += 3
-            mods["肩力"] += 1
+    add_mod(values, position_mods.get(position, {}))
+    add_mod(values, style_mods.get(position_style, {}))
+
+
+def apply_fielder_development_mods(rng: random.Random, values: dict[str, int], development_stage: str) -> None:
+    if development_stage == "素材型":
+        values[rng.choice(["パワー", "走力", "肩力"])] += rng.randint(6, 11)
+        for key in TECHNICAL_FIELDER_KEYS:
+            values[key] -= rng.randint(3, 7)
+    elif development_stage == "即戦力型":
+        for key in TECHNICAL_FIELDER_KEYS:
+            values[key] += rng.randint(3, 6)
+        values["走力"] -= rng.randint(0, 3)
+
+
+def apply_fielder_acquisition_role_mods(values: dict[str, int], archetype: str, position_style: str, acquisition_role: str) -> None:
+    if not acquisition_role:
+        return
+    power_roles = {"主砲候補", "中軸候補"}
+    power_styles = {"強打一塁手", "強打三塁手", "強打外野手"}
+    if archetype == "長打" or acquisition_role in power_roles or position_style in power_styles:
+        values["パワー"] += 5 if acquisition_role == "主砲候補" else 3
+    if acquisition_role in {"内野守備補強", "ユーティリティ"}:
+        values["守備力"] += 4
+        values["捕球"] += 3
+        values["パワー"] -= 2
+    if acquisition_role == "外野補強":
+        values["肩力"] += 3
+        values["走力"] += 2
+    if acquisition_role == "保険要員":
+        values["守備力"] += 2
+        values["捕球"] += 2
+    if acquisition_role == "若手育成":
+        for key in TECHNICAL_FIELDER_KEYS:
+            values[key] -= 3
+
+
+def apply_fielder_weakness_profile(rng: random.Random, values: dict[str, int], weakness_profile: str) -> None:
+    if weakness_profile == "低ミート":
+        values["ミート"] -= rng.randint(8, 14)
+    elif weakness_profile == "低走力":
+        values["走力"] -= rng.randint(8, 15)
+    elif weakness_profile == "低守備":
+        values["守備力"] -= rng.randint(8, 14)
+    elif weakness_profile == "低捕球":
+        values["捕球"] -= rng.randint(8, 14)
+    elif weakness_profile == "送球不安":
+        values["肩力"] -= rng.randint(4, 8)
+        values[rng.choice(["捕球", "守備力"])] -= rng.randint(2, 5)
+
+
+def apply_fielder_variance(rng: random.Random, values: dict[str, int], category: str, development_stage: str) -> None:
+    spread = 12 if category in {"ドラフト候補用", "助っ人外国人用"} else 10
+    if development_stage == "素材型":
+        spread += 4
+    elif development_stage == "即戦力型":
+        spread = max(6, spread - 4)
+    for key in values:
+        values[key] += rng.randint(-spread, spread)
+
+
+def enforce_fielder_position_constraints(rng: random.Random, values: dict[str, int], position: str, position_style: str) -> None:
+    minimums = {
+        "捕手": {"肩力": 45, "守備力": 42, "捕球": 40},
+        "遊撃手": {"肩力": 50, "守備力": 45, "捕球": 38},
+        "二塁手": {"肩力": 40, "守備力": 42, "捕球": 40},
+        "三塁手": {"肩力": 48},
+        "一塁手": {"捕球": 36},
+    }
+    if position_style == "守備型捕手":
+        minimums["捕手"] = {"肩力": 58, "守備力": 50, "捕球": 50}
+    if position_style == "守備走塁遊撃手":
+        minimums["遊撃手"] = {"肩力": 58, "守備力": 52, "捕球": 45}
+    for key, minimum in minimums.get(position, {}).items():
+        values[key] = floor_value(rng, values[key], minimum)
+    if position == "捕手" and position_style != "打撃型捕手":
+        values["ミート"] = cap_value(rng, values["ミート"], 62)
+    if position == "遊撃手" and position_style != "強打遊撃手":
+        values["パワー"] = cap_value(rng, values["パワー"], 66)
+
+
+def preferred_fielder_keys(archetype: str, position_style: str) -> list[str]:
+    keys_by_archetype = {
+        "巧打": ["ミート"],
+        "長打": ["パワー"],
+        "俊足": ["走力"],
+        "守備": ["守備力", "捕球"],
+        "強肩": ["肩力"],
+        "バランス": [],
+    }
+    keys = list(keys_by_archetype.get(archetype, []))
+    style_keys = {
+        "打撃型捕手": ["ミート", "パワー"],
+        "強打一塁手": ["パワー"],
+        "強打三塁手": ["パワー", "肩力"],
+        "強打外野手": ["パワー"],
+        "俊足外野手": ["走力"],
+        "守備外野手": ["肩力", "守備力"],
+        "守備走塁二塁手": ["走力", "守備力", "捕球"],
+        "守備走塁遊撃手": ["走力", "肩力", "守備力"],
+    }
+    for key in style_keys.get(position_style, []):
+        if key not in keys:
+            keys.append(key)
+    return keys
+
+
+def fielder_high_rank_caps(category: str, age: int, player_class: str) -> tuple[int, int]:
+    if category == "ドラフト候補用":
+        if age <= 19:
+            return (0, 2 if player_class == "超上位候補" else 1)
+        if age <= 21:
+            return (1, 2 if player_class in {"超上位候補", "上位候補"} else 1)
+        return (1, 2 if player_class in {"超上位候補", "上位候補"} else 1)
     if category == "助っ人外国人用":
-        mods["パワー"] += 8
-        mods["ミート"] -= 2
-        if rng.random() < 0.35:
-            mods["守備力"] -= rng.randint(4, 9)
-            mods["捕球"] -= rng.randint(3, 8)
-        if player_type in ("巧打型", "守備職人"):
-            mods["パワー"] -= 3
-    elif category == "ドラフト候補用":
-        for k in ("ミート", "守備力", "捕球"):
-            mods[k] -= 2
-        if rng.random() < 0.16:
-            mods[rng.choice(["パワー", "走力", "肩力"])] += rng.randint(10, 18)
-    elif category == "架空球団用":
-        tier_mod = {"一軍級": 5, "控え級": 0, "二軍級": -7, "若手": -4, "ベテラン": 1}.get(roster_tier or "控え級", 0)
-        for k in mods:
-            mods[k] += tier_mod
+        return {
+            "大物実績者": (2, 4),
+            "主力期待級": (1, 2),
+            "レギュラー競争級": (0, 1),
+            "保険・バックアップ級": (0, 0),
+            "育成素材型": (0, 1),
+            "再生候補": (0, 1),
+        }.get(player_class, (0, 1))
+    if age <= 19:
+        return (1, 2 if player_class == "スター級" else 1)
+    if age <= 22:
+        return (1, 2 if player_class in {"スター級", "一軍主力級"} else 1)
+    return {
+        "スター級": (2, 4),
+        "一軍主力級": (1, 2),
+        "一軍控え級": (0, 1),
+        "二軍級": (0, 0),
+        "若手素材型": (1, 1),
+        "ベテラン型": (1, 2),
+    }.get(player_class, (0, 1))
+
+
+def enforce_fielder_high_rank_limits(
+    rng: random.Random,
+    values: dict[str, int],
+    category: str,
+    age: int,
+    player_class: str,
+    archetype: str,
+    position_style: str,
+    allow_foreign_allrounder: bool = False,
+) -> None:
+    if age <= 19:
+        for key in ("ミート", "守備力", "捕球"):
+            values[key] = cap_value(rng, values[key], 79)
+        for key in FIELDER_ABILITY_KEYS:
+            if key not in {"走力", "肩力"}:
+                values[key] = cap_value(rng, values[key], 89)
+        if category == "架空球団用":
+            for key in FIELDER_ABILITY_KEYS:
+                if values[key] >= 90 and not (player_class == "スター級" and key in {"走力", "肩力"} and rng.random() < 0.35):
+                    values[key] = rng.randint(80, 89)
+            young_a_reduce = 0.20 if player_class == "一軍主力級" else 0.55
+            if player_class != "スター級" and any(values[key] >= 80 for key in FIELDER_ABILITY_KEYS) and rng.random() < young_a_reduce:
+                for key in FIELDER_ABILITY_KEYS:
+                    values[key] = cap_value(rng, values[key], rng.randint(75, 79))
     if age >= 35:
-        decline = rng.randint(5, 10) if not veteran_keep else rng.randint(2, 5)
-        mods["走力"] -= decline + 3
-        mods["守備力"] -= decline
-        mods["肩力"] -= max(1, decline - 2)
-        mods["捕球"] -= max(0, decline - 3)
-        if player_type == "巧打型":
-            mods["ミート"] += 4
-        mods["パワー"] += 2
-    elif 30 <= age <= 34:
-        mods["走力"] -= rng.randint(2, 5)
-        mods["守備力"] -= rng.randint(1, 4)
-    elif age <= 22 and not (category == "ドラフト候補用" and rng.random() < 0.10):
-        for k in ("ミート", "パワー", "守備力", "捕球"):
-            mods[k] -= 2
-    category_tune = {
-        "架空球団用": {"ミート": -5, "パワー": 0, "走力": 4, "肩力": 3, "守備力": -4, "捕球": -4},
-        "ドラフト候補用": {"ミート": -5, "パワー": 0, "走力": 5, "肩力": 2, "守備力": -5, "捕球": -3},
-        "助っ人外国人用": {"ミート": -6, "パワー": 0, "走力": 5, "肩力": 3, "守備力": -5, "捕球": -3},
+        values["走力"] = cap_value(rng, values["走力"], 78)
+        values["肩力"] = cap_value(rng, values["肩力"], 89)
+    if player_class == "二軍級":
+        for key in FIELDER_ABILITY_KEYS:
+            values[key] = cap_value(rng, values[key], 79)
+    if player_class == "保険・バックアップ級":
+        for key in FIELDER_ABILITY_KEYS:
+            values[key] = cap_value(rng, values[key], 79)
+    if category == "助っ人外国人用" and player_class not in {"大物実績者", "主力期待級"} and values.get("パワー", 0) >= 90 and rng.random() < 0.7:
+        values["パワー"] = rng.randint(80, 89)
+    if category == "助っ人外国人用" and player_class == "主力期待級" and values.get("パワー", 0) >= 90 and rng.random() < 0.3:
+        values["パワー"] = rng.randint(84, 89)
+    preferred = preferred_fielder_keys(archetype, position_style)
+    max_s, max_a = fielder_high_rank_caps(category, age, player_class)
+    if allow_foreign_allrounder:
+        max_a += 1
+    s_keys = sorted([key for key in FIELDER_ABILITY_KEYS if values[key] >= 90], key=lambda key: (key not in preferred, values[key]))
+    trim_s_keys = s_keys[:-max_s] if max_s else s_keys
+    for key in trim_s_keys:
+        values[key] = rng.randint(80, 89) if max_a > 0 and key in preferred else rng.randint(70, 79)
+    a_keys = sorted([key for key in FIELDER_ABILITY_KEYS if values[key] >= 80], key=lambda key: (key not in preferred, values[key]))
+    while len(a_keys) > max_a:
+        key = next((candidate for candidate in a_keys if candidate not in preferred), a_keys[0])
+        values[key] = rng.randint(65, 79)
+        a_keys = sorted([candidate for candidate in FIELDER_ABILITY_KEYS if values[candidate] >= 80], key=lambda candidate: (candidate not in preferred, values[candidate]))
+
+
+def restrict_foreign_all_rounder(
+    rng: random.Random,
+    values: dict[str, int],
+    player_class: str,
+    archetype: str,
+    position_style: str,
+    age: int,
+    allow_foreign_allrounder: bool = False,
+) -> None:
+    def is_allrounder() -> bool:
+        return all(values[key] >= 70 for key in ("ミート", "パワー", "走力", "守備力")) or sum(values[key] >= 70 for key in FIELDER_ABILITY_KEYS) >= 4
+
+    if allow_foreign_allrounder or not is_allrounder():
+        return
+    protected = set(preferred_fielder_keys(archetype, position_style))
+    candidates = [key for key in FIELDER_ABILITY_KEYS if key not in protected and values[key] >= 70]
+    rng.shuffle(candidates)
+    while is_allrounder():
+        if not candidates:
+            candidates = [key for key in FIELDER_ABILITY_KEYS if values[key] >= 70]
+            rng.shuffle(candidates)
+        if not candidates:
+            break
+        key = candidates.pop()
+        values[key] = rng.randint(65, 69)
+
+
+def is_foreign_allrounder_allowed(category: str, player_class: str, age: int, archetype: str, position_style: str) -> bool:
+    return (
+        category == "助っ人外国人用"
+        and player_class in {"大物実績者", "主力期待級"}
+        and 25 <= age <= 31
+        and archetype == "バランス"
+        and position_style in FOREIGN_ALLROUNDER_STYLES
+    )
+
+
+def choose_foreign_allrounder_candidate(rng: random.Random, category: str, player_class: str, age: int, archetype: str, position_style: str) -> bool:
+    return is_foreign_allrounder_allowed(category, player_class, age, archetype, position_style) and rng.random() < FOREIGN_ALLROUNDER_FINAL_CHANCE
+
+
+def encourage_foreign_allrounder(rng: random.Random, values: dict[str, int], allow_foreign_allrounder: bool) -> None:
+    if not allow_foreign_allrounder:
+        return
+    core = ["ミート", "パワー", "走力", "守備力", "肩力", "捕球"]
+    current_high = [key for key in core if values[key] >= 70]
+    needed = max(0, 4 - len(current_high))
+    candidates = [key for key in core if key not in current_high]
+    rng.shuffle(candidates)
+    for key in candidates[:needed]:
+        values[key] = max(values[key], rng.randint(70, 76))
+    # すでに万能型に近い候補は、一律化せず周辺能力を少しだけ底上げする。
+    for key in rng.sample(core, k=rng.randint(1, 2)):
+        if 62 <= values[key] < 70:
+            values[key] = rng.randint(68, 73)
+
+
+def finalize_fielder_values(
+    rng: random.Random,
+    values: dict[str, int],
+    category: str,
+    age: int,
+    position: str,
+    player_class: str,
+    archetype: str,
+    position_style: str,
+    allow_foreign_allrounder: bool = False,
+) -> None:
+    minimum_by_archetype = {
+        "長打": ("パワー", 50),
+        "俊足": ("走力", 55),
+        "守備": ("守備力", 50),
+        "強肩": ("肩力", 55),
     }
-    position_tune = {
-        "捕手": {"ミート": -3, "守備力": -4, "捕球": -2, "走力": -1},
-        "二塁手": {"ミート": -1, "パワー": -1, "走力": 1, "守備力": 1, "捕球": 1},
-        "遊撃手": {"ミート": -1, "パワー": 0, "走力": 0, "守備力": -3, "捕球": -2},
-        "外野手": {"ミート": -2, "パワー": 1, "走力": 3, "肩力": 2},
-        "一塁手": {"ミート": -1, "パワー": 1, "走力": 1, "肩力": 1, "守備力": 1},
-        "三塁手": {"ミート": -4, "パワー": 3, "守備力": -1, "捕球": -1},
-    }
-    for tune in (category_tune.get(category, {}), position_tune.get(position, {})):
-        for k, v in tune.items():
-            mods[k] += v
-    result = {k: ability(base + v) for k, v in mods.items()}
-    if position == "捕手":
-        result["肩力"] = ability(max(result["肩力"]["value"], 45))
-        result["守備力"] = ability(max(result["守備力"]["value"], 42))
-        result["捕球"] = ability(max(result["捕球"]["value"], 40))
-        if result["肩力"]["value"] >= 65:
-            result["守備力"] = ability(max(result["守備力"]["value"], 44))
-            result["捕球"] = ability(max(result["捕球"]["value"], 42))
-    elif position == "遊撃手":
-        result["肩力"] = ability(max(result["肩力"]["value"], 48))
-        result["守備力"] = ability(max(result["守備力"]["value"], 42))
-        result["捕球"] = ability(max(result["捕球"]["value"], 36))
-    elif position == "二塁手":
-        result["肩力"] = ability(max(result["肩力"]["value"], 42))
-    elif position == "三塁手":
-        result["肩力"] = ability(max(result["肩力"]["value"], 48))
-    elif position == "一塁手":
-        if result["パワー"]["value"] >= 62:
-            result["走力"] = ability(max(result["走力"]["value"], 38))
-            result["肩力"] = ability(max(result["肩力"]["value"], 45))
-            result["守備力"] = ability(max(result["守備力"]["value"], 36))
-        elif result["パワー"]["value"] < 42:
-            result["ミート"] = ability(max(result["ミート"]["value"], 45 if player_type in {"巧打型", "バランス型"} else result["ミート"]["value"]))
-            result["守備力"] = ability(max(result["守備力"]["value"], 48 if player_type in {"守備職人", "バランス型"} else 40))
-            result["捕球"] = ability(max(result["捕球"]["value"], 45))
-    if position == "捕手":
-        if player_type == "巧打型":
-            meet_cap = 66 if 24 <= age <= 31 and (result["パワー"]["value"] >= 52 or style == "打撃型捕手") else 60
-            result["ミート"] = ability(min(result["ミート"]["value"], meet_cap))
-        elif player_type in {"守備職人", "強肩型", "俊足型"} or age <= 22:
-            result["ミート"] = ability(min(result["ミート"]["value"], 49))
-        elif player_type == "長距離砲":
-            result["ミート"] = ability(min(result["ミート"]["value"], 56 if style == "打撃型捕手" else 49))
-        else:
-            result["ミート"] = ability(min(result["ミート"]["value"], 56))
-    if position == "捕手" and player_type != "守備職人":
-        result["守備力"] = ability(min(result["守備力"]["value"], 64))
-    if position == "遊撃手" and player_type not in {"長距離砲", "バランス型"}:
-        result["パワー"] = ability(min(result["パワー"]["value"], 62))
-    if position == "遊撃手" and player_type != "巧打型":
-        result["ミート"] = ability(min(result["ミート"]["value"], 58))
-    power = result["パワー"]["value"]
-    result["弾道"] = 4 if power >= 76 else 3 if power >= 57 else 2 if power >= 38 else 1
-    if style in {"強打一塁手", "強打三塁手", "強打外野手"} and power >= 55:
-        result["弾道"] = min(4, result["弾道"] + 1)
+    if archetype in minimum_by_archetype:
+        key, minimum = minimum_by_archetype[archetype]
+        values[key] = floor_value(rng, values[key], minimum)
+    if archetype == "守備":
+        values["捕球"] = floor_value(rng, values["捕球"], 50)
+    enforce_fielder_position_constraints(rng, values, position, position_style)
+    encourage_foreign_allrounder(rng, values, allow_foreign_allrounder)
+    if category == "助っ人外国人用":
+        restrict_foreign_all_rounder(rng, values, player_class, archetype, position_style, age, allow_foreign_allrounder)
+    enforce_fielder_high_rank_limits(rng, values, category, age, player_class, archetype, position_style, allow_foreign_allrounder)
+    if category == "助っ人外国人用":
+        restrict_foreign_all_rounder(rng, values, player_class, archetype, position_style, age, allow_foreign_allrounder)
+    if age >= 35:
+        values["走力"] = cap_value(rng, values["走力"], 78)
+    for key in values:
+        values[key] = clamp(values[key])
+
+
+def determine_trajectory(power: int, archetype: str, position: str, position_style: str) -> int:
+    trajectory = 4 if power >= 80 else 3 if power >= 58 else 2 if power >= 38 else 1
+    if (archetype == "長打" or position_style in {"強打一塁手", "強打三塁手", "強打外野手"}) and power >= 55:
+        trajectory = min(4, trajectory + 1)
     if position in {"一塁手", "三塁手"} and power >= 52:
-        result["弾道"] = max(result["弾道"], 3)
-    elif position == "遊撃手":
-        result["弾道"] = max(result["弾道"], 2)
+        trajectory = max(trajectory, 3)
+    if position == "遊撃手":
+        trajectory = max(trajectory, 2)
+    return trajectory
+
+
+def audit_fielder_values(
+    rng: random.Random,
+    values: dict[str, int],
+    category: str,
+    age: int,
+    position: str,
+    player_class: str,
+    archetype: str,
+    position_style: str,
+    allow_foreign_allrounder: bool = False,
+) -> None:
+    finalize_fielder_values(rng, values, category, age, position, player_class, archetype, position_style, allow_foreign_allrounder)
+
+
+def generate_fielder_abilities(
+    rng: random.Random,
+    age: int,
+    position: str,
+    player_type: str,
+    category: str,
+    position_style: str = "",
+    roster_tier: str = "",
+    *,
+    player_class: str = "",
+    archetype: str = "",
+    development_stage: str = "",
+    acquisition_role: str = "",
+    weakness_profile: str = "",
+    allow_foreign_allrounder: bool = False,
+) -> dict[str, Any]:
+    archetype = archetype or legacy_archetype_from_player_type("野手", player_type) or "バランス"
+    player_class = player_class or player_class_from_legacy_roster_tier(roster_tier) or "一軍控え級"
+    position_style = position_style or FIELDER_STYLE_DEFAULTS.get(position, "平均型")
+    values = {key: 48 for key in FIELDER_ABILITY_KEYS}
+    add_mod(values, fielder_age_mods(age, archetype, player_class))
+    apply_fielder_player_class_mods(values, category, player_class)
+    if category == "架空球団用":
+        if 23 <= age <= 29:
+            for key in FIELDER_ABILITY_KEYS:
+                values[key] += 4
+        elif 30 <= age <= 34:
+            for key in FIELDER_ABILITY_KEYS:
+                values[key] += 2
+        values["走力"] += 4 if age < 35 else 0
+        values["肩力"] += 2
+        values["パワー"] += 2
+    apply_fielder_archetype_mods(rng, values, archetype)
+    apply_fielder_position_mods(values, position, position_style)
+    apply_fielder_development_mods(rng, values, development_stage)
+    apply_fielder_acquisition_role_mods(values, archetype, position_style, acquisition_role)
+    apply_fielder_weakness_profile(rng, values, weakness_profile)
+    apply_fielder_variance(rng, values, category, development_stage)
+    finalize_fielder_values(rng, values, category, age, position, player_class, archetype, position_style, allow_foreign_allrounder)
+    result = ability_values(values)
+    result["弾道"] = determine_trajectory(values["パワー"], archetype, position, position_style)
     return result
 
 
@@ -1177,70 +1560,254 @@ def pitcher_aptitude_text(player: dict[str, Any]) -> str:
     return " / ".join(f"{PITCHER_APTITUDE_LABELS[key]}{values.get(key, '-') or '-'}" for key in PITCHER_APTITUDE_KEYS)
 
 
-def generate_pitcher_abilities(rng: random.Random, age: int, player_type: str, category: str, aptitudes: dict[str, str]) -> dict[str, Any]:
-    veteran_keep = age >= 35 and (player_type == "技巧派" or rng.random() < 0.12)
-    prime = 2 if 23 <= age <= 29 else 1 if 30 <= age <= 34 else -2 if age <= 19 else -1 if age <= 22 or (age >= 35 and not veteran_keep) else 0
-    speed = rng.randint(138, 149) + prime * 2 + (6 if player_type == "速球派" else 0) - (3 if player_type == "技巧派" else 0)
-    speed += {"架空球団用": 4, "ドラフト候補用": 3, "助っ人外国人用": 6}.get(category, 0)
-    reliever = aptitudes.get("reliever_aptitude", "-")
-    closer = aptitudes.get("closer_aptitude", "-")
-    starter = aptitudes.get("starter_aptitude", "-")
-    speed += 1 if reliever == "◎" else 0
-    speed += 2 if closer == "◎" else 1 if closer == "○" else 0
-    speed += 1 if reliever == "○" or starter == "○" else 0
-    control = 48 + rng.randint(-14, 16) + (16 if player_type == "技巧派" else 0) + (2 if closer == "◎" else 1 if closer == "○" else 0)
-    stamina = 48 + rng.randint(-14, 16) + (18 if player_type == "スタミナ型" else 0)
-    stamina += 12 if starter == "◎" else 5 if starter == "○" else 0
-    stamina -= 5 if closer == "◎" else 2 if closer == "○" else 0
+def pitcher_age_mods(age: int, archetype: str, player_class: str) -> dict[str, int]:
+    mods = {
+        "球速": curve_delta(age, [(18, 0), (22, 2), (28, 4), (34, 0), (36, -4)]),
+        "コントロール": curve_delta(age, [(18, -8), (21, -4), (29, 4), (35, 6), (36, 3)]),
+        "スタミナ": curve_delta(age, [(18, -5), (23, 0), (30, 5), (34, 0), (36, -5)]),
+    }
+    if player_class == "ベテラン型" or (age >= 34 and archetype in {"制球", "変化球"}):
+        mods["球速"] -= 2
+        mods["コントロール"] += 3
+    return mods
+
+
+def apply_pitcher_player_class_mods(values: dict[str, int], category: str, player_class: str) -> None:
+    mods = {
+        "架空球団用": {
+            "スター級": {"球速": 4, "コントロール": 10, "スタミナ": 8},
+            "一軍主力級": {"球速": 2, "コントロール": 5, "スタミナ": 4},
+            "一軍控え級": {"球速": 0, "コントロール": 0, "スタミナ": 0},
+            "二軍級": {"球速": -5, "コントロール": -9, "スタミナ": -7},
+            "若手素材型": {"球速": 1, "コントロール": -8, "スタミナ": -5},
+            "ベテラン型": {"球速": -5, "コントロール": 4, "スタミナ": -2},
+        },
+        "ドラフト候補用": {
+            "超上位候補": {"球速": 4, "コントロール": 4, "スタミナ": 3},
+            "上位候補": {"球速": 2, "コントロール": 1, "スタミナ": 1},
+            "中位候補": {"球速": 0, "コントロール": -3, "スタミナ": -2},
+            "下位候補": {"球速": -2, "コントロール": -7, "スタミナ": -5},
+            "育成候補": {"球速": -1, "コントロール": -10, "スタミナ": -7},
+        },
+        "助っ人外国人用": {
+            "大物実績者": {"球速": 3, "コントロール": 8, "スタミナ": 5},
+            "主力期待級": {"球速": 2, "コントロール": 4, "スタミナ": 2},
+            "レギュラー競争級": {"球速": 1, "コントロール": -1, "スタミナ": -1},
+            "保険・バックアップ級": {"球速": -2, "コントロール": -7, "スタミナ": -5},
+            "育成素材型": {"球速": 1, "コントロール": -10, "スタミナ": -8},
+            "再生候補": {"球速": -4, "コントロール": 0, "スタミナ": -4},
+        },
+    }
+    add_mod(values, mods.get(category, {}).get(player_class, {}))
+
+
+def apply_pitcher_archetype_mods(rng: random.Random, values: dict[str, int], archetype: str, role: str) -> None:
+    if archetype == "総合":
+        add_mod(values, {"球速": rng.randint(0, 2), "コントロール": rng.randint(2, 5), "スタミナ": rng.randint(1, 4)})
+    elif archetype == "制球":
+        add_mod(values, {"球速": -rng.randint(1, 4), "コントロール": rng.randint(8, 14)})
+    elif archetype == "速球":
+        add_mod(values, {"球速": rng.randint(4, 8), "コントロール": -rng.randint(3, 8)})
+    elif archetype == "変化球":
+        add_mod(values, {"球速": -rng.randint(1, 4), "コントロール": rng.randint(0, 3)})
+    elif archetype == "スタミナ" and role != "抑え":
+        add_mod(values, {"スタミナ": rng.randint(10, 16)})
+
+
+def apply_pitcher_role_mods(values: dict[str, int], role: str, position_style: str) -> None:
+    if role == "先発":
+        add_mod(values, {"球速": -1, "コントロール": 2, "スタミナ": 11})
+    elif role == "中継ぎ":
+        add_mod(values, {"球速": 2, "コントロール": -2, "スタミナ": -8})
+    elif role == "抑え":
+        add_mod(values, {"球速": 3, "コントロール": -1, "スタミナ": -14})
+    if position_style == "ロングリリーフ型":
+        add_mod(values, {"球速": -1, "コントロール": 2, "スタミナ": 7})
+
+
+def apply_pitcher_development_mods(rng: random.Random, values: dict[str, int], development_stage: str, archetype: str) -> None:
+    if development_stage == "素材型":
+        if archetype == "変化球":
+            values["球速"] -= rng.randint(1, 3)
+        else:
+            values["球速"] += rng.randint(1, 4)
+        values["コントロール"] -= rng.randint(5, 10)
+        values["スタミナ"] -= rng.randint(1, 4)
+    elif development_stage == "即戦力型":
+        values["コントロール"] += rng.randint(4, 8)
+        values["スタミナ"] += rng.randint(2, 5)
+        values["球速"] -= rng.randint(0, 2)
+
+
+def apply_pitcher_acquisition_role_mods(values: dict[str, int], acquisition_role: str) -> None:
+    if acquisition_role == "先発候補":
+        add_mod(values, {"コントロール": 3, "スタミナ": 5})
+    elif acquisition_role == "勝ちパターン候補":
+        add_mod(values, {"球速": 2, "コントロール": 1, "スタミナ": -4})
+    elif acquisition_role == "クローザー候補":
+        add_mod(values, {"球速": 3, "スタミナ": -8})
+    elif acquisition_role == "ロングリリーフ":
+        add_mod(values, {"コントロール": 2, "スタミナ": 7})
+    elif acquisition_role == "若手育成":
+        add_mod(values, {"球速": 1, "コントロール": -5, "スタミナ": -3})
+    elif acquisition_role == "再生候補":
+        add_mod(values, {"球速": -3, "コントロール": 1, "スタミナ": -4})
+
+
+def apply_pitcher_weakness_profile(rng: random.Random, values: dict[str, int], weakness_profile: str) -> None:
+    if weakness_profile == "低制球":
+        values["コントロール"] -= rng.randint(10, 18)
+    elif weakness_profile == "スタミナ不足":
+        values["スタミナ"] -= rng.randint(10, 18)
+    elif weakness_profile == "球速不足":
+        values["球速"] -= rng.randint(4, 8)
+    elif weakness_profile == "安定性不安":
+        values["コントロール"] -= rng.randint(3, 7)
+
+
+def apply_pitcher_variance(rng: random.Random, values: dict[str, int], category: str, development_stage: str, weakness_profile: str) -> None:
+    speed_spread = 3 if category != "助っ人外国人用" else 4
+    ability_spread = 10 if category != "架空球団用" else 8
+    if development_stage == "素材型" or weakness_profile == "安定性不安":
+        ability_spread += 4
+    elif development_stage == "即戦力型":
+        ability_spread = max(6, ability_spread - 3)
+    values["球速"] += rng.randint(-speed_spread, speed_spread)
+    values["コントロール"] += rng.randint(-ability_spread, ability_spread)
+    values["スタミナ"] += rng.randint(-ability_spread, ability_spread)
+
+
+def pitcher_fastball_allowed(category: str, age: int, player_class: str, archetype: str, position_style: str, weakness_profile: str) -> bool:
+    return (
+        player_class in {"スター級", "一軍主力級", "超上位候補", "大物実績者", "主力期待級"}
+        and archetype == "速球"
+        and (position_style in {"剛腕中継ぎ", "剛腕クローザー", "速球型先発"} or category != "架空球団用")
+        and weakness_profile != "球速不足"
+        and player_class not in {"二軍級", "ベテラン型"}
+        and age < 35
+    )
+
+
+def finalize_pitcher_values(
+    rng: random.Random,
+    values: dict[str, int],
+    category: str,
+    age: int,
+    player_class: str,
+    archetype: str,
+    position_style: str,
+    role: str,
+    weakness_profile: str,
+) -> None:
+    if archetype == "速球":
+        values["球速"] = floor_value(rng, values["球速"], 145)
+    elif archetype == "制球":
+        values["コントロール"] = floor_value(rng, values["コントロール"], 50)
+    elif archetype == "スタミナ" and role != "抑え":
+        values["スタミナ"] = floor_value(rng, values["スタミナ"], 55)
+    if role == "抑え":
+        values["スタミナ"] = cap_value(rng, values["スタミナ"], 69)
+    if player_class in {"二軍級", "保険・バックアップ級"}:
+        values["球速"] = cap_value(rng, values["球速"], 154)
+        values["コントロール"] = cap_value(rng, values["コントロール"], 79)
+        values["スタミナ"] = cap_value(rng, values["スタミナ"], 79)
+    if player_class == "二軍級":
+        values["スタミナ"] = cap_value(rng, values["スタミナ"], 74)
+    if category == "ドラフト候補用" and age <= 19:
+        if player_class == "超上位候補" and archetype == "速球" and rng.random() < 0.05:
+            values["球速"] = cap_value(rng, values["球速"], rng.randint(155, 158))
+        else:
+            values["球速"] = cap_value(rng, values["球速"], 154)
+        values["コントロール"] = cap_value(rng, values["コントロール"], 79)
+        values["スタミナ"] = cap_value(rng, values["スタミナ"], 79)
+    if values["球速"] >= 160 and not pitcher_fastball_allowed(category, age, player_class, archetype, position_style, weakness_profile):
+        values["球速"] = cap_value(rng, values["球速"], rng.randint(154, 159) if archetype == "速球" and player_class not in {"二軍級", "ベテラン型"} else rng.randint(149, 154))
+    if category == "助っ人外国人用" and values["球速"] >= 160 and rng.random() < 0.35:
+        values["球速"] = rng.randint(156, 159)
+    if category == "架空球団用" and values["球速"] >= 160 and rng.random() < 0.45:
+        values["球速"] = rng.randint(157, 159)
+    if archetype in {"制球", "変化球", "スタミナ"} or player_class == "ベテラン型" or age >= 35:
+        values["球速"] = cap_value(rng, values["球速"], 159)
     if age >= 35:
-        speed -= rng.randint(3, 6) if not veteran_keep else rng.randint(1, 3)
-        stamina -= rng.randint(4, 9) if not veteran_keep else rng.randint(0, 3)
-        if player_type == "技巧派":
-            control += 5
-    elif 30 <= age <= 34:
-        speed -= rng.randint(0, 2)
-        stamina -= rng.randint(1, 4)
-    elif age <= 22 and not (category == "ドラフト候補用" and rng.random() < 0.12):
-        control -= rng.randint(2, 6)
-        stamina -= rng.randint(1, 4)
+        values["球速"] = cap_value(rng, values["球速"], 156)
+        values["スタミナ"] -= rng.randint(0, 3)
+    if values["球速"] >= 155 and values["コントロール"] >= 70:
+        values["コントロール"] = rng.randint(60, 69) if archetype != "制球" else values["コントロール"]
+    values["球速"] = clamp(values["球速"], 125, 165)
+    values["コントロール"] = clamp(values["コントロール"])
+    values["スタミナ"] = clamp(values["スタミナ"])
 
+
+def audit_pitcher_values(
+    rng: random.Random,
+    values: dict[str, int],
+    category: str,
+    age: int,
+    player_class: str,
+    archetype: str,
+    position_style: str,
+    role: str,
+    weakness_profile: str,
+) -> None:
+    finalize_pitcher_values(rng, values, category, age, player_class, archetype, position_style, role, weakness_profile)
+
+
+def shape_pitcher_speed_distribution(
+    rng: random.Random,
+    values: dict[str, int],
+    category: str,
+    age: int,
+    player_class: str,
+    archetype: str,
+    position_style: str,
+    weakness_profile: str,
+) -> None:
+    if category != "架空球団用" or values["球速"] < 155:
+        return
+    if values["球速"] >= 160:
+        return
+    if not pitcher_fastball_allowed(category, age, player_class, archetype, position_style, weakness_profile):
+        if rng.random() < 0.65:
+            values["球速"] = rng.randint(149, 154)
+        return
+    if archetype != "速球" and rng.random() < 0.35:
+        values["球速"] = rng.randint(151, 154)
+
+
+def generate_pitcher_abilities(
+    rng: random.Random,
+    age: int,
+    player_type: str,
+    category: str,
+    aptitudes: dict[str, str],
+    *,
+    player_class: str = "",
+    archetype: str = "",
+    position_style: str = "",
+    development_stage: str = "",
+    acquisition_role: str = "",
+    weakness_profile: str = "",
+) -> dict[str, Any]:
+    archetype = archetype or legacy_archetype_from_player_type("投手", player_type) or "総合"
+    player_class = player_class or "一軍控え級"
     role = primary_pitcher_role(aptitudes)
+    position_style = position_style or PITCHER_POSITION_STYLE_BY_ROLE.get(role, {}).get(archetype, "")
+    values = {"球速": 145, "コントロール": 48, "スタミナ": 48}
+    add_mod(values, pitcher_age_mods(age, archetype, player_class))
+    apply_pitcher_player_class_mods(values, category, player_class)
     if category == "架空球団用":
-        if role == "先発":
-            speed += 2 if player_type == "速球派" else 1
-            control += 4 if player_type == "技巧派" else 3 if player_type in {"本格派", "変化球派"} else 2
-            stamina -= 2 if player_type == "スタミナ型" else 4
-            if starter == "○":
-                speed -= 1
-                control -= 1
-                stamina -= 1
-        elif role == "中継ぎ":
-            speed += 3 if player_type == "速球派" else 2 if player_type in {"本格派", "変化球派"} else 1
-            control -= 2 if player_type == "技巧派" else 4 if player_type == "変化球派" else 6
-            stamina -= 2 if starter == "○" or player_type == "スタミナ型" else 4
-        elif role == "抑え":
-            speed += 4 if player_type == "速球派" else 3 if player_type == "本格派" else 2
-            control -= 1 if player_type == "技巧派" else 2 if player_type == "変化球派" else 3
-    elif category == "ドラフト候補用":
-        if role == "抑え":
-            speed += 3 if player_type == "速球派" else 1 if player_type == "本格派" else 0
-        elif role in {"先発", "中継ぎ"} and player_type == "速球派" and age >= 22:
-            speed += 1
-        if role == "中継ぎ" and player_type != "スタミナ型" and starter != "○":
-            stamina -= 2
-        elif role == "先発" and player_type != "スタミナ型":
-            stamina -= 1
-    elif category == "助っ人外国人用":
-        if role == "先発":
-            control += 3 if player_type == "技巧派" else 2
-            stamina -= 2 if player_type != "スタミナ型" else 1
-        elif role == "中継ぎ":
-            control -= 2 if player_type == "技巧派" else 4
-            stamina -= 2 if starter == "○" or player_type == "スタミナ型" else 4
-        elif role == "抑え":
-            control -= 1 if player_type == "技巧派" else 2
-
-    return {"球速": f"{max(125, min(165, speed))} km/h", "コントロール": ability(control), "スタミナ": ability(stamina), **aptitudes}
+        values["球速"] += 5
+        if player_class in {"スター級", "一軍主力級"}:
+            values["コントロール"] += 2
+    apply_pitcher_archetype_mods(rng, values, archetype, role)
+    apply_pitcher_role_mods(values, role, position_style)
+    apply_pitcher_development_mods(rng, values, development_stage, archetype)
+    apply_pitcher_acquisition_role_mods(values, acquisition_role)
+    apply_pitcher_weakness_profile(rng, values, weakness_profile)
+    apply_pitcher_variance(rng, values, category, development_stage, weakness_profile)
+    shape_pitcher_speed_distribution(rng, values, category, age, player_class, archetype, position_style, weakness_profile)
+    finalize_pitcher_values(rng, values, category, age, player_class, archetype, position_style, role, weakness_profile)
+    return {"球速": f"{values['球速']} km/h", "コントロール": ability(values["コントロール"]), "スタミナ": ability(values["スタミナ"]), **aptitudes}
 
 
 DIRECTION_NAMES = {
@@ -1321,20 +1888,43 @@ def weighted_breaking_names(rng: random.Random, direction_code: str, player_type
             choices.append((ball["name"], weight))
     return weighted_choice(rng, choices)
 
-def second_pitch_chance(player_type: str, category: str, aptitudes: dict[str, str]) -> float:
+def second_pitch_chance(
+    player_type: str,
+    category: str,
+    aptitudes: dict[str, str],
+    *,
+    age: int | None = None,
+    player_class: str = "",
+    archetype: str = "",
+    development_stage: str = "",
+    acquisition_role: str = "",
+) -> float:
+    archetype = archetype or legacy_archetype_from_player_type("投手", player_type)
     if category == "ドラフト候補用":
-        chance = 0.17
+        chance = 0.10
     elif category == "助っ人外国人用":
-        chance = 0.74
+        chance = 0.42
     else:
-        chance = 0.44
+        chance = 0.28
     if aptitudes.get("starter_aptitude") == "◎":
-        chance += 0.025
+        chance += 0.03
     if aptitudes.get("closer_aptitude") == "◎":
-        chance -= 0.025
-    if player_type in {"変化球派", "技巧派"}:
-        chance += 0.015
-    return max(0.05, min(0.85, chance))
+        chance -= 0.04
+    if archetype in {"変化球", "制球"}:
+        chance += 0.08
+    if player_class in {"スター級", "一軍主力級", "大物実績者"}:
+        chance += 0.04
+    if player_class in {"二軍級", "育成候補"}:
+        chance -= 0.08
+    if development_stage == "素材型":
+        chance -= 0.08
+    elif development_stage == "即戦力型":
+        chance += 0.05
+    if acquisition_role in {"先発候補", "再生候補"}:
+        chance += 0.03
+    if age is not None and age <= 19:
+        chance -= 0.08
+    return max(0.02, min(0.58, chance))
 
 
 def make_breaking_ball(name: str, movement: int, is_second_pitch: bool, slot: int) -> dict[str, Any]:
@@ -1368,25 +1958,58 @@ def generate_second_fastball(rng: random.Random, player_type: str, category: str
     return {"name": name, "direction_code": None, "direction": "ストレート系第二種", "movement": 0, "level": 0, "is_second_pitch": False, "slot": None, "kind": "second_fastball"}
 
 
-def pitch_count_weights(player_type: str, category: str, aptitudes: dict[str, str]) -> list[tuple[int, int]]:
+def pitch_count_weights(
+    player_type: str,
+    category: str,
+    aptitudes: dict[str, str],
+    *,
+    age: int | None = None,
+    player_class: str = "",
+    archetype: str = "",
+    development_stage: str = "",
+    weakness_profile: str = "",
+) -> list[tuple[int, int]]:
+    archetype = archetype or legacy_archetype_from_player_type("投手", player_type)
+    role = primary_pitcher_role(aptitudes)
     if category == "ドラフト候補用":
-        weights = {1: 14, 2: 56, 3: 29, 4: 1}
+        if age is not None and age <= 19:
+            weights = {2: 70, 3: 30, 4: 0}
+        elif age is not None and age <= 21:
+            weights = {2: 55, 3: 44, 4: 1}
+        else:
+            weights = {2: 38, 3: 58, 4: 4}
     elif category == "助っ人外国人用":
-        weights = {1: 3, 2: 24, 3: 63, 4: 10}
+        weights = {2: 36, 3: 57, 4: 7}
     else:
-        weights = {1: 2, 2: 45, 3: 52, 4: 1}
-    if aptitudes.get("starter_aptitude") == "◎":
-        weights[1] -= 4; weights[2] += 2; weights[3] += 2
-    if aptitudes.get("reliever_aptitude") == "◎" and aptitudes.get("starter_aptitude") != "◎":
-        weights[1] += 2; weights[3] -= 2
-    if aptitudes.get("closer_aptitude") == "◎" and aptitudes.get("starter_aptitude") != "◎":
-        weights[1] -= 2; weights[2] += 5; weights[3] -= 3
-    if player_type == "変化球派":
-        weights[1] -= 4; weights[2] -= 1; weights[3] += 4; weights[4] += 1
-    return [(count, max(1, weight)) for count, weight in weights.items()]
+        if age is not None and age <= 19:
+            weights = {2: 70, 3: 29, 4: 1}
+        elif age is not None and age <= 22:
+            weights = {2: 55, 3: 44, 4: 1}
+        elif age is not None and age <= 29:
+            weights = {2: 40, 3: 55, 4: 5}
+        else:
+            weights = {2: 48, 3: 48, 4: 4}
+    if role == "先発":
+        weights[2] -= 8; weights[3] += 6; weights[4] += 2
+    elif role in {"中継ぎ", "抑え"}:
+        weights[2] += 8; weights[3] -= 6; weights[4] -= 2
+    if archetype == "変化球":
+        weights[2] -= 10; weights[3] += 7; weights[4] += 3
+    elif archetype == "速球":
+        weights[2] += 8; weights[3] -= 6; weights[4] -= 2
+    if development_stage == "素材型":
+        weights[2] += 10; weights[3] -= 8; weights[4] -= 2
+    elif development_stage == "即戦力型":
+        weights[2] -= 5; weights[3] += 4; weights[4] += 1
+    if weakness_profile == "球種不足":
+        weights = {2: 100, 3: 0, 4: 0}
+    if player_class in {"スター級", "大物実績者"} and role == "先発":
+        weights[4] += 2
+    return [(count, max(0, weight)) for count, weight in weights.items() if weight > 0]
 
 
-def movement_weights(player_type: str, category: str, aptitudes: dict[str, str], count: int) -> list[tuple[int, int]]:
+def movement_weights(player_type: str, category: str, aptitudes: dict[str, str], count: int, *, archetype: str = "", weakness_profile: str = "") -> list[tuple[int, int]]:
+    archetype = archetype or legacy_archetype_from_player_type("投手", player_type)
     weights = {1: 12, 2: 36, 3: 34, 4: 15, 5: 3, 6: 0}
     if count == 1:
         weights[1] += 4; weights[2] += 4; weights[4] += 4; weights[5] += 2
@@ -1398,8 +2021,10 @@ def movement_weights(player_type: str, category: str, aptitudes: dict[str, str],
         weights[1] += 6; weights[2] += 5; weights[4] -= 4; weights[5] -= 2
     elif category == "助っ人外国人用":
         weights[1] -= 3; weights[2] -= 3; weights[4] += 5; weights[5] += 2
-    if player_type == "変化球派":
+    if archetype == "変化球":
         weights[1] -= 3; weights[2] -= 2; weights[4] += 3; weights[5] += 2
+    if weakness_profile in {"変化量不足", "球種不足"}:
+        weights[1] += 6; weights[2] += 5; weights[4] -= 5; weights[5] -= 3
     return [(level, max(1, weight)) for level, weight in weights.items()]
 
 
@@ -1413,16 +2038,108 @@ def weighted_direction_sample(rng: random.Random, direction_codes: list[str], co
     return selected
 
 
-def generate_breaking_balls(rng: random.Random, player_type: str, category: str, aptitudes: dict[str, str], batting_throwing: str) -> list[dict[str, Any]]:
-    count = weighted_choice(rng, pitch_count_weights(player_type, category, aptitudes))
+def target_total_movement(rng: random.Random, category: str, age: int | None, role: str, player_class: str, archetype: str, development_stage: str, acquisition_role: str, weakness_profile: str, count: int) -> int:
+    if category == "ドラフト候補用":
+        if age is not None and age <= 19:
+            low, high = 3, 6
+        elif age is not None and age <= 21:
+            low, high = 4, 8
+        else:
+            low, high = 5, 9
+    elif category == "助っ人外国人用":
+        if role == "先発":
+            low, high = (8, 11) if archetype == "変化球" else (6, 10)
+        elif role == "抑え":
+            low, high = 4, 8
+        else:
+            low, high = 5, 8
+        if player_class == "育成素材型":
+            low, high = 3, 6
+    else:
+        if age is not None and age <= 19:
+            low, high = 4, 6
+            if player_class in {"スター級", "一軍主力級"} or archetype == "変化球":
+                high = 8
+        elif age is not None and age <= 22:
+            low, high = 5, 8
+        elif age is not None and age <= 29:
+            low, high = 6, 10
+        else:
+            low, high = 5, 10
+    if archetype == "変化球":
+        low += 1; high += 2
+    elif archetype == "速球":
+        high -= 1
+    if development_stage == "素材型":
+        high -= 1
+    elif development_stage == "即戦力型":
+        low += 1
+    if weakness_profile in {"変化量不足", "球種不足"}:
+        low -= 2; high -= 3
+    target = rng.randint(max(count, low), max(count, high))
+    if category == "ドラフト候補用" and age is not None and age <= 19:
+        target = min(target, 7)
+    return max(count, target)
+
+
+def normalize_primary_movements(rng: random.Random, balls: list[dict[str, Any]], target: int) -> None:
+    primary = [ball for ball in balls if ball.get("kind") == "breaking" and not ball.get("is_second_pitch")]
+    if not primary:
+        return
+    target = max(len(primary), target)
+    for ball in primary:
+        ball["movement"] = ball["level"] = max(1, min(int(BREAKING_BY_NAME[ball["name"]].get("max_movement", 5)), target // len(primary)))
+    attempts = 0
+    while sum(pitch_movement(ball) for ball in primary) < target and attempts < 40:
+        ball = rng.choice(primary)
+        max_mv = int(BREAKING_BY_NAME[ball["name"]].get("max_movement", 5))
+        if ball["movement"] < max_mv:
+            ball["movement"] += 1
+            ball["level"] = ball["movement"]
+        attempts += 1
+    while sum(pitch_movement(ball) for ball in primary) > target and attempts < 80:
+        ball = rng.choice(primary)
+        min_mv = int(BREAKING_BY_NAME[ball["name"]].get("min_movement", 1))
+        if ball["movement"] > min_mv:
+            ball["movement"] -= 1
+            ball["level"] = ball["movement"]
+        attempts += 1
+
+
+def generate_breaking_balls(
+    rng: random.Random,
+    player_type: str,
+    category: str,
+    aptitudes: dict[str, str],
+    batting_throwing: str,
+    *,
+    age: int | None = None,
+    player_class: str = "",
+    archetype: str = "",
+    position_style: str = "",
+    development_stage: str = "",
+    acquisition_role: str = "",
+    weakness_profile: str = "",
+) -> list[dict[str, Any]]:
+    archetype = archetype or legacy_archetype_from_player_type("投手", player_type)
+    role = primary_pitcher_role(aptitudes)
+    count = weighted_choice(rng, pitch_count_weights(player_type, category, aptitudes, age=age, player_class=player_class, archetype=archetype, development_stage=development_stage, weakness_profile=weakness_profile))
+    if category == "ドラフト候補用" and age is not None and age <= 19:
+        count = min(count, 3)
+    if category == "架空球団用" and age is not None and age <= 19 and count == 4 and rng.random() < 0.65:
+        count = 3
+    if weakness_profile == "球種不足":
+        count = min(count, 2)
     direction_codes = [code for code in DIRECTION_NAMES if any(ball["direction_code"] == code and ball["name"] in allowed_pitch_names_for_generation(code, batting_throwing) for ball in BREAKING_BALL_MASTER)]
     primary_codes = weighted_direction_sample(rng, direction_codes, count)
     balls: list[dict[str, Any]] = []
     for direction_code in primary_codes:
         name = weighted_breaking_names(rng, direction_code, player_type, category, batting_throwing)
-        movement = weighted_choice(rng, movement_weights(player_type, category, aptitudes, count))
+        movement = weighted_choice(rng, movement_weights(player_type, category, aptitudes, count, archetype=archetype, weakness_profile=weakness_profile))
         balls.append(make_breaking_ball(name, movement, False, 1))
-    chance = second_pitch_chance(player_type, category, aptitudes)
+    target = target_total_movement(rng, category, age, role, player_class, archetype, development_stage, acquisition_role, weakness_profile, count)
+    normalize_primary_movements(rng, balls, target)
+    chance = second_pitch_chance(player_type, category, aptitudes, age=age, player_class=player_class, archetype=archetype, development_stage=development_stage, acquisition_role=acquisition_role)
     if category == "助っ人外国人用" and len(balls) == 3:
         chance = min(chance, 0.07)
     elif len(balls) >= 3:
@@ -1443,6 +2160,106 @@ def generate_breaking_balls(rng: random.Random, player_type: str, category: str,
     if second_fastball:
         balls.append(second_fastball)
     return balls
+
+
+def primary_breaking_balls(breaking_balls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [ball for ball in breaking_balls if ball.get("kind") == "breaking" and not ball.get("is_second_pitch")]
+
+
+def primary_total_movement(breaking_balls: list[dict[str, Any]]) -> int:
+    return sum(pitch_movement(ball) for ball in primary_breaking_balls(breaking_balls))
+
+
+def reduce_primary_total_movement(rng: random.Random, breaking_balls: list[dict[str, Any]], maximum: int) -> None:
+    primary = primary_breaking_balls(breaking_balls)
+    attempts = 0
+    while sum(pitch_movement(ball) for ball in primary) > maximum and attempts < 80:
+        candidates = [ball for ball in primary if pitch_movement(ball) > int(BREAKING_BY_NAME[ball["name"]].get("min_movement", 1))]
+        if not candidates:
+            break
+        ball = rng.choice(candidates)
+        ball["movement"] -= 1
+        ball["level"] = ball["movement"]
+        attempts += 1
+
+
+def remove_extra_primary_pitches(breaking_balls: list[dict[str, Any]], maximum_count: int) -> None:
+    while len(primary_breaking_balls(breaking_balls)) > maximum_count:
+        primary = primary_breaking_balls(breaking_balls)
+        removable = min(primary, key=lambda ball: (pitch_movement(ball), str(ball.get("direction_code", ""))))
+        breaking_balls[:] = [ball for ball in breaking_balls if ball is not removable and not (ball.get("is_second_pitch") and ball.get("direction_code") == removable.get("direction_code"))]
+
+
+def set_pitcher_speed(abilities: dict[str, Any], speed: int) -> None:
+    abilities["球速"] = f"{clamp(speed, 125, 165)} km/h"
+
+
+def audit_generated_player(
+    rng: random.Random,
+    role: str,
+    category: str,
+    age: int,
+    position: str,
+    player_class: str,
+    archetype: str,
+    position_style: str,
+    development_stage: str,
+    acquisition_role: str,
+    weakness_profile: str,
+    abilities: dict[str, Any],
+    breaking_balls: list[dict[str, Any]],
+    allow_foreign_allrounder: bool = False,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if role == "野手":
+        values = {key: int(ability_numeric_value(abilities, key) or 0) for key in FIELDER_ABILITY_KEYS}
+        audit_fielder_values(rng, values, category, age, position, player_class, archetype, position_style, allow_foreign_allrounder)
+        audited = ability_values(values)
+        audited["弾道"] = determine_trajectory(values["パワー"], archetype, position, position_style)
+        return {**abilities, **audited}, breaking_balls
+
+    speed = pitcher_speed_value(abilities) or 145
+    control = int(ability_numeric_value(abilities, "コントロール") or 0)
+    stamina = int(ability_numeric_value(abilities, "スタミナ") or 0)
+    role_name = primary_pitcher_role({key: abilities.get(key) for key in PITCHER_APTITUDE_KEYS})
+    if archetype == "スタミナ" and role_name == "抑え":
+        stamina = min(stamina, 64)
+    if archetype == "速球" and speed < 145:
+        speed = 145 + rng.randint(0, 3)
+    if archetype == "制球" and control < 50:
+        control = 50 + rng.randint(0, 5)
+    if archetype == "変化球" and primary_total_movement(breaking_balls) < 5:
+        normalize_primary_movements(rng, breaking_balls, 5)
+    if archetype == "スタミナ" and role_name != "抑え" and stamina < 55:
+        stamina = 55 + rng.randint(0, 6)
+    if weakness_profile == "球種不足":
+        remove_extra_primary_pitches(breaking_balls, 2)
+        reduce_primary_total_movement(rng, breaking_balls, 5)
+    if category == "ドラフト候補用" and age <= 19:
+        remove_extra_primary_pitches(breaking_balls, 3)
+        reduce_primary_total_movement(rng, breaking_balls, 7)
+        speed = min(speed, 158 if player_class == "超上位候補" and archetype == "速球" else 154)
+    if player_class == "二軍級":
+        speed = min(speed, 154)
+        reduce_primary_total_movement(rng, breaking_balls, 8)
+    if player_class == "保険・バックアップ級":
+        control = min(control, 79)
+        stamina = min(stamina, 79)
+    if role_name == "抑え":
+        stamina = min(stamina, 69)
+    if not pitcher_fastball_allowed(category, age, player_class, archetype, position_style, weakness_profile):
+        speed = min(speed, 159)
+    if archetype in {"変化球", "制球", "スタミナ"} or player_class == "ベテラン型" or age >= 35:
+        speed = min(speed, 159)
+    total = primary_total_movement(breaking_balls)
+    if speed >= 155 and control >= 70 and total >= 9:
+        if archetype == "制球":
+            speed = rng.randint(149, 154)
+        else:
+            control = rng.randint(60, 69)
+    set_pitcher_speed(abilities, speed)
+    abilities["コントロール"] = ability(control)
+    abilities["スタミナ"] = ability(stamina)
+    return abilities, breaking_balls
 
 FOREIGN_NATIONS = ["アメリカ", "ドミニカ共和国", "ベネズエラ", "キューバ", "メキシコ", "韓国", "台湾"]
 
@@ -1599,26 +2416,62 @@ def generate_sub_positions(rng: random.Random, role: str, position: str, player_
 def generate_player(role: str, category: str, master: MasterData, seed: int | None = None) -> dict[str, Any]:
     seed = seed if seed is not None else random.SystemRandom().randrange(SEED_MAX)
     rng = random.Random(seed)
-    age = age_for(rng, category)
+    if category == "助っ人外国人用":
+        player_class = weighted_choice(rng, PLAYER_CLASS_WEIGHTS[category])
+        age = choose_foreign_age_for_class(rng, player_class)
+    else:
+        age = age_for(rng, category)
+        player_class = choose_player_class(rng, category, age)
     nationality = choose_nationality(rng, category)
-    player_class = choose_player_class(rng, category, age)
     development_stage = choose_development_stage(rng, category, age, player_class)
     pitcher_aptitudes: dict[str, str] = {}
     if role == "投手":
         pitcher_aptitudes = choose_pitcher_aptitudes(rng, category)
         position = primary_pitcher_role(pitcher_aptitudes)
     else:
-        position_weights = [("捕手", 8), ("一塁手", 20), ("二塁手", 9), ("三塁手", 18), ("遊撃手", 10), ("外野手", 35)] if category == "助っ人外国人用" else [("捕手", 12), ("一塁手", 14), ("二塁手", 14), ("三塁手", 14), ("遊撃手", 16), ("外野手", 30)]
+        position_weights = FOREIGN_FIELDER_POSITION_WEIGHTS if category == "助っ人外国人用" else [("捕手", 12), ("一塁手", 14), ("二塁手", 14), ("三塁手", 14), ("遊撃手", 16), ("外野手", 30)]
         position = weighted_choice(rng, position_weights)
     batting_throwing = generate_batting_throwing(rng, role, position)
     acquisition_role = choose_acquisition_role(rng, category, role, player_class, position, pitcher_aptitudes, batting_throwing)
     archetype = choose_archetype(rng, role, category)
+    if role == "投手" and position == "抑え" and archetype == "スタミナ":
+        for _ in range(4):
+            archetype = choose_archetype(rng, role, category)
+            if archetype != "スタミナ":
+                break
+        if archetype == "スタミナ":
+            archetype = "総合"
     position_style = choose_position_style(rng, role, position, archetype)
     weakness_profile = choose_weakness_profile(rng, category, role, player_class)
+    allow_foreign_allrounder = choose_foreign_allrounder_candidate(rng, category, player_class, age, archetype, position_style) if role == "野手" else False
     player_type = legacy_player_type_from_archetype(role, archetype)
     roster_tier = legacy_roster_tier_from_player_class(player_class)
-    abilities = generate_pitcher_abilities(rng, age, player_type, category, pitcher_aptitudes) if role == "投手" else generate_fielder_abilities(rng, age, position, player_type, category, position_style, roster_tier)
-    breaking_balls = generate_breaking_balls(rng, player_type, category, pitcher_aptitudes, batting_throwing) if role == "投手" else []
+    if role == "投手":
+        abilities = generate_pitcher_abilities(
+            rng, age, player_type, category, pitcher_aptitudes,
+            player_class=player_class, archetype=archetype, position_style=position_style,
+            development_stage=development_stage, acquisition_role=acquisition_role,
+            weakness_profile=weakness_profile,
+        )
+        breaking_balls = generate_breaking_balls(
+            rng, player_type, category, pitcher_aptitudes, batting_throwing,
+            age=age, player_class=player_class, archetype=archetype, position_style=position_style,
+            development_stage=development_stage, acquisition_role=acquisition_role,
+            weakness_profile=weakness_profile,
+        )
+    else:
+        abilities = generate_fielder_abilities(
+            rng, age, position, player_type, category, position_style, roster_tier,
+            player_class=player_class, archetype=archetype, development_stage=development_stage,
+            acquisition_role=acquisition_role, weakness_profile=weakness_profile,
+            allow_foreign_allrounder=allow_foreign_allrounder,
+        )
+        breaking_balls = []
+    abilities, breaking_balls = audit_generated_player(
+        rng, role, category, age, position, player_class, archetype, position_style,
+        development_stage, acquisition_role, weakness_profile, abilities, breaking_balls,
+        allow_foreign_allrounder=allow_foreign_allrounder,
+    )
     sub_positions = generate_sub_positions(rng, role, position, player_type, category, age, batting_throwing, abilities)
     special_abilities = generate_specials(rng, master, role, player_type, position, age, abilities, breaking_balls, category)
     return {
