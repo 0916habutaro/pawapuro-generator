@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STANDARD_REAL_DIR = Path("reports/real_powerpro_players_12teams")
 
 FIELDER_ABILITIES = ["ミート", "パワー", "走力", "肩力", "守備力", "捕球", "弾道"]
-PITCHER_ABILITIES = ["球速", "コントロール", "スタミナ", "球種数", "総変化量", "第二球種数"]
+PITCHER_ABILITIES = ["球速", "コントロール", "スタミナ", "normal_pitch_direction_count", "normal_pitch_count_primary_only", "normal_pitch_count_including_second", "total_movement_primary_only", "total_movement_including_second", "second_pitch_count", "straight_secondary_count"]
 POSITIONS = ["捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手"]
 PERCENTILES = [0.10, 0.25, 0.75, 0.90]
 CATEGORY_PRIORITY = ["架空球団用", "ドラフト候補用", "助っ人外国人用"]
@@ -132,30 +132,49 @@ def normalize_real_players(df: pd.DataFrame, breaking: pd.DataFrame) -> pd.DataF
             out[col] = pd.to_numeric(out[col], errors="coerce")
     if not breaking.empty and {"source", "team", "name"}.issubset(breaking.columns):
         b = breaking.copy()
-        b["movement"] = pd.to_numeric(b.get("movement"), errors="coerce").fillna(0)
-        per = b.groupby(["source", "team", "name"], dropna=False).agg(球種数=("pitch_type", "count"), 総変化量=("movement", "sum"), 第二球種数=("slot", lambda s: int((pd.to_numeric(s, errors="coerce") >= 2).sum()))).reset_index()
+        kind = b.get("kind", pd.Series(["breaking"] * len(b), index=b.index)).fillna("breaking").astype(str)
+        status = b.get("status", pd.Series(["ok"] * len(b), index=b.index)).fillna("ok").astype(str)
+        normal = b[kind.eq("breaking") & status.isin(["ok", "corrected_by_direction_filter"])].copy()
+        normal["movement"] = pd.to_numeric(normal.get("movement"), errors="coerce").fillna(0)
+        normal["slot_num"] = pd.to_numeric(normal.get("slot", 1), errors="coerce").fillna(1)
+        primary = normal[normal["slot_num"].le(1)]
+        per_all = normal.groupby(["source", "team", "name"], dropna=False).agg(normal_pitch_count_including_second=("pitch_type", "count"), total_movement_including_second=("movement", "sum"), second_pitch_count=("slot_num", lambda s: int((s >= 2).sum()))).reset_index()
+        per_primary = primary.groupby(["source", "team", "name"], dropna=False).agg(normal_pitch_count_primary_only=("pitch_type", "count"), normal_pitch_direction_count=("direction", "nunique"), total_movement_primary_only=("movement", "sum")).reset_index()
+        per = per_all.merge(per_primary, on=["source", "team", "name"], how="left")
+        second_fast = b[kind.eq("second_fastball")].groupby(["source", "team", "name"], dropna=False).size().reset_index(name="straight_secondary_count") if not b[kind.eq("second_fastball")].empty else pd.DataFrame(columns=["source", "team", "name", "straight_secondary_count"])
+        per = per.merge(second_fast, on=["source", "team", "name"], how="left")
         out = out.merge(per, on=["source", "team", "name"], how="left")
-    for col in ["球種数", "総変化量", "第二球種数"]:
+    for col in ["normal_pitch_direction_count", "normal_pitch_count_primary_only", "normal_pitch_count_including_second", "total_movement_primary_only", "total_movement_including_second", "second_pitch_count", "straight_secondary_count"]:
         out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0) if col in out else 0
+    out["球種数"] = out["normal_pitch_count_primary_only"]
+    out["総変化量"] = out["total_movement_primary_only"]
+    out["第二球種数"] = out["second_pitch_count"]
     out["category"] = "実在12球団"
     return out
 
 
 def normalize_generated_players(df: pd.DataFrame) -> pd.DataFrame:
     out = df.rename(columns=GENERATED_PLAYER_COLS).copy()
-    for col in [*FIELDER_ABILITIES, "球速", "コントロール", "スタミナ", "変化球数", "総変化量"]:
+    metric_aliases = {"変化球数_第一球種のみ": "normal_pitch_count_primary_only", "pitch_type_count_including_second": "normal_pitch_count_including_second", "総変化量_第一球種のみ": "total_movement_primary_only"}
+    for src, dst in metric_aliases.items():
+        if dst not in out and src in out:
+            out[dst] = out[src]
+    for col in [*FIELDER_ABILITIES, "球速", "コントロール", "スタミナ", "変化球数", "総変化量", "normal_pitch_direction_count", "normal_pitch_count_primary_only", "normal_pitch_count_including_second", "total_movement_primary_only", "total_movement_including_second", "second_pitch_count", "straight_secondary_count"]:
         if col in out:
             out[col] = pd.to_numeric(out[col], errors="coerce")
-    if "pitch_type_count_including_second" in out:
-        out["球種数"] = pd.to_numeric(out["pitch_type_count_including_second"], errors="coerce")
-    elif "変化球数" in out and "球種数" not in out:
-        out["球種数"] = out["変化球数"]
-    if "total_movement_including_second" in out:
-        out["総変化量"] = pd.to_numeric(out["total_movement_including_second"], errors="coerce")
-    if "second_pitch_count" in out:
-        out["第二球種数"] = pd.to_numeric(out["second_pitch_count"], errors="coerce").fillna(0)
-    elif "第二球種数" not in out:
-        out["第二球種数"] = 0
+    if "normal_pitch_count_primary_only" not in out and "変化球数_第一球種のみ" in out:
+        out["normal_pitch_count_primary_only"] = out["変化球数_第一球種のみ"]
+    if "normal_pitch_count_including_second" not in out and "変化球数" in out:
+        out["normal_pitch_count_including_second"] = out["変化球数"]
+    if "total_movement_primary_only" not in out and "総変化量" in out:
+        out["total_movement_primary_only"] = out["総変化量"]
+    if "total_movement_including_second" not in out and "総変化量_第二球種込み" in out:
+        out["total_movement_including_second"] = out["総変化量_第二球種込み"]
+    for col in ["normal_pitch_direction_count", "normal_pitch_count_primary_only", "normal_pitch_count_including_second", "total_movement_primary_only", "total_movement_including_second", "second_pitch_count", "straight_secondary_count"]:
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0) if col in out else 0
+    out["球種数"] = out["normal_pitch_count_primary_only"]
+    out["総変化量"] = out["total_movement_primary_only"]
+    out["第二球種数"] = out["second_pitch_count"]
     if "position" in out:
         out["position"] = out["position"].map(normalize_position)
     if "breaking_ball_names" not in out and "変化球方向" in out:

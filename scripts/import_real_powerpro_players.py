@@ -738,11 +738,17 @@ def pitcher_breaking_metrics(players: pd.DataFrame, breaking: pd.DataFrame) -> p
     b = normal_breaking_df(breaking)
     if not b.empty:
         b["movement"] = pd.to_numeric(b["movement"], errors="coerce").fillna(0)
-        per = b.groupby(["source", "team", "name"], dropna=False).agg(breaking_ball_count=("pitch_type", "count"), total_movement=("movement", "sum"), has_second_pitch=("slot", lambda x: (pd.to_numeric(x, errors="coerce") >= 2).any())).reset_index()
+        b["slot_num"] = pd.to_numeric(b.get("slot", 1), errors="coerce").fillna(1)
+        primary = b[b["slot_num"].le(1)].copy()
+        per_all = b.groupby(["source", "team", "name"], dropna=False).agg(normal_pitch_count_including_second=("pitch_type", "count"), total_movement_including_second=("movement", "sum"), second_pitch_count=("slot_num", lambda x: int((x >= 2).sum())), has_second_pitch=("slot_num", lambda x: bool((x >= 2).any()))).reset_index()
+        per_primary = primary.groupby(["source", "team", "name"], dropna=False).agg(normal_pitch_count_primary_only=("pitch_type", "count"), normal_pitch_direction_count=("direction", "nunique"), total_movement_primary_only=("movement", "sum")).reset_index()
+        per = per_all.merge(per_primary, on=["source", "team", "name"], how="left")
+        per["breaking_ball_count"] = per["normal_pitch_count_primary_only"]
+        per["total_movement"] = per["total_movement_primary_only"]
         pitchers = pitchers.merge(per, on=["source", "team", "name"], how="left")
     else:
-        pitchers["breaking_ball_count"] = 0
-        pitchers["total_movement"] = 0
+        for col in ["breaking_ball_count", "total_movement", "normal_pitch_direction_count", "normal_pitch_count_primary_only", "normal_pitch_count_including_second", "total_movement_primary_only", "total_movement_including_second", "second_pitch_count"]:
+            pitchers[col] = 0
         pitchers["has_second_pitch"] = False
     sf = second_fastball_df(breaking)
     if not sf.empty:
@@ -750,8 +756,13 @@ def pitcher_breaking_metrics(players: pd.DataFrame, breaking: pd.DataFrame) -> p
         pitchers = pitchers.merge(has_sf, on=["source", "team", "name"], how="left")
     else:
         pitchers["second_fastball_count"] = 0
-    pitchers[["breaking_ball_count", "total_movement", "second_fastball_count"]] = pitchers[["breaking_ball_count", "total_movement", "second_fastball_count"]].fillna(0)
+    pitch_metric_cols = ["breaking_ball_count", "total_movement", "normal_pitch_direction_count", "normal_pitch_count_primary_only", "normal_pitch_count_including_second", "total_movement_primary_only", "total_movement_including_second", "second_pitch_count", "second_fastball_count"]
+    for col in pitch_metric_cols:
+        if col not in pitchers.columns:
+            pitchers[col] = 0
+    pitchers[pitch_metric_cols] = pitchers[pitch_metric_cols].fillna(0)
     pitchers["has_second_pitch"] = pitchers["has_second_pitch"].fillna(False).astype(bool)
+    pitchers["straight_secondary_count"] = pitchers["second_fastball_count"]
     pitchers["has_second_fastball"] = pitchers["second_fastball_count"].fillna(0).gt(0)
     return pitchers
 

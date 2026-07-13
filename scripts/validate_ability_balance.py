@@ -128,12 +128,17 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
         row["総変化量"] = sum(break_levels)
         row["総変化量_第二球種込み"] = sum(pitch_movement(ball) for ball in all_breaking)
         row["総変化量_第一球種のみ"] = row["総変化量"]
+        row["normal_pitch_direction_count"] = len({str(ball.get("direction", "")) for ball in primary_breaking if str(ball.get("direction", ""))})
+        row["normal_pitch_count_primary_only"] = len(primary_breaking)
+        row["normal_pitch_count_including_second"] = len(all_breaking)
+        row["total_movement_primary_only"] = row["総変化量_第一球種のみ"]
         row["total_movement_including_second"] = row["総変化量_第二球種込み"]
         row["総変化量偏差用"] = row["総変化量"] * 8
         row["変化球数"] = len(all_breaking)
         row["変化球数_第一球種のみ"] = len(primary_breaking)
         row["pitch_type_count_including_second"] = row["変化球数"]
         row["second_pitch_count"] = len(second_balls)
+        row["straight_secondary_count"] = sum(1 for ball in breaking_balls if ball.get("kind") == "second_fastball")
         row["has_second_pitch"] = bool(second_balls)
         row["second_pitch_directions"] = ",".join(str(ball.get("direction", "")) for ball in second_balls)
         row["second_pitch_movements"] = ",".join(str(pitch_movement(ball)) for ball in second_balls)
@@ -694,8 +699,8 @@ def main() -> None:
         "second_pitch_summary": second_pitch_summary(df),
         "breaking_pitch_summary": breaking_pitch_summary(df),
         "breaking_direction_summary": breaking_direction_summary(df),
-        "pitch_count_distribution": distribution_summary(df, "pitch_type_count_including_second", "球種数"),
-        "total_movement_distribution": distribution_summary(df, "total_movement_including_second", "総変化量"),
+        "pitch_count_distribution": distribution_summary(df, "normal_pitch_count_primary_only", "通常球種数_第一球種のみ"),
+        "total_movement_distribution": distribution_summary(df, "total_movement_primary_only", "総変化量_第一球種のみ"),
         "sub_position_summary": sub_position_summary(df),
         "position_balance_summary": position_balance_summary(df),
         "position_balance_warnings": position_balance_warnings(df),
