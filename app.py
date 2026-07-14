@@ -2650,7 +2650,7 @@ def normalize_japanese_prefecture_name(value: Any) -> str:
     return JAPANESE_PREFECTURE_ALIASES.get(text, text)
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=1)
 def load_japanese_surname_master(csv_path: str | None = None) -> dict[str, dict[str, tuple[Any, ...]]]:
     path = Path(csv_path) if csv_path else JAPANESE_SURNAME_PATH
     if not path.exists():
@@ -2811,9 +2811,28 @@ def name_matches_entry(name: str, entry: Any) -> bool:
     return False
 
 
-def classify_name_type(name: str, master: MasterData, nationality: str | None = None) -> str:
+def japanese_name_matches_surname_master(name: str, master: MasterData, birthplace: str | None = None) -> bool:
+    entry = master.names.get("日本")
+    if not isinstance(entry, dict):
+        return False
+    parts = str(name or "").split()
+    if len(parts) != 2 or parts[1] not in entry.get("名", []):
+        return False
+
+    surname = parts[0]
+    surname_master = load_japanese_surname_master()
+    if birthplace:
+        prefecture = normalize_japanese_prefecture_name(birthplace)
+        prefecture_data = surname_master.get(prefecture)
+        return bool(prefecture_data and surname in prefecture_data["surnames"])
+    return any(surname in prefecture_data["surnames"] for prefecture_data in surname_master.values())
+
+
+def classify_name_type(name: str, master: MasterData, nationality: str | None = None, birthplace: str | None = None) -> str:
     if nationality and name_matches_entry(name, master.names.get(nationality)):
         return nationality
+    if nationality == "日本" and japanese_name_matches_surname_master(name, master, birthplace):
+        return "日本"
 
     matched_nations = [nation for nation, entry in master.names.items() if name_matches_entry(name, entry)]
     if not matched_nations:
@@ -3332,8 +3351,10 @@ def restricted_left_throwing_positions(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
-def name_matches_nationality(name: str, nationality: str, master: MasterData) -> bool:
-    return name_matches_entry(name, master.names.get(nationality))
+def name_matches_nationality(name: str, nationality: str, master: MasterData, birthplace: str | None = None) -> bool:
+    if name_matches_entry(name, master.names.get(nationality)):
+        return True
+    return nationality == "日本" and japanese_name_matches_surname_master(name, master, birthplace)
 
 
 def birthplace_matches_nationality(birthplace: str, nationality: str, master: MasterData) -> bool:
@@ -3344,11 +3365,11 @@ def consistency_table(df: pd.DataFrame, master: MasterData, kind: str) -> pd.Dat
     work = df.copy()
     type_column = "名前種別" if kind == "name" else "出身地種別"
     if kind == "name":
-        work[type_column] = work.apply(lambda row: classify_name_type(row["name"], master, row["nationality"]), axis=1)
+        work[type_column] = work.apply(lambda row: classify_name_type(row["name"], master, row["nationality"], row.get("birthplace")), axis=1)
     else:
         work[type_column] = work["birthplace"].apply(lambda value: classify_birthplace_type(value, master))
     if kind == "name":
-        work["整合性"] = work.apply(lambda row: name_matches_nationality(row["name"], row["nationality"], master), axis=1)
+        work["整合性"] = work.apply(lambda row: name_matches_nationality(row["name"], row["nationality"], master, row.get("birthplace")), axis=1)
     else:
         work["整合性"] = work.apply(lambda row: birthplace_matches_nationality(row["birthplace"], row["nationality"], master), axis=1)
     return work.groupby(["nationality", type_column, "整合性"]).size().reset_index(name="人数").rename(columns={"nationality": "国籍"})
@@ -3356,7 +3377,7 @@ def consistency_table(df: pd.DataFrame, master: MasterData, kind: str) -> pd.Dat
 
 def inconsistency_count(df: pd.DataFrame, master: MasterData, kind: str) -> int:
     if kind == "name":
-        matches = df.apply(lambda row: name_matches_nationality(row["name"], row["nationality"], master), axis=1)
+        matches = df.apply(lambda row: name_matches_nationality(row["name"], row["nationality"], master, row.get("birthplace")), axis=1)
     else:
         matches = df.apply(lambda row: birthplace_matches_nationality(row["birthplace"], row["nationality"], master), axis=1)
     return int((~matches).sum())
