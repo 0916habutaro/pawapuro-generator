@@ -150,7 +150,10 @@ class OotpNameGenerationTest(unittest.TestCase):
         master = app.MasterData(names={"日本": {"姓": ["佐藤"], "名": ["蓮"]}}, places={"日本": ["東京都"]}, abilities=[])
         player = app.generate_player("野手", "ドラフト候補用", master, seed=1)
         self.assertEqual(player["nationality"], "日本")
-        self.assertEqual(player["name"], "佐藤 蓮")
+        surname, given_name = player["name"].split()
+        self.assertIn(player["birthplace"], app.JAPANESE_PREFECTURE_WEIGHTS)
+        self.assertIn(surname, app.load_japanese_surname_master()[player["birthplace"]]["surnames"])
+        self.assertEqual(given_name, "蓮")
         self.assertEqual(player["actual_nationality"], "")
         self.assertIn(player["skin_color"], range(1, 7))
 

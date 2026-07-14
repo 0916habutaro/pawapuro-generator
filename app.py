@@ -4,6 +4,7 @@ import random
 import re
 import sqlite3
 import math
+from functools import lru_cache
 from html import escape
 from dataclasses import dataclass
 from io import BytesIO
@@ -19,10 +20,71 @@ APP_VERSION = "1.0.0"
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
 DB_PATH = APP_DIR / "players.sqlite3"
+JAPANESE_SURNAME_PATH = DATA_DIR / "japan_surname.csv"
 CATEGORIES = ["架空球団用", "ドラフト候補用", "助っ人外国人用"]
 POSITIONS = {
     "投手": ["先発", "中継ぎ", "抑え"],
     "野手": ["捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手"],
+}
+JAPANESE_PREFECTURE_WEIGHTS = {
+    "北海道": 32,
+    "青森県": 10,
+    "岩手県": 8,
+    "宮城県": 12,
+    "秋田県": 13,
+    "山形県": 8,
+    "福島県": 7,
+    "茨城県": 15,
+    "栃木県": 13,
+    "群馬県": 16,
+    "埼玉県": 31,
+    "千葉県": 51,
+    "東京都": 54,
+    "神奈川県": 54,
+    "新潟県": 12,
+    "富山県": 7,
+    "石川県": 18,
+    "福井県": 7,
+    "山梨県": 3,
+    "長野県": 8,
+    "岐阜県": 12,
+    "静岡県": 20,
+    "愛知県": 45,
+    "三重県": 13,
+    "滋賀県": 14,
+    "京都府": 23,
+    "大阪府": 76,
+    "兵庫県": 55,
+    "奈良県": 16,
+    "和歌山県": 19,
+    "鳥取県": 5,
+    "島根県": 5,
+    "岡山県": 17,
+    "広島県": 30,
+    "山口県": 4,
+    "徳島県": 9,
+    "香川県": 9,
+    "愛媛県": 6,
+    "高知県": 6,
+    "福岡県": 49,
+    "佐賀県": 13,
+    "長崎県": 7,
+    "熊本県": 17,
+    "大分県": 17,
+    "宮崎県": 11,
+    "鹿児島県": 11,
+    "沖縄県": 31,
+}
+JAPANESE_PREFECTURE_EXPECTED_RATES = {
+    prefecture: weight / 919
+    for prefecture, weight in JAPANESE_PREFECTURE_WEIGHTS.items()
+}
+JAPANESE_PREFECTURE_ALIASES = {
+    **{prefecture: prefecture for prefecture in JAPANESE_PREFECTURE_WEIGHTS},
+    **{prefecture.removesuffix("県"): prefecture for prefecture in JAPANESE_PREFECTURE_WEIGHTS if prefecture.endswith("県")},
+    "東京": "東京都",
+    "京都": "京都府",
+    "大阪": "大阪府",
 }
 TYPE_WEIGHTS = {
     "投手": [("本格派", 28), ("技巧派", 24), ("速球派", 18), ("変化球派", 18), ("スタミナ型", 12)],
@@ -2583,6 +2645,101 @@ def audit_generated_player(
 FOREIGN_NATIONS = ["アメリカ", "ドミニカ共和国", "ベネズエラ", "キューバ", "メキシコ", "韓国", "台湾"]
 
 
+def normalize_japanese_prefecture_name(value: Any) -> str:
+    text = str(value or "").strip()
+    return JAPANESE_PREFECTURE_ALIASES.get(text, text)
+
+
+@lru_cache(maxsize=4)
+def load_japanese_surname_master(csv_path: str | None = None) -> dict[str, dict[str, tuple[Any, ...]]]:
+    path = Path(csv_path) if csv_path else JAPANESE_SURNAME_PATH
+    if not path.exists():
+        raise FileNotFoundError(f"苗字CSVが見つかりません: {path}")
+
+    required_columns = ["place", "surname", "number"]
+    header = pd.read_csv(path, encoding="utf-8-sig", nrows=0)
+    if list(header.columns) != required_columns:
+        raise ValueError(f"苗字CSVの列が不正です: {list(header.columns)}")
+
+    df = pd.read_csv(
+        path,
+        encoding="utf-8-sig",
+        dtype={"place": "string", "surname": "string"},
+    )
+    df["place"] = df["place"].astype("string").str.strip()
+    df["surname"] = df["surname"].astype("string").str.strip()
+    df["number"] = pd.to_numeric(df["number"], errors="coerce")
+
+    if df["place"].isna().any() or df["place"].eq("").any():
+        raise ValueError("placeに欠損値があります")
+    if df["surname"].isna().any() or df["surname"].eq("").any():
+        raise ValueError("surnameに欠損値があります")
+    if df["number"].isna().any():
+        raise ValueError("numberに欠損値があります")
+    if (df["number"] <= 0).any():
+        raise ValueError("numberに0以下の値があります")
+    if (df["number"] % 1 != 0).any():
+        raise ValueError("numberに整数ではない値があります")
+
+    invalid_patterns = ["?", "？", "※希望により削除"]
+    for pattern in invalid_patterns:
+        if df["surname"].str.contains(pattern, regex=False).any():
+            raise ValueError(f"使用できない苗字表記が含まれています: {pattern}")
+
+    expected_prefectures = set(JAPANESE_PREFECTURE_WEIGHTS)
+    csv_prefectures = set(df["place"].astype(str))
+    missing_prefectures = sorted(expected_prefectures - csv_prefectures)
+    unknown_prefectures = sorted(csv_prefectures - expected_prefectures)
+    if missing_prefectures:
+        raise ValueError(f"苗字CSVに存在しない都道府県があります: {', '.join(missing_prefectures)}")
+    if unknown_prefectures:
+        raise ValueError(f"苗字CSVに想定外の都道府県表記があります: {', '.join(unknown_prefectures)}")
+
+    df["number"] = df["number"].astype(int)
+    master: dict[str, dict[str, tuple[Any, ...]]] = {}
+    for prefecture, group in df.groupby("place", sort=False, observed=True):
+        if group.empty:
+            raise ValueError(f"都道府県内に有効な苗字がありません: {prefecture}")
+        master[str(prefecture)] = {
+            "surnames": tuple(group["surname"].astype(str)),
+            "weights": tuple(group["number"].astype(int)),
+        }
+
+    empty_prefectures = [prefecture for prefecture in JAPANESE_PREFECTURE_WEIGHTS if not master.get(prefecture, {}).get("surnames")]
+    if empty_prefectures:
+        raise ValueError(f"都道府県内に有効な苗字がありません: {', '.join(empty_prefectures)}")
+    return master
+
+
+def choose_japanese_prefecture(rng: random.Random) -> str:
+    prefectures = list(JAPANESE_PREFECTURE_WEIGHTS)
+    weights = [JAPANESE_PREFECTURE_WEIGHTS[prefecture] for prefecture in prefectures]
+    return rng.choices(prefectures, weights=weights, k=1)[0]
+
+
+def choose_japanese_surname(prefecture: str, rng: random.Random, surname_master: dict[str, dict[str, tuple[Any, ...]]] | None = None) -> str:
+    normalized_prefecture = normalize_japanese_prefecture_name(prefecture)
+    master = surname_master if surname_master is not None else load_japanese_surname_master()
+    prefecture_data = master.get(normalized_prefecture)
+    if not prefecture_data:
+        raise KeyError(f"苗字マスタに都道府県がありません: {normalized_prefecture}")
+    return str(rng.choices(prefecture_data["surnames"], weights=prefecture_data["weights"], k=1)[0])
+
+
+def choose_japanese_name(rng: random.Random, names: dict[str, Any], prefecture: str, surname_master: dict[str, dict[str, tuple[Any, ...]]] | None = None) -> str:
+    entry = names.get("日本")
+    if not isinstance(entry, dict) or not entry.get("名"):
+        raise ValueError("日本人名マスタに名がありません")
+    surname = choose_japanese_surname(prefecture, rng, surname_master)
+    given_name = str(rng.choice(entry["名"]))
+    return f"{surname} {given_name}"
+
+
+def choose_japanese_identity(rng: random.Random, names: dict[str, Any], surname_master: dict[str, dict[str, tuple[Any, ...]]] | None = None) -> tuple[str, str]:
+    prefecture = choose_japanese_prefecture(rng)
+    return choose_japanese_name(rng, names, prefecture, surname_master), prefecture
+
+
 def normalize_name_master(names: dict[str, Any]) -> dict[str, Any]:
     if "外国" not in names:
         return names
@@ -2621,6 +2778,8 @@ def choose_name(rng: random.Random, names: dict[str, Any], nationality: str) -> 
 
 
 def choose_birthplace(rng: random.Random, places: dict[str, list[str]], nationality: str) -> str:
+    if nationality == "日本":
+        return choose_japanese_prefecture(rng)
     return rng.choice(places.get(nationality) or places["日本"])
 
 
@@ -2665,8 +2824,9 @@ def classify_name_type(name: str, master: MasterData, nationality: str | None = 
 
 
 def classify_birthplace_type(birthplace: str, master: MasterData) -> str:
+    normalized_birthplace = normalize_japanese_prefecture_name(birthplace)
     for nation, places in master.places.items():
-        if birthplace in places:
+        if birthplace in places or normalized_birthplace in places:
             return nation
     return "不明"
 
@@ -2926,9 +3086,15 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     )
     sub_positions = generate_sub_positions(rng, role, position, player_type, category, age, batting_throwing, abilities, player_class, archetype, position_style, acquisition_role)
     special_abilities = generate_specials(rng, master, role, player_type, position, age, abilities, breaking_balls, category, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, sub_positions, pitcher_aptitudes)
-    name = foreign_profile.name if foreign_profile else choose_name(rng, master.names, nationality)
+    if foreign_profile:
+        name = foreign_profile.name
+        birthplace = choose_profile_birthplace(rng, master.places, nationality, foreign_profile.actual_nationality)
+    elif nationality == "日本":
+        name, birthplace = choose_japanese_identity(rng, master.names)
+    else:
+        name = choose_name(rng, master.names, nationality)
+        birthplace = choose_birthplace(rng, master.places, nationality)
     actual_nationality = foreign_profile.actual_nationality if foreign_profile else (nationality if nationality != "日本" else "")
-    birthplace = choose_profile_birthplace(rng, master.places, nationality, actual_nationality) if foreign_profile else choose_birthplace(rng, master.places, nationality)
     return {
         "seed": seed, "role": role, "category": category, "name": name, "age": age,
         "nationality": nationality, "actual_nationality": actual_nationality,
@@ -2957,10 +3123,14 @@ def save_players(players: list[dict[str, Any]]) -> int:
             abilities = dict(p.get("abilities", {}))
             ranked_specials = abilities.get("ranked_specials", {}) if isinstance(abilities, dict) else {}
             pitcher_aptitudes = {key: p.get(key) for key in PITCHER_APTITUDE_KEYS if p.get(key) is not None}
-            region = p.get("region") or p.get("birthplace") or ""
+            birthplace = p.get("birthplace") or p.get("region") or ""
+            region = p.get("region") or birthplace
+            if p.get("nationality") == "日本":
+                birthplace = normalize_japanese_prefecture_name(birthplace)
+                region = normalize_japanese_prefecture_name(region)
             conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, nationality, actual_nationality, nationality_code, name_group_id, name_group_name, skin_color, birthplace, region, position, player_type, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json)
                           VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("nationality", ""), p.get("actual_nationality", ""), p.get("nationality_code", ""), p.get("name_group_id", 0), p.get("name_group_name", ""), p.get("skin_color", 0), p.get("birthplace", region), region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False)))
+                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("nationality", ""), p.get("actual_nationality", ""), p.get("nationality_code", ""), p.get("name_group_id", 0), p.get("name_group_name", ""), p.get("skin_color", 0), birthplace, region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False)))
         return len(players)
 
 
@@ -2991,6 +3161,11 @@ def load_history() -> pd.DataFrame:
     if not history.empty:
         if "region" not in history.columns:
             history["region"] = history.get("birthplace", "")
+        if "nationality" in history.columns:
+            japanese_rows = history["nationality"].eq("日本")
+            for place_column in ("birthplace", "region"):
+                if place_column in history.columns:
+                    history.loc[japanese_rows, place_column] = history.loc[japanese_rows, place_column].apply(normalize_japanese_prefecture_name)
         for column in CLASSIFICATION_COLUMNS:
             if column not in history.columns:
                 history[column] = ""
@@ -3162,7 +3337,8 @@ def name_matches_nationality(name: str, nationality: str, master: MasterData) ->
 
 
 def birthplace_matches_nationality(birthplace: str, nationality: str, master: MasterData) -> bool:
-    return birthplace in master.places.get(nationality, [])
+    candidates = master.places.get(nationality, [])
+    return birthplace in candidates or normalize_japanese_prefecture_name(birthplace) in candidates
 
 def consistency_table(df: pd.DataFrame, master: MasterData, kind: str) -> pd.DataFrame:
     work = df.copy()
@@ -3626,6 +3802,9 @@ def player_from_history_row(row: pd.Series) -> dict[str, Any]:
         "breaking_balls": parse_json_column(row.get("breaking_balls_json"), []),
         "sub_positions": normalize_sub_positions(row.get("sub_positions_json", row.get("sub_positions", []))),
     })
+    if player.get("nationality") == "日本":
+        player["birthplace"] = normalize_japanese_prefecture_name(player.get("birthplace"))
+        player["region"] = normalize_japanese_prefecture_name(player.get("region") or player.get("birthplace"))
     if isinstance(row.get("pitcher_aptitudes_json"), str):
         player.update(parse_json_column(row.get("pitcher_aptitudes_json"), {}))
     for column in CLASSIFICATION_COLUMNS:
