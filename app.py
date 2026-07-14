@@ -13,6 +13,8 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from generator.foreign_names import generate_foreign_profile
+
 APP_VERSION = "1.0.0"
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
@@ -321,6 +323,11 @@ def init_db() -> None:
                 name TEXT NOT NULL DEFAULT '',
                 age INTEGER NOT NULL DEFAULT 0,
                 nationality TEXT NOT NULL DEFAULT '',
+                actual_nationality TEXT NOT NULL DEFAULT '',
+                nationality_code TEXT NOT NULL DEFAULT '',
+                name_group_id INTEGER NOT NULL DEFAULT 0,
+                name_group_name TEXT NOT NULL DEFAULT '',
+                skin_color INTEGER NOT NULL DEFAULT 0,
                 birthplace TEXT NOT NULL DEFAULT '',
                 region TEXT NOT NULL DEFAULT '',
                 position TEXT NOT NULL DEFAULT '',
@@ -352,6 +359,11 @@ def init_db() -> None:
             "name": "TEXT NOT NULL DEFAULT ''",
             "age": "INTEGER NOT NULL DEFAULT 0",
             "nationality": "TEXT NOT NULL DEFAULT ''",
+            "actual_nationality": "TEXT NOT NULL DEFAULT ''",
+            "nationality_code": "TEXT NOT NULL DEFAULT ''",
+            "name_group_id": "INTEGER NOT NULL DEFAULT 0",
+            "name_group_name": "TEXT NOT NULL DEFAULT ''",
+            "skin_color": "INTEGER NOT NULL DEFAULT 0",
             "birthplace": "TEXT NOT NULL DEFAULT ''",
             "region": "TEXT NOT NULL DEFAULT ''",
             "position": "TEXT NOT NULL DEFAULT ''",
@@ -2612,6 +2624,24 @@ def choose_birthplace(rng: random.Random, places: dict[str, list[str]], national
     return rng.choice(places.get(nationality) or places["日本"])
 
 
+def choose_profile_birthplace(rng: random.Random, places: dict[str, list[str]], nationality: str, actual_nationality: str = "") -> str:
+    candidates = places.get(nationality)
+    if candidates:
+        return rng.choice(candidates)
+    if nationality and nationality != "その他":
+        return nationality
+    return actual_nationality or nationality or rng.choice(places["日本"])
+
+
+def fallback_skin_color(seed: int, nationality: str, name: str) -> int:
+    skin_rng = random.Random(f"skin:{seed}:{nationality}:{name}")
+    if nationality in FOREIGN_NATIONS:
+        weights = [(1, 24), (2, 30), (3, 28), (4, 13), (5, 4), (6, 1)]
+    else:
+        weights = [(1, 8), (2, 28), (3, 42), (4, 17), (5, 4), (6, 1)]
+    return int(weighted_choice(skin_rng, weights))
+
+
 def name_matches_entry(name: str, entry: Any) -> bool:
     if isinstance(entry, dict):
         surnames = entry.get("姓", [])
@@ -2828,7 +2858,7 @@ def generate_sub_positions(rng: random.Random, role: str, position: str, player_
         pos = weighted_choice(rng, candidates); selected.append({"position": pos, "aptitude": aptitude(pos)}); candidates = [(p, w) for p, w in candidates if p != pos]
     return selected
 
-def generate_player(role: str, category: str, master: MasterData, seed: int | None = None) -> dict[str, Any]:
+def generate_player(role: str, category: str, master: MasterData, seed: int | None = None, used_names: set[str] | None = None) -> dict[str, Any]:
     seed = seed if seed is not None else random.SystemRandom().randrange(SEED_MAX)
     rng = random.Random(seed)
     if category == "助っ人外国人用":
@@ -2837,7 +2867,14 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     else:
         age = age_for(rng, category)
         player_class = choose_player_class(rng, category, age)
-    nationality = choose_nationality(rng, category)
+    foreign_profile = None
+    if category == "助っ人外国人用":
+        foreign_profile = generate_foreign_profile(rng, category, used_names=used_names)
+        nationality = foreign_profile.nationality if foreign_profile else choose_nationality(rng, category)
+    else:
+        nationality = choose_nationality(rng, category)
+        if nationality != "日本":
+            foreign_profile = generate_foreign_profile(rng, category, display_nationality=nationality, used_names=used_names)
     development_stage = choose_development_stage(rng, category, age, player_class)
     pitcher_aptitudes: dict[str, str] = {}
     if role == "投手":
@@ -2889,9 +2926,18 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     )
     sub_positions = generate_sub_positions(rng, role, position, player_type, category, age, batting_throwing, abilities, player_class, archetype, position_style, acquisition_role)
     special_abilities = generate_specials(rng, master, role, player_type, position, age, abilities, breaking_balls, category, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, sub_positions, pitcher_aptitudes)
+    name = foreign_profile.name if foreign_profile else choose_name(rng, master.names, nationality)
+    actual_nationality = foreign_profile.actual_nationality if foreign_profile else (nationality if nationality != "日本" else "")
+    birthplace = choose_profile_birthplace(rng, master.places, nationality, actual_nationality) if foreign_profile else choose_birthplace(rng, master.places, nationality)
     return {
-        "seed": seed, "role": role, "category": category, "name": choose_name(rng, master.names, nationality), "age": age,
-        "nationality": nationality, "birthplace": choose_birthplace(rng, master.places, nationality), "position": position, "player_type": player_type,
+        "seed": seed, "role": role, "category": category, "name": name, "age": age,
+        "nationality": nationality, "actual_nationality": actual_nationality,
+        "nationality_code": foreign_profile.nationality_code if foreign_profile else "",
+        "name_group_id": foreign_profile.name_group_id if foreign_profile else 0,
+        "name_group_name": foreign_profile.name_group_name if foreign_profile else "",
+        "skin_color": foreign_profile.skin_color if foreign_profile else fallback_skin_color(seed, nationality, name),
+        "name_generation_fallback": foreign_profile is None and nationality != "日本",
+        "birthplace": birthplace, "position": position, "player_type": player_type,
         "player_class": player_class, "archetype": archetype, "position_style": position_style,
         "development_stage": development_stage, "acquisition_role": acquisition_role, "weakness_profile": weakness_profile,
         "handedness": handedness_from_batting_throwing(batting_throwing),
@@ -2912,9 +2958,9 @@ def save_players(players: list[dict[str, Any]]) -> int:
             ranked_specials = abilities.get("ranked_specials", {}) if isinstance(abilities, dict) else {}
             pitcher_aptitudes = {key: p.get(key) for key in PITCHER_APTITUDE_KEYS if p.get(key) is not None}
             region = p.get("region") or p.get("birthplace") or ""
-            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, nationality, birthplace, region, position, player_type, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json)
-                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("nationality", ""), p.get("birthplace", region), region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False)))
+            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, nationality, actual_nationality, nationality_code, name_group_id, name_group_name, skin_color, birthplace, region, position, player_type, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json)
+                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("nationality", ""), p.get("actual_nationality", ""), p.get("nationality_code", ""), p.get("name_group_id", 0), p.get("name_group_name", ""), p.get("skin_color", 0), p.get("birthplace", region), region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False)))
         return len(players)
 
 
@@ -2939,7 +2985,7 @@ def load_history() -> pd.DataFrame:
     init_db()
     with sqlite3.connect(DB_PATH) as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
-        wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "nationality", "birthplace", "region", "position", "player_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json"]
+        wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "region", "position", "player_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json"]
         selected = [column for column in wanted if column in columns]
         history = pd.read_sql_query(f"SELECT {', '.join(selected)} FROM players ORDER BY id DESC", conn)
     if not history.empty:
@@ -3057,7 +3103,7 @@ def ranked_special_distribution(df: pd.DataFrame, group_names: list[str] | None 
     return base.merge(counts, on=["グループ", "ランク"], how="left").fillna({"人数": 0}).astype({"人数": int})
 
 def player_fingerprint(row: pd.Series) -> str:
-    keys = ["role", "category", "name", "age", "nationality", "birthplace", "position", "player_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "breaking_balls_json"]
+    keys = ["role", "category", "name", "age", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "position", "player_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "breaking_balls_json"]
     return json.dumps({key: row.get(key) for key in keys}, ensure_ascii=False, sort_keys=True)
 
 
@@ -4109,11 +4155,14 @@ def render_profile_right(player: dict[str, Any]) -> str:
         ("年齢", f"{player.get('age')}歳", ""),
         ("投打", player.get("batting_throwing"), ""),
         ("国籍", player.get("nationality"), ""),
+        ("実国籍", player.get("actual_nationality"), ""),
+        ("肌色", player.get("skin_color") or "", ""),
         ("出身地", player.get("birthplace"), ""),
         ("身長", f"{player.get('height')}cm", ""),
         ("体重", f"{player.get('weight')}kg", ""),
         ("表示名", display_name, " pp-profile-span-3"),
     ]
+    items = [(label, value, span_class) for label, value, span_class in items if value not in (None, "")]
     cells = ''.join(
         f'<div class="pp-profile-label">{e(label)}</div><div class="pp-profile-value{span_class}">{e(value)}</div>'
         for label, value, span_class in items
@@ -4352,9 +4401,10 @@ def main() -> None:
         total_count = int(count)
         progress = st.progress(0, text="選手を生成中です...")
         players = []
+        used_names: set[str] = set()
         seeds = generate_batch_seeds(total_count)
         for index, seed in enumerate(seeds):
-            players.append(generate_player(role, category, master, seed=seed))
+            players.append(generate_player(role, category, master, seed=seed, used_names=used_names))
             progress.progress((index + 1) / total_count, text=f"選手を生成中です... {index + 1}/{total_count}")
         saved_count = save_players(players)
         progress.empty()
