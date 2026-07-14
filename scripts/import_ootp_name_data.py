@@ -127,6 +127,12 @@ def replace_with_retry(source: Path, target: Path, attempts: int = 10) -> None:
     backup = target.with_name(f".{target.name}.bak")
     for attempt in range(attempts):
         try:
+            source.replace(target)
+            return
+        except PermissionError:
+            pass
+
+        try:
             if backup.exists():
                 backup.unlink()
             if target.exists():

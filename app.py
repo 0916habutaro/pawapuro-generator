@@ -2633,6 +2633,15 @@ def choose_profile_birthplace(rng: random.Random, places: dict[str, list[str]], 
     return actual_nationality or nationality or rng.choice(places["日本"])
 
 
+def fallback_skin_color(seed: int, nationality: str, name: str) -> int:
+    skin_rng = random.Random(f"skin:{seed}:{nationality}:{name}")
+    if nationality in FOREIGN_NATIONS:
+        weights = [(1, 24), (2, 30), (3, 28), (4, 13), (5, 4), (6, 1)]
+    else:
+        weights = [(1, 8), (2, 28), (3, 42), (4, 17), (5, 4), (6, 1)]
+    return int(weighted_choice(skin_rng, weights))
+
+
 def name_matches_entry(name: str, entry: Any) -> bool:
     if isinstance(entry, dict):
         surnames = entry.get("姓", [])
@@ -2926,7 +2935,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         "nationality_code": foreign_profile.nationality_code if foreign_profile else "",
         "name_group_id": foreign_profile.name_group_id if foreign_profile else 0,
         "name_group_name": foreign_profile.name_group_name if foreign_profile else "",
-        "skin_color": foreign_profile.skin_color if foreign_profile else 0,
+        "skin_color": foreign_profile.skin_color if foreign_profile else fallback_skin_color(seed, nationality, name),
         "name_generation_fallback": foreign_profile is None and nationality != "日本",
         "birthplace": birthplace, "position": position, "player_type": player_type,
         "player_class": player_class, "archetype": archetype, "position_style": position_style,

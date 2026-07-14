@@ -152,6 +152,7 @@ class OotpNameGenerationTest(unittest.TestCase):
         self.assertEqual(player["nationality"], "日本")
         self.assertEqual(player["name"], "佐藤 蓮")
         self.assertEqual(player["actual_nationality"], "")
+        self.assertIn(player["skin_color"], range(1, 7))
 
     def test_missing_imported_db_falls_back_to_existing_foreign_master(self):
         master = app.MasterData(
@@ -167,6 +168,7 @@ class OotpNameGenerationTest(unittest.TestCase):
             app.generate_foreign_profile = original
         self.assertTrue(player["name_generation_fallback"])
         self.assertIn(player["nationality"], app.FOREIGN_NATIONS)
+        self.assertIn(player["skin_color"], range(1, 7))
 
     def test_missing_imported_db_logs_fallback_warning(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
