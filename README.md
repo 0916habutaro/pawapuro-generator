@@ -263,6 +263,17 @@ players_backup_2026-07-10.db
 - `data/names.json`: 国籍別の姓・名マスター
 - `data/places.json`: 国籍別の地域マスター
 - `data/special_abilities.csv`: 特殊能力マスター
+- `data/config/ootp_name_config.json`: OOTP由来の外国人名・国籍・肌色生成設定
+
+### OOTP外国人名データ
+
+助っ人外国人の名前、実国籍、名前グループ、肌色は、変換済みSQLiteがある場合にOOTP形式データ由来の候補を使います。
+
+- 変換済みDB: `data/imported/foreign_names.sqlite`
+- 元XML配置先: `data/external/ootp/names.xml`, `data/external/ootp/world_default.xml`
+- 変換スクリプト: `python scripts/import_ootp_name_data.py`
+
+`foreign_names.sqlite`と元XMLはサイズが大きいためGit管理対象外です。配布時はGitHub Release Assetなどで`foreign_names.sqlite`を提供し、利用者はダウンロードしたファイルを`data/imported/foreign_names.sqlite`へ配置してください。DBがない、壊れている、旧スキーマ、または対象候補が不足している場合でも、アプリは既存の`data/names.json`による外国人名生成へフォールバックします。
 
 注意事項:
 
