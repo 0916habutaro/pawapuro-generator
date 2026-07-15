@@ -218,3 +218,46 @@ def test_generate_specials_allows_farm_player_zero_specials():
     )
 
     assert selected == []
+
+
+def test_non_fictional_categories_keep_legacy_special_caps():
+    abilities = [
+        {"name": f"通常特能{i}", "kind": "blue", "group": f"g{i}", "power": "normal", "weight": "100", "target_role": "野手"}
+        for i in range(30)
+    ]
+    master = app.MasterData(names={}, places={}, abilities=abilities)
+    high_values = {"ミート": app.ability(80), "パワー": app.ability(80), "走力": app.ability(80), "肩力": app.ability(80), "守備力": app.ability(80), "捕球": app.ability(80)}
+
+    foreign = app.generate_specials(
+        random.Random(4),
+        master,
+        "野手",
+        "長距離砲",
+        "一塁手",
+        28,
+        high_values,
+        category="助っ人外国人用",
+        player_class="大物実績者",
+    )
+    draft = app.generate_specials(
+        random.Random(5),
+        master,
+        "野手",
+        "巧打型",
+        "二塁手",
+        22,
+        high_values,
+        category="ドラフト候補用",
+        player_class="上位候補",
+    )
+
+    assert len([name for name in foreign if app.is_countable_special(name)]) <= 7
+    assert len([name for name in draft if app.is_countable_special(name)]) <= 5
+
+
+def test_non_fictional_pitch_count_weights_keep_legacy_role_and_archetype_shape():
+    starter = {"starter_aptitude": "◎", "reliever_aptitude": "-", "closer_aptitude": "-"}
+    reliever = {"starter_aptitude": "-", "reliever_aptitude": "◎", "closer_aptitude": "-"}
+
+    assert dict(app.pitch_count_weights("変化球派", "助っ人外国人用", starter, age=28, archetype="変化球")) == {2: 18, 3: 70, 4: 12}
+    assert dict(app.pitch_count_weights("本格派", "ドラフト候補用", reliever, age=25, archetype="総合")) == {2: 46, 3: 52, 4: 2}

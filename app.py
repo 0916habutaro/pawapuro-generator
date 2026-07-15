@@ -1130,8 +1130,9 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
         arm_names = {"レーザービーム", "送球〇", "送球◎"}
         if not is_special_position_allowed(name, position, sub_positions):
             return 0
-        chance *= FIELDER_REALISTIC_SPECIAL_BOOSTS.get(name, 1.0)
-        chance *= FIELDER_REALISTIC_SPECIAL_SUPPRESSIONS.get(name, 1.0)
+        if category == "架空球団用":
+            chance *= FIELDER_REALISTIC_SPECIAL_BOOSTS.get(name, 1.0)
+            chance *= FIELDER_REALISTIC_SPECIAL_SUPPRESSIONS.get(name, 1.0)
         if name == "国際大会×" and category == "架空球団用":
             chance *= 0.35
         if name in POSITION_RESTRICTED_SPECIALS and has_position_aptitude(position, sub_positions, POSITION_RESTRICTED_SPECIALS[name]): chance += 2
@@ -1257,8 +1258,9 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
         real_pitcher_blue = {"球速安定", "奪三振", "リリース○", "逃げ球", "球持ち○", "内角攻め", "緩急○", "キレ○", "牽制○", "ナチュラルシュート", "ゴロピッチャー", "回またぎ○", "真っスラ"}
         if not is_special_pitcher_aptitude_allowed(name, pitcher_aptitudes):
             return 0
-        chance *= PITCHER_REALISTIC_SPECIAL_BOOSTS.get(name, 1.0)
-        chance *= PITCHER_REALISTIC_SPECIAL_SUPPRESSIONS.get(name, 1.0)
+        if category == "架空球団用":
+            chance *= PITCHER_REALISTIC_SPECIAL_BOOSTS.get(name, 1.0)
+            chance *= PITCHER_REALISTIC_SPECIAL_SUPPRESSIONS.get(name, 1.0)
         if name in real_pitcher_blue:
             chance += 1.5
         if name in fast:
@@ -1570,8 +1572,14 @@ def generate_specials(rng: random.Random, master: MasterData, role: str, player_
         score_values = [ability_numeric_value(abilities or {}, key) for key in ("ミート", "パワー", "走力", "肩力", "守備力", "捕球")]
     numeric_scores = [value for value in score_values if isinstance(value, int | float)]
     player_score = sum(numeric_scores) / max(1, len(numeric_scores))
-    min_count, _max_count = special_count_bounds(category, player_class)
-    cap = weighted_special_cap(rng, category, player_class, player_score)
+    if category == "架空球団用":
+        min_count, _max_count = special_count_bounds(category, player_class)
+        cap = weighted_special_cap(rng, category, player_class, player_score)
+    else:
+        min_count = 0
+        cap = 6 if category == "助っ人外国人用" else 5
+        if category == "助っ人外国人用" and player_score >= 68:
+            cap += 1
     countable = [name for name in selected if is_countable_special(name)]
     if len(countable) < min_count:
         fill_candidates = sorted(
@@ -2782,11 +2790,20 @@ def pitch_count_weights(
         else:
             weights = {2: 49, 3: 49, 4: 2}
     if role == "先発":
-        weights[2] -= 6; weights[3] += 4; weights[4] += 2
+        if category == "架空球団用":
+            weights[2] -= 6; weights[3] += 4; weights[4] += 2
+        else:
+            weights[2] -= 8; weights[3] += 6; weights[4] += 2
     elif role in {"中継ぎ", "抑え"}:
-        weights[2] += 9; weights[3] -= 6; weights[4] -= 3
+        if category == "架空球団用":
+            weights[2] += 9; weights[3] -= 6; weights[4] -= 3
+        else:
+            weights[2] += 8; weights[3] -= 6; weights[4] -= 2
     if archetype == "変化球":
-        weights[2] -= 8; weights[3] += 7; weights[4] += 1
+        if category == "架空球団用":
+            weights[2] -= 8; weights[3] += 7; weights[4] += 1
+        else:
+            weights[2] -= 10; weights[3] += 7; weights[4] += 3
     elif archetype == "速球":
         weights[2] += 8; weights[3] -= 6; weights[4] -= 2
     if development_stage == "素材型":
@@ -2796,7 +2813,7 @@ def pitch_count_weights(
     if weakness_profile == "球種不足":
         weights = {2: 100, 3: 0, 4: 0}
     if player_class in {"スター級", "大物実績者"} and role == "先発":
-        weights[4] += 1
+        weights[4] += 1 if category == "架空球団用" else 2
     return [(count, max(0, weight)) for count, weight in weights.items() if weight > 0]
 
 
