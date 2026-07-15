@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 import random
 import re
@@ -22,6 +23,27 @@ DATA_DIR = APP_DIR / "data"
 DB_PATH = APP_DIR / "players.sqlite3"
 JAPANESE_SURNAME_PATH = DATA_DIR / "japan_surname.csv"
 CATEGORIES = ["架空球団用", "ドラフト候補用", "助っ人外国人用"]
+GROWTH_TYPE_LABELS = {
+    "very_early": "超早熟",
+    "early": "早熟",
+    "normal": "普通",
+    "late": "晩成",
+    "very_late": "超晩成",
+}
+VALID_GROWTH_TYPES = set(GROWTH_TYPE_LABELS)
+GROWTH_TYPE_BASE_WEIGHTS = {
+    "架空球団用": {"very_early": 8, "early": 20, "normal": 44, "late": 21, "very_late": 7},
+    "ドラフト候補用": {"very_early": 10, "early": 23, "normal": 40, "late": 21, "very_late": 6},
+    "助っ人外国人用": {"very_early": 8, "early": 26, "normal": 46, "late": 16, "very_late": 4},
+}
+GROWTH_TYPE_MULTIPLIERS = {
+    "young_project": {"very_early": 0.65, "early": 0.80, "normal": 1.00, "late": 1.45, "very_late": 1.70},
+    "young_regular": {"very_early": 1.55, "early": 1.35, "normal": 1.00, "late": 0.75, "very_late": 0.55},
+    "draft_ready": {"very_early": 1.40, "early": 1.35, "normal": 1.10, "late": 0.70, "very_late": 0.45},
+    "high_school_project": {"very_early": 0.75, "early": 0.85, "normal": 1.00, "late": 1.35, "very_late": 1.50},
+    "college_ready": {"very_early": 1.15, "early": 1.30, "normal": 1.15, "late": 0.75, "very_late": 0.50},
+    "foreign_ready": {"very_early": 1.05, "early": 1.30, "normal": 1.20, "late": 0.75, "very_late": 0.50},
+}
 POSITIONS = {
     "投手": ["先発", "中継ぎ", "抑え"],
     "野手": ["捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手"],
@@ -395,6 +417,7 @@ def init_db() -> None:
                 position TEXT NOT NULL DEFAULT '',
                 player_type TEXT NOT NULL DEFAULT '',
                 player_class TEXT NOT NULL DEFAULT '',
+                growth_type TEXT NOT NULL DEFAULT 'normal',
                 archetype TEXT NOT NULL DEFAULT '',
                 position_style TEXT NOT NULL DEFAULT '',
                 development_stage TEXT NOT NULL DEFAULT '',
@@ -431,6 +454,7 @@ def init_db() -> None:
             "position": "TEXT NOT NULL DEFAULT ''",
             "player_type": "TEXT NOT NULL DEFAULT ''",
             "player_class": "TEXT NOT NULL DEFAULT ''",
+            "growth_type": "TEXT NOT NULL DEFAULT 'normal'",
             "archetype": "TEXT NOT NULL DEFAULT ''",
             "position_style": "TEXT NOT NULL DEFAULT ''",
             "development_stage": "TEXT NOT NULL DEFAULT ''",
@@ -451,6 +475,7 @@ def init_db() -> None:
             if column not in existing:
                 conn.execute(f"ALTER TABLE players ADD COLUMN {column} {definition}")
         conn.execute("UPDATE players SET region = birthplace WHERE (region IS NULL OR region = '') AND birthplace IS NOT NULL")
+        conn.execute("UPDATE players SET growth_type = 'normal' WHERE growth_type IS NULL OR growth_type = ''")
 
 
 def weighted_choice(rng: random.Random, items: list[tuple[Any, int]]) -> Any:
@@ -459,6 +484,49 @@ def weighted_choice(rng: random.Random, items: list[tuple[Any, int]]) -> Any:
 
 def positive_weight_items(items: list[tuple[str, int]]) -> list[tuple[str, int]]:
     return [(label, int(weight)) for label, weight in items if int(weight) > 0]
+
+
+def normalize_growth_type(value: Any) -> str:
+    text = str(value or "").strip()
+    return text if text in VALID_GROWTH_TYPES else "normal"
+
+
+def growth_type_label(value: Any) -> str:
+    return GROWTH_TYPE_LABELS[normalize_growth_type(value)]
+
+
+def create_growth_rng(seed: int, role: str, category: str) -> random.Random:
+    digest = hashlib.sha256(f"{int(seed)}:growth_type:{role}:{category}".encode("utf-8")).digest()
+    return random.Random(int.from_bytes(digest[:8], "big"))
+
+
+def growth_type_weight_map(category: str, age: int, player_class: str | None = None, development_stage: str | None = None, acquisition_role: str | None = None) -> dict[str, int]:
+    weights = dict(GROWTH_TYPE_BASE_WEIGHTS.get(category, GROWTH_TYPE_BASE_WEIGHTS["架空球団用"]))
+    multipliers = {key: 1.0 for key in GROWTH_TYPE_LABELS}
+
+    def apply(name: str) -> None:
+        for key, value in GROWTH_TYPE_MULTIPLIERS[name].items():
+            multipliers[key] *= value
+
+    labels = {str(player_class or ""), str(development_stage or ""), str(acquisition_role or "")}
+    if labels & {"若手素材型", "育成候補", "育成素材型", "素材型", "若手育成"}:
+        apply("young_project")
+    if age <= 26 and (player_class in {"スター級", "一軍主力級", "超上位候補", "上位候補", "主力期待級"} or development_stage == "即戦力型"):
+        apply("young_regular")
+    if category == "ドラフト候補用" and (development_stage == "即戦力型" or str(acquisition_role or "").endswith("即戦力")):
+        apply("draft_ready")
+    if category == "ドラフト候補用" and age <= 19 and development_stage == "素材型":
+        apply("high_school_project")
+    if category == "ドラフト候補用" and 22 <= age <= 25 and development_stage == "即戦力型":
+        apply("college_ready")
+    if category == "助っ人外国人用" and player_class in {"大物実績者", "主力期待級", "レギュラー競争級"}:
+        apply("foreign_ready")
+    return {key: max(1, round(weights[key] * max(0.25, min(multipliers[key], 3.0)))) for key in GROWTH_TYPE_LABELS}
+
+
+def choose_growth_type(*, category: str, age: int, player_class: str | None, development_stage: str | None, acquisition_role: str | None, rng: random.Random) -> str:
+    weights = growth_type_weight_map(category, age, player_class, development_stage, acquisition_role)
+    return weighted_choice(rng, list(weights.items()))
 
 
 def choose_player_class(rng: random.Random, category: str, age: int) -> str:
@@ -1825,6 +1893,34 @@ def fielder_age_mods(age: int, archetype: str, player_class: str) -> dict[str, i
     return mods
 
 
+def growth_age_delta(age: int, growth_type: str) -> int:
+    gt = normalize_growth_type(growth_type)
+    points = {
+        "very_early": [(18, 4), (22, 4), (27, 1), (30, -3), (35, -8), (38, -11), (42, -14)],
+        "early": [(18, 2), (22, 3), (28, 2), (31, -1), (35, -6), (38, -9), (42, -12)],
+        "normal": [(18, 0), (24, 0), (29, 1), (33, 0), (35, -4), (38, -7), (42, -10)],
+        "late": [(18, -2), (24, -2), (29, -1), (33, 2), (35, -2), (38, -5), (42, -8)],
+        "very_late": [(18, -3), (24, -3), (29, -2), (34, 3), (35, 1), (38, -3), (42, -6)],
+    }
+    return curve_delta(age, points[gt])
+
+
+def apply_fielder_growth_mods(values: dict[str, int], age: int, growth_type: str, archetype: str, position_style: str) -> None:
+    base = growth_age_delta(age, growth_type)
+    if base >= 0:
+        weights = {"ミート": 0.8, "パワー": 0.8, "走力": 0.8, "肩力": 0.7, "守備力": 0.8, "捕球": 0.8}
+        if archetype in {"巧打", "長打"} or "打撃" in position_style or "強打" in position_style:
+            weights["ミート"] += 0.25; weights["パワー"] += 0.25
+        if archetype == "守備" or "守備" in position_style:
+            weights["守備力"] += 0.25; weights["捕球"] += 0.25
+        if archetype == "俊足" or "走塁" in position_style:
+            weights["走力"] += 0.25
+    else:
+        weights = {"ミート": 0.45, "パワー": 0.50, "走力": 1.0, "肩力": 0.85, "守備力": 0.70, "捕球": 0.60}
+    for key, weight in weights.items():
+        values[key] += round(base * weight)
+
+
 def apply_fielder_player_class_mods(values: dict[str, int], category: str, player_class: str) -> None:
     class_mods = {
         "架空球団用": {
@@ -2322,6 +2418,7 @@ def generate_fielder_abilities(
     acquisition_role: str = "",
     weakness_profile: str = "",
     allow_foreign_allrounder: bool = False,
+    growth_type: str = "normal",
 ) -> dict[str, Any]:
     archetype = archetype or legacy_archetype_from_player_type("野手", player_type) or "バランス"
     player_class = player_class or player_class_from_legacy_roster_tier(roster_tier) or "一軍控え級"
@@ -2345,6 +2442,7 @@ def generate_fielder_abilities(
     apply_fielder_acquisition_role_mods(values, archetype, position_style, acquisition_role)
     apply_fielder_weakness_profile(rng, values, weakness_profile)
     apply_fielder_variance(rng, values, category, development_stage)
+    apply_fielder_growth_mods(values, age, growth_type, archetype, position_style)
     finalize_fielder_values(rng, values, category, age, position, player_class, archetype, position_style, allow_foreign_allrounder)
     result = ability_values(values)
     result["弾道"] = determine_trajectory(values["パワー"], archetype, position, position_style)
@@ -2400,6 +2498,23 @@ def pitcher_age_mods(age: int, archetype: str, player_class: str) -> dict[str, i
         mods["球速"] -= 2
         mods["コントロール"] += 3
     return mods
+
+
+def apply_pitcher_growth_mods(values: dict[str, int], age: int, growth_type: str, archetype: str) -> None:
+    base = growth_age_delta(age, growth_type)
+    if base >= 0:
+        weights = {"球速": 0.35, "コントロール": 0.8, "スタミナ": 0.9}
+        if archetype == "速球":
+            weights["球速"] += 0.15
+        if archetype == "制球":
+            weights["コントロール"] += 0.25
+        if archetype == "スタミナ":
+            weights["スタミナ"] += 0.25
+    else:
+        weights = {"球速": 0.28, "コントロール": 0.55, "スタミナ": 0.9}
+    values["球速"] += round(base * weights["球速"])
+    values["コントロール"] += round(base * weights["コントロール"])
+    values["スタミナ"] += round(base * weights["スタミナ"])
 
 
 def apply_pitcher_player_class_mods(values: dict[str, int], category: str, player_class: str) -> None:
@@ -2648,6 +2763,7 @@ def generate_pitcher_abilities(
     development_stage: str = "",
     acquisition_role: str = "",
     weakness_profile: str = "",
+    growth_type: str = "normal",
 ) -> dict[str, Any]:
     archetype = archetype or legacy_archetype_from_player_type("投手", player_type) or "総合"
     player_class = player_class or "一軍控え級"
@@ -2666,6 +2782,7 @@ def generate_pitcher_abilities(
     apply_pitcher_acquisition_role_mods(values, acquisition_role)
     apply_pitcher_weakness_profile(rng, values, weakness_profile)
     apply_pitcher_variance(rng, values, category, development_stage, weakness_profile)
+    apply_pitcher_growth_mods(values, age, growth_type, archetype)
     apply_fictional_pitcher_age_speed_shape(rng, values, category, age, player_class, archetype, position_style, weakness_profile)
     shape_pitcher_speed_distribution(rng, values, category, age, player_class, archetype, position_style, weakness_profile)
     finalize_pitcher_values(rng, values, category, age, player_class, archetype, position_style, role, weakness_profile)
@@ -3582,6 +3699,10 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
             archetype = "総合"
     position_style = choose_position_style(rng, role, position, archetype)
     weakness_profile = choose_weakness_profile(rng, category, role, player_class)
+    growth_type = choose_growth_type(
+        category=category, age=age, player_class=player_class, development_stage=development_stage,
+        acquisition_role=acquisition_role, rng=create_growth_rng(seed, role, category),
+    )
     allow_foreign_allrounder = choose_foreign_allrounder_candidate(rng, category, player_class, age, archetype, position_style) if role == "野手" else False
     player_type = legacy_player_type_from_archetype(role, archetype)
     roster_tier = legacy_roster_tier_from_player_class(player_class)
@@ -3590,7 +3711,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
             rng, age, player_type, category, pitcher_aptitudes,
             player_class=player_class, archetype=archetype, position_style=position_style,
             development_stage=development_stage, acquisition_role=acquisition_role,
-            weakness_profile=weakness_profile,
+            weakness_profile=weakness_profile, growth_type=growth_type,
         )
         breaking_balls = generate_breaking_balls(
             rng, player_type, category, pitcher_aptitudes, batting_throwing,
@@ -3603,7 +3724,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
             rng, age, position, player_type, category, position_style, roster_tier,
             player_class=player_class, archetype=archetype, development_stage=development_stage,
             acquisition_role=acquisition_role, weakness_profile=weakness_profile,
-            allow_foreign_allrounder=allow_foreign_allrounder,
+            allow_foreign_allrounder=allow_foreign_allrounder, growth_type=growth_type,
         )
         breaking_balls = []
     abilities, breaking_balls = audit_generated_player(
@@ -3632,6 +3753,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         "name_generation_fallback": foreign_profile is None and nationality != "日本",
         "birthplace": birthplace, "position": position, "player_type": player_type,
         "player_class": player_class, "archetype": archetype, "position_style": position_style,
+        "growth_type": growth_type, "growth_type_label": growth_type_label(growth_type),
         "development_stage": development_stage, "acquisition_role": acquisition_role, "weakness_profile": weakness_profile,
         "handedness": handedness_from_batting_throwing(batting_throwing),
         "batting_throwing": batting_throwing,
@@ -3655,9 +3777,9 @@ def save_players(players: list[dict[str, Any]]) -> int:
             if p.get("nationality") == "日本":
                 birthplace = normalize_japanese_prefecture_name(birthplace)
                 region = normalize_japanese_prefecture_name(region)
-            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, nationality, actual_nationality, nationality_code, name_group_id, name_group_name, skin_color, birthplace, region, position, player_type, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json)
-                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("nationality", ""), p.get("actual_nationality", ""), p.get("nationality_code", ""), p.get("name_group_id", 0), p.get("name_group_name", ""), p.get("skin_color", 0), birthplace, region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False)))
+            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, nationality, actual_nationality, nationality_code, name_group_id, name_group_name, skin_color, birthplace, region, position, player_type, player_class, growth_type, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json)
+                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("nationality", ""), p.get("actual_nationality", ""), p.get("nationality_code", ""), p.get("name_group_id", 0), p.get("name_group_name", ""), p.get("skin_color", 0), birthplace, region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), normalize_growth_type(p.get("growth_type")), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False)))
         return len(players)
 
 
@@ -3682,7 +3804,7 @@ def load_history() -> pd.DataFrame:
     init_db()
     with sqlite3.connect(DB_PATH) as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
-        wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "region", "position", "player_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json"]
+        wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "region", "position", "player_type", "growth_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json"]
         selected = [column for column in wanted if column in columns]
         history = pd.read_sql_query(f"SELECT {', '.join(selected)} FROM players ORDER BY id DESC", conn)
     if not history.empty:
@@ -3698,6 +3820,10 @@ def load_history() -> pd.DataFrame:
                 history[column] = ""
             history[column] = history[column].fillna("").astype(str)
             history[CLASSIFICATION_LABELS[column]] = history[column]
+        if "growth_type" not in history.columns:
+            history["growth_type"] = "normal"
+        history["growth_type"] = history["growth_type"].apply(normalize_growth_type)
+        history["成長タイプ"] = history["growth_type"].apply(growth_type_label)
         abilities = history["abilities_json"].apply(lambda value: parse_json_column(value, {}))
         pitcher_aptitudes = history["pitcher_aptitudes_json"].apply(lambda value: parse_json_column(value, {})) if "pitcher_aptitudes_json" in history.columns else pd.Series([{}] * len(history))
         for key in PITCHER_APTITUDE_KEYS:
@@ -4034,6 +4160,19 @@ def render_balance_check(master: MasterData) -> None:
         st.dataframe(classification_distribution_table(df[df["category"].eq("ドラフト候補用")], ["category"], "development_stage").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
         st.dataframe(classification_distribution_table(df[df["category"].eq("助っ人外国人用")], ["category"], "acquisition_role").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
 
+    st.subheader("成長タイプ分布")
+    growth_df = df.copy()
+    growth_df["成長タイプ"] = growth_df["growth_type"].apply(growth_type_label)
+    growth_total = growth_df["成長タイプ"].value_counts().reindex(GROWTH_TYPE_LABELS.values(), fill_value=0).rename_axis("成長タイプ").reset_index(name="人数")
+    growth_total["割合"] = (growth_total["人数"] / len(growth_df) * 100).round(2)
+    gcol1, gcol2 = st.columns(2)
+    with gcol1:
+        st.dataframe(growth_total, use_container_width=True, hide_index=True)
+        st.dataframe(pd.crosstab(growth_df["category"], growth_df["成長タイプ"], normalize="index").mul(100).round(1), use_container_width=True)
+    with gcol2:
+        st.dataframe(pd.crosstab(growth_df["role"], growth_df["成長タイプ"], normalize="index").mul(100).round(1), use_container_width=True)
+        st.dataframe(pd.crosstab(growth_df["age"].apply(lambda age: age_band(int(age))), growth_df["成長タイプ"], normalize="index").mul(100).round(1), use_container_width=True)
+
     st.subheader("年齢分布")
     age_dist = df["age"].value_counts().sort_index().rename_axis("年齢").reset_index(name="人数")
     st.dataframe(age_dist, use_container_width=True, hide_index=True)
@@ -4331,6 +4470,8 @@ def player_from_history_row(row: pd.Series) -> dict[str, Any]:
         "breaking_balls": parse_json_column(row.get("breaking_balls_json"), []),
         "sub_positions": normalize_sub_positions(row.get("sub_positions_json", row.get("sub_positions", []))),
     })
+    player["growth_type"] = normalize_growth_type(player.get("growth_type"))
+    player["growth_type_label"] = growth_type_label(player["growth_type"])
     if player.get("nationality") == "日本":
         player["birthplace"] = normalize_japanese_prefecture_name(player.get("birthplace"))
         player["region"] = normalize_japanese_prefecture_name(player.get("region") or player.get("birthplace"))
@@ -4944,10 +5085,11 @@ def usage_special_categories(player: dict[str, Any], master: MasterData) -> dict
 def render_usage_categories_html(player: dict[str, Any], master: MasterData) -> str:
     cells: list[str] = []
     categories = usage_special_categories(player, master)
+    growth_html = special_cell_html(growth_type_label(player.get("growth_type")), "green")
     if not categories:
         cells.extend([
             '<div class="pp-usage-cell pp-usage-label">起用法</div>',
-            '<div class="pp-usage-cell pp-usage-empty"></div>',
+            f'<div class="pp-usage-cell pp-usage-value">{growth_html}</div>',
             '<div class="pp-usage-cell pp-usage-empty"></div>',
             '<div class="pp-usage-cell pp-usage-empty"></div>',
         ])
@@ -4961,6 +5103,12 @@ def render_usage_categories_html(player: dict[str, Any], master: MasterData) -> 
                     cells.append(f'<div class="pp-usage-cell pp-usage-value">{e(name)}</div>')
                 while len(cells) % 4 != 0:
                     cells.append('<div class="pp-usage-cell pp-usage-empty"></div>')
+        cells.extend([
+            '<div class="pp-usage-cell pp-usage-label"></div>',
+            f'<div class="pp-usage-cell pp-usage-value">{growth_html}</div>',
+            '<div class="pp-usage-cell pp-usage-empty"></div>',
+            '<div class="pp-usage-cell pp-usage-empty"></div>',
+        ])
     target_count = special_grid_cell_count(32, 0, len(cells))
     while len(cells) < target_count:
         cells.append('<div class="pp-usage-cell pp-usage-empty"></div>')
