@@ -17,10 +17,13 @@ from app import (  # noqa: E402
     SPECIAL_KIND_LABELS,
     SPECIAL_KIND_ORDER,
     USAGE_SPECIAL_NAMES,
+    GROWTH_TYPE_LABELS,
     ability_numeric_value,
     generate_player,
+    growth_type_label,
     is_ranked_special,
     load_master_data,
+    normalize_growth_type,
     pitch_movement,
     pitcher_speed_value,
 )
@@ -53,6 +56,8 @@ REPORT_FILENAMES = {
     "pitcher_pitch_mix_stats": "pitcher_pitch_mix_stats.csv",
     "special_count_stats": "special_count_stats.csv",
     "combination_warnings": "warnings.csv",
+    "growth_type_distribution": "growth_type_distribution.csv",
+    "growth_type_age_ability": "growth_type_age_ability.csv",
 }
 
 REAL_POSITION_AVERAGES = {
@@ -133,6 +138,8 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
         break_levels = [pitch_movement(ball) for ball in primary_breaking]
         second_balls = [ball for ball in all_breaking if bool(ball.get("is_second_pitch", False))]
         row = {key: player[key] for key in ["seed", "role", "category", "name", "age", "nationality", "birthplace", "position", "player_type", "handedness", "batting_throwing", "height", "weight"]}
+        row["growth_type"] = normalize_growth_type(player.get("growth_type"))
+        row["成長タイプ"] = growth_type_label(row["growth_type"])
         for key in CLASSIFICATION_COLUMNS:
             row[key] = player.get(key, "")
         for key in ["starter_aptitude", "reliever_aptitude", "closer_aptitude"]:
@@ -244,6 +251,32 @@ def ability_stats(df: pd.DataFrame) -> pd.DataFrame:
                         "G率%": round((values < 20).mean() * 100, 3) if not values.empty else None,
                         **{f"{rank}率%": round(((values >= low) & (values <= high)).mean() * 100, 3) if not values.empty else None for rank, (low, high) in RANK_BANDS.items()},
                     })
+    return pd.DataFrame(rows)
+
+
+def growth_type_distribution(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for groups in [[], ["category"], ["role"], ["年齢帯"], ["player_class"], ["development_stage"], ["acquisition_role"]]:
+        grouped = df.groupby(groups, dropna=False) if groups else [((), df)]
+        for group_value, subset in grouped:
+            if not isinstance(group_value, tuple):
+                group_value = (group_value,)
+            label = " / ".join(f"{k}={v}" for k, v in zip(groups, group_value, strict=False)) if groups else "全体"
+            counts = subset["成長タイプ"].value_counts()
+            for code, jp in GROWTH_TYPE_LABELS.items():
+                count = int(counts.get(jp, 0))
+                rows.append({"集計軸": "+".join(groups) if groups else "全体", "集計値": label, "growth_type": code, "成長タイプ": jp, "人数": count, "割合%": round(count / max(1, len(subset)) * 100, 2)})
+    return pd.DataFrame(rows)
+
+
+def growth_type_age_ability(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for role, keys in [("野手", FIELDING_KEYS[:-1]), ("投手", ["球速", "コントロール", "スタミナ", "変化球数_第一球種のみ", "総変化量"])]:
+        for (growth, age_label), subset in df[df["role"].eq(role)].groupby(["成長タイプ", "年齢帯"], dropna=False):
+            row = {"対象": role, "成長タイプ": growth, "年齢帯": age_label, "人数": int(len(subset))}
+            for key in keys:
+                row[key] = round(pd.to_numeric(subset[key], errors="coerce").mean(), 2)
+            rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -749,6 +782,8 @@ def write_markdown_summary(tables: dict[str, pd.DataFrame], path: Path) -> None:
     pitch_mix = tables["pitcher_pitch_mix_stats"]
     special_counts = tables["special_count_stats"]
     combo_warnings = tables["combination_warnings"]
+    growth_dist = tables["growth_type_distribution"]
+    growth_age = tables["growth_type_age_ability"]
 
     def markdown_table(table: pd.DataFrame) -> str:
         if table.empty:
@@ -789,6 +824,14 @@ def write_markdown_summary(tables: dict[str, pd.DataFrame], path: Path) -> None:
         "## カテゴリ別の能力平均",
         "",
         markdown_table(category_stats[["対象", "集計値", "能力", "人数", "平均"]].head(80)),
+        "",
+        "## 成長タイプ分布",
+        "",
+        markdown_table(growth_dist.head(120)),
+        "",
+        "## 成長タイプ×年齢帯別 主要能力平均",
+        "",
+        markdown_table(growth_age.head(120)),
         "",
         "## ポジション別の能力分布・上位割合・下位割合",
         "",
@@ -870,6 +913,8 @@ def main() -> None:
         "pitcher_pitch_mix_stats": pitcher_pitch_mix_stats(df),
         "special_count_stats": special_count_stats(df),
         "combination_warnings": combination_warnings(df),
+        "growth_type_distribution": growth_type_distribution(df),
+        "growth_type_age_ability": growth_type_age_ability(df),
     }
     write_reports(tables, args.output_dir, args.excel)
     print_console_summary(tables, args.output_dir)
