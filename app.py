@@ -4686,6 +4686,7 @@ def inject_powerpro_ui_css() -> None:
     .pp-special.green {background:linear-gradient(180deg,#effff2 0%,#bcebc7 100%); border-color:#36aa5b; color:#086b30;}
     .pp-special.neutral {background:linear-gradient(180deg,#f9fdff 0%,#e0f2f6 100%); border-color:#82bdca; color:#285e75;}
     .pp-special.gold {background:linear-gradient(#fffdf1,#fff0ad); border-color:#e0be3c; color:#836200;}
+    .pp-special.mixed {background:linear-gradient(to right,#b8eef4 0%,#83dce7 50%,#ffe0e0 50%,#ffadad 100%); border-color:#3fb5cb; color:#073f68; text-shadow:0 1px rgba(255,255,255,.68);}
     .pp-special-ranked.rank-ab {background:linear-gradient(180deg,#eefcff 0%,#ade8ef 58%,#78d3df 100%); border-color:#39afc4; color:#075f94;}
     .pp-special-ranked.rank-ab .pp-special-rank-badge {background:linear-gradient(180deg,#38c9dc 0%,#1595b5 100%); color:#fff;}
     .pp-special-ranked.rank-cde {background:linear-gradient(180deg,#fbfdff 0%,#e3f1f5 55%,#c9e5eb 100%); border-color:#78b5c2; color:#285e75;}
@@ -4736,10 +4737,10 @@ def inject_powerpro_ui_css() -> None:
     .pp-trajectory-row {overflow:hidden;}
     .pp-trajectory-icon {display:flex; align-items:center; justify-content:center; width:50px; height:100%; overflow:visible;}
     .pp-trajectory-icon svg {overflow:visible;}
-    .pp-trajectory-icon.trajectory-1 svg {transform:rotate(-10deg); transform-origin:6px 25px;}
-    .pp-trajectory-icon.trajectory-2 svg {transform:rotate(-22deg); transform-origin:6px 25px;}
-    .pp-trajectory-icon.trajectory-3 svg {transform:rotate(-35deg); transform-origin:6px 25px;}
-    .pp-trajectory-icon.trajectory-4 svg {transform:rotate(-48deg); transform-origin:6px 25px;}
+    .pp-trajectory-icon.trajectory-1 svg {transform:rotate(0deg); transform-origin:6px 25px;}
+    .pp-trajectory-icon.trajectory-2 svg {transform:rotate(-18deg); transform-origin:6px 25px;}
+    .pp-trajectory-icon.trajectory-3 svg {transform:rotate(-34deg); transform-origin:6px 25px;}
+    .pp-trajectory-icon.trajectory-4 svg {transform:rotate(-58deg); transform-origin:6px 25px;}
     .pp-trajectory-value {color:#0b72bd;}
     .pp-defense-grid,.pp-profile-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px;}
     .pp-defense-compact {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px; margin:5px 0; border:2px solid #a9d4e8; border-radius:9px; overflow:hidden; background:#a9d4e8;}
@@ -4856,13 +4857,19 @@ def render_trajectory_row_html(value: Any) -> str:
     except (TypeError, ValueError):
         trajectory = 1
     trajectory = max(1, min(4, trajectory))
+    colors = {1: "#d8c900", 2: "#ef8200", 3: "#f03662", 4: "#df32d7"}
+    color = colors[trajectory]
     return (
         '<div class="pp-ability-row pp-trajectory-row">'
         '<div class="pp-label">弾道</div>'
         f'<div class="pp-trajectory-icon trajectory-{trajectory}">'
         '<svg viewBox="0 0 52 32" width="52" height="32" aria-hidden="true">'
-        '<line x1="6" y1="25" x2="44" y2="25" stroke="#168bd1" stroke-width="5" stroke-linecap="round"/>'
-        '<polygon points="44,25 35,18 35,32" fill="#168bd1"/>'
+        '<g filter="drop-shadow(0 1px 1px rgba(0,0,0,.28))">'
+        '<line x1="6" y1="25" x2="41" y2="25" stroke="#ffffff" stroke-width="10" stroke-linecap="round"/>'
+        '<polygon points="44,25 33,15 33,35" fill="#ffffff" stroke="#ffffff" stroke-linejoin="round"/>'
+        f'<line x1="6" y1="25" x2="41" y2="25" stroke="{color}" stroke-width="7" stroke-linecap="round"/>'
+        f'<polygon points="44,25 34,17 34,33" fill="{color}" stroke="{color}" stroke-linejoin="round"/>'
+        '</g>'
         '</svg></div>'
         f'<div class="pp-value pp-trajectory-value">{trajectory}</div></div>'
     )
@@ -4912,7 +4919,7 @@ def special_cell_html(name: str | None, kind: str = "blue") -> str:
     if rank_text:
         classes = " ".join(part for part in ["pp-special", "pp-special-ranked", special_rank_class(rank_text), length_cls] if part)
         return f'<div class="{classes}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span><span class="pp-special-rank-badge">{e(rank_text)}</span></div>'
-    cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else "neutral" if kind == "neutral" else ""
+    cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else "neutral" if kind == "neutral" else "mixed" if kind == "mixed" else ""
     classes = " ".join(part for part in ["pp-special", cls, length_cls] if part)
     return f'<div class="{classes}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span></div>'
 

@@ -32,6 +32,17 @@ class SpecialCellHtmlTest(unittest.TestCase):
         self.assertNotIn("pp-special-rank-badge", html)
         self.assertIn("pp-special-name", html)
 
+    def test_mixed_special_uses_mixed_class_and_single_name(self):
+        html = app.special_cell_html("投打躍動", "mixed")
+        self.assertIn("pp-special mixed", html)
+        self.assertEqual(html.count("pp-special-name"), 1)
+        self.assertEqual(html.count("投打躍動"), 2)
+
+    def test_long_mixed_special_keeps_length_class(self):
+        html = app.special_cell_html("スーパーウルトラ混合能力", "mixed")
+        self.assertIn("pp-special mixed xlong", html)
+        self.assertIn("pp-special-name", html)
+
 
 if __name__ == "__main__":
     unittest.main()

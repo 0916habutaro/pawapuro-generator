@@ -570,6 +570,23 @@ class UiLayoutHelpersTest(unittest.TestCase):
                 self.assertIn(f"trajectory-{expected}", html)
                 self.assertIn(f'>{expected}</div></div>', html)
 
+    def test_trajectory_row_uses_color_svg_for_each_value(self):
+        expected_colors = {1: "#d8c900", 2: "#ef8200", 3: "#f03662", 4: "#df32d7"}
+        for value, color in expected_colors.items():
+            with self.subTest(value=value):
+                html = app.render_trajectory_row_html(value)
+                self.assertIn(f'stroke="{color}"', html)
+                self.assertIn(f'fill="{color}"', html)
+                self.assertIn('stroke="#ffffff"', html)
+                self.assertIn('drop-shadow', html)
+
+    def test_mixed_special_css_uses_two_color_split(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        mixed = css_block(source, ".pp-special.mixed")
+        self.assertIn("linear-gradient(to right", mixed)
+        self.assertIn("#83dce7 50%", mixed)
+        self.assertIn("#ffe0e0 50%", mixed)
+
     def test_fielder_detail_uses_trajectory_row(self):
         player = {
             "role": "野手", "position": "三塁手", "abilities": {"弾道": 3},
