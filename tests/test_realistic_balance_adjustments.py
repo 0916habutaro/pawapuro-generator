@@ -255,9 +255,60 @@ def test_non_fictional_categories_keep_legacy_special_caps():
     assert len([name for name in draft if app.is_countable_special(name)]) <= 5
 
 
+def test_realistic_special_rate_multipliers_are_fictional_only(monkeypatch):
+    row = {"name": "カテゴリ限定テスト", "kind": "blue", "group": "g", "power": "normal", "weight": "5", "target_role": "野手"}
+    abilities = {"ミート": app.ability(55), "パワー": app.ability(55), "走力": app.ability(55), "肩力": app.ability(55), "守備力": app.ability(55), "捕球": app.ability(55)}
+    kwargs = {
+        "role": "野手",
+        "player_type": "バランス型",
+        "position": "二塁手",
+        "age": 27,
+        "abilities": abilities,
+        "player_class": "一軍主力級",
+    }
+    monkeypatch.setitem(app.FIELDER_REALISTIC_SPECIAL_BOOSTS, "カテゴリ限定テスト", 3.0)
+
+    fictional = app.adjust_special_chance(row, 5, category="架空球団用", **kwargs)
+    draft = app.adjust_special_chance(row, 5, category="ドラフト候補用", **kwargs)
+    foreign = app.adjust_special_chance(row, 5, category="助っ人外国人用", **kwargs)
+
+    assert fictional > draft * 2
+    assert fictional > foreign * 2
+    assert draft < fictional
+    assert foreign < fictional
+
+
+def test_pitcher_realistic_special_rate_multipliers_are_fictional_only(monkeypatch):
+    row = {"name": "カテゴリ限定投手テスト", "kind": "blue", "group": "g", "power": "normal", "weight": "5", "target_role": "投手"}
+    abilities = {"球速": "145 km/h", "コントロール": app.ability(55), "スタミナ": app.ability(55)}
+    aptitudes = {"starter_aptitude": "◎", "reliever_aptitude": "-", "closer_aptitude": "-"}
+    kwargs = {
+        "role": "投手",
+        "player_type": "本格派",
+        "position": "先発",
+        "age": 27,
+        "abilities": abilities,
+        "breaking_balls": [{"kind": "breaking", "movement": 3}],
+        "player_class": "一軍主力級",
+        "pitcher_aptitudes": aptitudes,
+    }
+    monkeypatch.setitem(app.PITCHER_REALISTIC_SPECIAL_BOOSTS, "カテゴリ限定投手テスト", 3.0)
+
+    fictional = app.adjust_special_chance(row, 5, category="架空球団用", **kwargs)
+    draft = app.adjust_special_chance(row, 5, category="ドラフト候補用", **kwargs)
+    foreign = app.adjust_special_chance(row, 5, category="助っ人外国人用", **kwargs)
+
+    assert fictional > draft * 2
+    assert fictional > foreign * 2
+    assert draft < fictional
+    assert foreign < fictional
+
+
 def test_non_fictional_pitch_count_weights_keep_legacy_role_and_archetype_shape():
     starter = {"starter_aptitude": "◎", "reliever_aptitude": "-", "closer_aptitude": "-"}
     reliever = {"starter_aptitude": "-", "reliever_aptitude": "◎", "closer_aptitude": "-"}
 
+    assert dict(app.pitch_count_weights("変化球派", "架空球団用", starter, age=28, player_class="スター級", archetype="変化球")) == {2: 28, 3: 66, 4: 7}
+    assert dict(app.pitch_count_weights("本格派", "架空球団用", reliever, age=25, archetype="総合")) == {2: 51, 3: 49}
     assert dict(app.pitch_count_weights("変化球派", "助っ人外国人用", starter, age=28, archetype="変化球")) == {2: 18, 3: 70, 4: 12}
     assert dict(app.pitch_count_weights("本格派", "ドラフト候補用", reliever, age=25, archetype="総合")) == {2: 46, 3: 52, 4: 2}
