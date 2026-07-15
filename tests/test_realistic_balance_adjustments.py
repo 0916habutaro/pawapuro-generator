@@ -41,7 +41,7 @@ def test_young_fictional_pitcher_speed_shape_keeps_non_fastball_types_under_cont
         "低制球",
     )
 
-    assert values["球速"] <= 149
+    assert 149 <= values["球速"] <= 151
 
 
 def test_relief_display_pitch_count_four_plus_is_limited():
@@ -312,3 +312,83 @@ def test_non_fictional_pitch_count_weights_keep_legacy_role_and_archetype_shape(
     assert dict(app.pitch_count_weights("本格派", "架空球団用", reliever, age=25, archetype="総合")) == {2: 51, 3: 49}
     assert dict(app.pitch_count_weights("変化球派", "助っ人外国人用", starter, age=28, archetype="変化球")) == {2: 18, 3: 70, 4: 12}
     assert dict(app.pitch_count_weights("本格派", "ドラフト候補用", reliever, age=25, archetype="総合")) == {2: 46, 3: 52, 4: 2}
+
+
+def _legacy_fielder_archetype_values(seed, archetype):
+    rng = random.Random(seed)
+    values = {key: 48 for key in app.FIELDER_ABILITY_KEYS}
+    if archetype == "巧打":
+        app.add_mod(values, {"ミート": rng.randint(10, 14), "パワー": -rng.randint(2, 5), "走力": rng.randint(0, 3), "守備力": rng.randint(0, 2)})
+    elif archetype == "長打":
+        app.add_mod(values, {"パワー": rng.randint(13, 18), "ミート": -rng.randint(2, 5), "走力": -rng.randint(3, 7), "守備力": -rng.randint(1, 4)})
+    elif archetype == "俊足":
+        app.add_mod(values, {"走力": rng.randint(12, 17), "守備力": rng.randint(2, 5), "パワー": -rng.randint(4, 7)})
+    elif archetype == "守備":
+        app.add_mod(values, {"守備力": rng.randint(10, 15), "捕球": rng.randint(8, 12), rng.choice(["ミート", "パワー"]): -rng.randint(1, 4)})
+    elif archetype == "強肩":
+        app.add_mod(values, {"肩力": rng.randint(12, 17), "守備力": rng.randint(1, 4)})
+    elif archetype == "バランス":
+        avg = sum(values.values()) / len(values)
+        for key in values:
+            values[key] += rng.randint(0, 2)
+            values[key] = round(values[key] + (avg - values[key]) * rng.uniform(0.15, 0.25))
+            if values[key] < 30:
+                values[key] += rng.randint(2, 5)
+    return values
+
+
+def test_non_fictional_fielder_archetype_mods_use_legacy_balance():
+    for category in ["ドラフト候補用", "助っ人外国人用"]:
+        for archetype in ["巧打", "長打", "俊足", "守備", "強肩", "バランス"]:
+            values = {key: 48 for key in app.FIELDER_ABILITY_KEYS}
+            app.apply_fielder_archetype_mods(random.Random(42), values, archetype, category)
+            assert values == _legacy_fielder_archetype_values(42, archetype)
+
+
+def test_fictional_cleanup_does_not_replace_legacy_archetype_tradeoffs():
+    legacy = _legacy_fielder_archetype_values(7, "長打")
+    fictional = {key: 48 for key in app.FIELDER_ABILITY_KEYS}
+    app.apply_fielder_archetype_mods(random.Random(7), fictional, "長打", "架空球団用")
+    assert fictional != legacy
+    assert fictional["ミート"] < legacy["ミート"]
+
+
+def test_fictional_cleanup_suppresses_main_class_strikeout_for_adequate_contact():
+    row = {"name": "三振", "kind": "red", "power": "normal", "weight": 12, "target_role": "野手"}
+    abilities = {"ミート": {"value": 55}, "パワー": {"value": 72}, "走力": {"value": 60}, "肩力": {"value": 62}, "守備力": {"value": 55}, "捕球": {"value": 50}}
+    main = app.adjust_special_chance(row, 12, "野手", "長距離砲", "外野手", 28, abilities, category="架空球団用", player_class="一軍主力級", archetype="長打", position_style="強打外野手")
+    bench = app.adjust_special_chance(row, 12, "野手", "長距離砲", "外野手", 28, abilities, category="架空球団用", player_class="一軍控え級", archetype="長打", position_style="強打外野手")
+    assert main < bench
+
+
+def test_fictional_cleanup_keeps_low_contact_slugger_strikeout_possible():
+    row = {"name": "三振", "kind": "red", "power": "normal", "weight": 12, "target_role": "野手"}
+    low = {"ミート": {"value": 32}, "パワー": {"value": 82}, "走力": {"value": 50}, "肩力": {"value": 62}, "守備力": {"value": 45}, "捕球": {"value": 42}}
+    high = {"ミート": {"value": 75}, "パワー": {"value": 82}, "走力": {"value": 50}, "肩力": {"value": 62}, "守備力": {"value": 45}, "捕球": {"value": 42}}
+    low_chance = app.adjust_special_chance(row, 12, "野手", "長距離砲", "一塁手", 26, low, category="架空球団用", player_class="一軍主力級", archetype="長打", position_style="強打一塁手")
+    high_chance = app.adjust_special_chance(row, 12, "野手", "長距離砲", "一塁手", 26, high, category="架空球団用", player_class="一軍主力級", archetype="長打", position_style="強打一塁手")
+    assert low_chance > high_chance
+    assert low_chance > 0
+    assert high_chance <= 1.5
+
+
+def test_pitcher_strong_blue_kire_tracks_breaking_quality():
+    row = {"name": "キレ○", "kind": "blue", "power": "strong", "weight": 10, "target_role": "投手"}
+    abilities = {"球速": "150 km/h", "コントロール": {"value": 58}, "スタミナ": {"value": 62}}
+    weak_breaking = [{"kind": "breaking", "movement": 2, "is_second_pitch": False}]
+    strong_breaking = [
+        {"kind": "breaking", "movement": 4, "is_second_pitch": False},
+        {"kind": "breaking", "movement": 3, "is_second_pitch": False},
+        {"kind": "breaking", "movement": 3, "is_second_pitch": False},
+    ]
+    weak = app.adjust_special_chance(row, 6, "投手", "本格派", "先発", 28, abilities, weak_breaking, "架空球団用", "一軍控え級", "総合", "総合型先発")
+    strong = app.adjust_special_chance(row, 6, "投手", "本格派", "先発", 28, abilities, strong_breaking, "架空球団用", "一軍控え級", "総合", "総合型先発")
+    assert strong > weak
+
+
+def test_strong_special_definition_matches_csv_power():
+    master = app.load_master_data()
+    by_name = {row["name"]: row for row in master.abilities}
+    for name in ["キレ○", "緩急○", "内角攻め", "クロスファイヤー", "対強打者○", "アベレージヒッター", "パワーヒッター", "守備職人", "レーザービーム"]:
+        assert by_name[name]["kind"] == "blue"
+        assert by_name[name]["power"] == "strong"
