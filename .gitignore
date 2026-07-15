@@ -19,6 +19,7 @@ __pycache__/
 *.sqlite3
 players.sqlite3
 data/imported/
+local_data/
 
 # Locally supplied OOTP source XML
 data/external/ootp/*.xml

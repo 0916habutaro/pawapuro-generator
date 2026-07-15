@@ -16,6 +16,7 @@ from app import (  # noqa: E402
     CLASSIFICATION_COLUMNS,
     SPECIAL_KIND_LABELS,
     SPECIAL_KIND_ORDER,
+    USAGE_SPECIAL_NAMES,
     ability_numeric_value,
     generate_player,
     is_ranked_special,
@@ -26,7 +27,7 @@ from app import (  # noqa: E402
 
 ROLES = ["投手", "野手"]
 FIELDING_KEYS = ["ミート", "パワー", "走力", "肩力", "守備力", "捕球", "弾道"]
-PITCHING_KEYS = ["球速", "コントロール", "スタミナ", "総変化量", "変化球数_第一球種のみ", "second_pitch_count"]
+PITCHING_KEYS = ["球速", "コントロール", "スタミナ", "総変化量", "変化球数_第一球種のみ", "display_pitch_count", "second_pitch_count", "straight_secondary_count"]
 AGE_BINS = [0, 19, 22, 26, 30, 34, 99]
 AGE_LABELS = ["18-19歳", "20-22歳", "23-26歳", "27-30歳", "31-34歳", "35歳以上"]
 REPORT_FILENAMES = {
@@ -48,6 +49,9 @@ REPORT_FILENAMES = {
     "position_high_ability_rates": "position_high_ability_rates.csv",
     "position_distribution_diagnostics": "position_distribution_diagnostics.csv",
     "position_extreme_examples": "position_extreme_examples.csv",
+    "fielder_total_stats": "fielder_total_stats.csv",
+    "pitcher_pitch_mix_stats": "pitcher_pitch_mix_stats.csv",
+    "special_count_stats": "special_count_stats.csv",
     "combination_warnings": "warnings.csv",
 }
 
@@ -70,12 +74,26 @@ POSITION_WARNING_RULES = {
 }
 
 
+RANK_BANDS = {
+    "G": (0, 19),
+    "F": (20, 39),
+    "E": (40, 49),
+    "D": (50, 59),
+    "C": (60, 69),
+    "B": (70, 79),
+    "A": (80, 89),
+    "S": (90, 100),
+}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="生成選手の能力バランス検証レポートを作成します。")
     parser.add_argument("--count", type=int, default=1000, help="投手/野手 × カテゴリごとの生成人数（1000以上推奨）")
     parser.add_argument("--seed", type=int, default=202607090000, help="検証用の開始seed")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "reports" / "ability_balance", help="CSV出力先ディレクトリ")
     parser.add_argument("--excel", action="store_true", help="CSVに加えてExcelファイルも出力します")
+    parser.add_argument("--roles", nargs="+", choices=ROLES, default=ROLES, help="生成対象の役割")
+    parser.add_argument("--categories", nargs="+", choices=CATEGORIES, default=CATEGORIES, help="生成対象カテゴリ")
     return parser.parse_args()
 
 
@@ -83,14 +101,14 @@ def age_band(age: int) -> str:
     return pd.cut(pd.Series([age]), bins=AGE_BINS, labels=AGE_LABELS, right=True, include_lowest=True).iloc[0]
 
 
-def generate_samples(count: int, base_seed: int) -> list[dict[str, Any]]:
+def generate_samples(count: int, base_seed: int, roles: list[str] | None = None, categories: list[str] | None = None) -> list[dict[str, Any]]:
     if count < 1000:
         print("警告: --count は1000未満です。要件確認では1000以上を指定してください。")
     master = load_master_data()
     players: list[dict[str, Any]] = []
     offset = 0
-    for role in ROLES:
-        for category in CATEGORIES:
+    for role in roles or ROLES:
+        for category in categories or CATEGORIES:
             print(f"{role} / {category} 生成中", flush=True)
             for _ in range(count):
                 players.append(generate_player(role, category, master, base_seed + offset))
@@ -111,6 +129,7 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
         breaking_balls = player["breaking_balls"]
         primary_breaking = [ball for ball in breaking_balls if ball.get("kind", "breaking") == "breaking" and not bool(ball.get("is_second_pitch", False))]
         all_breaking = [ball for ball in breaking_balls if ball.get("kind", "breaking") == "breaking"]
+        straight_secondary = [ball for ball in breaking_balls if ball.get("kind") == "second_fastball"]
         break_levels = [pitch_movement(ball) for ball in primary_breaking]
         second_balls = [ball for ball in all_breaking if bool(ball.get("is_second_pitch", False))]
         row = {key: player[key] for key in ["seed", "role", "category", "name", "age", "nationality", "birthplace", "position", "player_type", "handedness", "batting_throwing", "height", "weight"]}
@@ -138,8 +157,11 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
         row["変化球数_第一球種のみ"] = len(primary_breaking)
         row["pitch_type_count_including_second"] = row["変化球数"]
         row["second_pitch_count"] = len(second_balls)
-        row["straight_secondary_count"] = sum(1 for ball in breaking_balls if ball.get("kind") == "second_fastball")
+        row["straight_secondary_count"] = len(straight_secondary)
+        row["display_pitch_count"] = len(all_breaking) + len(straight_secondary)
         row["has_second_pitch"] = bool(second_balls)
+        row["has_straight_secondary"] = bool(straight_secondary)
+        row["has_second_and_straight"] = bool(second_balls) and bool(straight_secondary)
         row["second_pitch_directions"] = ",".join(str(ball.get("direction", "")) for ball in second_balls)
         row["second_pitch_movements"] = ",".join(str(pitch_movement(ball)) for ball in second_balls)
         row["breaking_ball_names"] = ",".join(str(ball.get("name", "")) for ball in breaking_balls)
@@ -154,14 +176,25 @@ def flatten_players(players: list[dict[str, Any]]) -> pd.DataFrame:
         row["サブポジ一覧"] = " / ".join(item["position"] for item in subs)
         row["サブポジ評価一覧"] = " / ".join(item["aptitude"] for item in subs)
         row["サブポジJSON"] = str(subs)
-        row["特殊能力"] = ",".join(player["special_abilities"])
+        countable_specials = [name for name in player["special_abilities"] if name not in USAGE_SPECIAL_NAMES]
+        usage_specials = [name for name in player["special_abilities"] if name in USAGE_SPECIAL_NAMES]
+        row["特殊能力"] = ",".join(countable_specials)
+        row["起用法"] = ",".join(usage_specials)
         row["ランク系特殊能力"] = ",".join(player["abilities"].get("ranked_specials", {}).values())
-        row["特殊能力数"] = len(player["special_abilities"])
+        row["特殊能力数"] = len(countable_specials)
+        row["起用法数"] = len(usage_specials)
         row["金特数"] = 0
         row["赤特数"] = 0
         rows.append(row)
     df = pd.DataFrame(rows)
     df["総合スコア"] = df.apply(player_power_score, axis=1)
+    fielder_values = df[FIELDING_KEYS[:-1]].apply(pd.to_numeric, errors="coerce")
+    df["野手6能力合計"] = fielder_values.sum(axis=1)
+    df["野手A以上能力数"] = (fielder_values >= 80).sum(axis=1)
+    df["野手最低能力"] = fielder_values.min(axis=1)
+    df["明確な弱点なし"] = (df["role"].eq("野手")) & (df["野手最低能力"] >= 70)
+    df.loc[df["role"].ne("野手"), ["野手6能力合計", "野手A以上能力数", "野手最低能力"]] = None
+    df.loc[df["role"].ne("野手"), "明確な弱点なし"] = False
     return df
 
 
@@ -195,17 +228,21 @@ def ability_stats(df: pd.DataFrame) -> pd.DataFrame:
                         "平均": round(values.mean(), 3) if not values.empty else None,
                         "中央値": round(values.median(), 3) if not values.empty else None,
                         "標準偏差": round(values.std(), 3) if len(values) > 1 else 0,
+                        "P1": round(values.quantile(0.01), 3) if not values.empty else None,
+                        "P5": round(values.quantile(0.05), 3) if not values.empty else None,
                         "P10": round(values.quantile(0.10), 3) if not values.empty else None,
                         "P25": round(values.quantile(0.25), 3) if not values.empty else None,
                         "P50": round(values.quantile(0.50), 3) if not values.empty else None,
                         "P75": round(values.quantile(0.75), 3) if not values.empty else None,
                         "P90": round(values.quantile(0.90), 3) if not values.empty else None,
                         "P95": round(values.quantile(0.95), 3) if not values.empty else None,
+                        "P99": round(values.quantile(0.99), 3) if not values.empty else None,
                         "最大": values.max() if not values.empty else None,
                         "最小": values.min() if not values.empty else None,
                         "S率%": round((values >= 90).mean() * 100, 3) if not values.empty else None,
                         "A以上率%": round((values >= 80).mean() * 100, 3) if not values.empty else None,
                         "G率%": round((values < 20).mean() * 100, 3) if not values.empty else None,
+                        **{f"{rank}率%": round(((values >= low) & (values <= high)).mean() * 100, 3) if not values.empty else None for rank, (low, high) in RANK_BANDS.items()},
                     })
     return pd.DataFrame(rows)
 
@@ -214,8 +251,9 @@ def special_stats(players: list[dict[str, Any]], df: pd.DataFrame) -> tuple[pd.D
     master = load_master_data()
     kind_by_name = {row["name"]: SPECIAL_KIND_LABELS.get(row.get("kind"), "不明") for row in master.abilities if not is_ranked_special(row)}
     for i, player in enumerate(players):
-        df.loc[i, "金特数"] = sum(1 for name in player["special_abilities"] if kind_by_name.get(name) == "金特")
-        df.loc[i, "赤特数"] = sum(1 for name in player["special_abilities"] if kind_by_name.get(name) == "赤特")
+        countable = [name for name in player["special_abilities"] if name not in USAGE_SPECIAL_NAMES]
+        df.loc[i, "金特数"] = sum(1 for name in countable if kind_by_name.get(name) == "金特")
+        df.loc[i, "赤特数"] = sum(1 for name in countable if kind_by_name.get(name) == "赤特")
     rows = []
     name_rows = []
     ranked_rows = []
@@ -223,12 +261,12 @@ def special_stats(players: list[dict[str, Any]], df: pd.DataFrame) -> tuple[pd.D
     for label, index in scopes:
         subset_players = [players[i] for i in index]
         total_players = len(subset_players) or 1
-        kind_counts = Counter(kind_by_name.get(name, "不明") for p in subset_players for name in p["special_abilities"])
+        kind_counts = Counter(kind_by_name.get(name, "不明") for p in subset_players for name in p["special_abilities"] if name not in USAGE_SPECIAL_NAMES)
         ranked_count = sum(len(p["abilities"].get("ranked_specials", {})) for p in subset_players)
         for kind in SPECIAL_KIND_ORDER:
             rows.append({"集計軸": label, "種別": kind, "出現数": kind_counts.get(kind, 0), "出現率%": round(kind_counts.get(kind, 0) / total_players * 100, 2)})
         rows.append({"集計軸": label, "種別": "ランク系", "出現数": ranked_count, "出現率%": round(ranked_count / total_players * 100, 2)})
-        name_counts = Counter(name for p in subset_players for name in p["special_abilities"])
+        name_counts = Counter(name for p in subset_players for name in p["special_abilities"] if name not in USAGE_SPECIAL_NAMES)
         for name, count in name_counts.items():
             name_rows.append({"集計軸": label, "特殊能力": name, "種別": kind_by_name.get(name, "不明"), "出現数": count, "出現率%": round(count / total_players * 100, 2)})
         ranked_counts = Counter(name for p in subset_players for name in p["abilities"].get("ranked_specials", {}).values())
@@ -476,6 +514,108 @@ def position_extreme_examples(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def fielder_total_stats(df: pd.DataFrame) -> pd.DataFrame:
+    f = df[df["role"].eq("野手")].copy()
+    rows = []
+    group_sets = [[], ["category"], ["category", "player_class"], ["category", "年齢帯"], ["category", "position"]]
+    for groups in group_sets:
+        grouped = f.groupby(groups, dropna=False) if groups else [((), f)]
+        for group_value, subset in grouped:
+            if not isinstance(group_value, tuple):
+                group_value = (group_value,)
+            values = pd.to_numeric(subset["野手6能力合計"], errors="coerce").dropna()
+            if values.empty:
+                continue
+            a_counts = pd.to_numeric(subset["野手A以上能力数"], errors="coerce")
+            row = {
+                "集計軸": "+".join(groups) if groups else "全体",
+                "集計値": " / ".join(f"{key}={value}" for key, value in zip(groups, group_value, strict=False)) if groups else "全体",
+                "人数": int(len(values)),
+                "平均": round(values.mean(), 3),
+                "中央値": round(values.median(), 3),
+                "標準偏差": round(values.std(), 3) if len(values) > 1 else 0,
+                "最小": int(values.min()),
+                "最大": int(values.max()),
+                "P1": round(values.quantile(0.01), 3),
+                "P5": round(values.quantile(0.05), 3),
+                "P25": round(values.quantile(0.25), 3),
+                "P50": round(values.quantile(0.50), 3),
+                "P75": round(values.quantile(0.75), 3),
+                "P95": round(values.quantile(0.95), 3),
+                "P99": round(values.quantile(0.99), 3),
+                "400以上人数": int((values >= 400).sum()),
+                "420以上人数": int((values >= 420).sum()),
+                "430以上人数": int((values >= 430).sum()),
+                "450以上人数": int((values >= 450).sum()),
+                "最低能力70以上人数": int(subset["明確な弱点なし"].sum()),
+            }
+            for count in [0, 1, 2, 3]:
+                row[f"A以上{count}項目率%"] = round((a_counts == count).mean() * 100, 3)
+            row["A以上4項目以上率%"] = round((a_counts >= 4).mean() * 100, 3)
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def pitcher_pitch_mix_stats(df: pd.DataFrame) -> pd.DataFrame:
+    p = df[df["role"].eq("投手")].copy()
+    rows = []
+    group_sets = [[], ["category"], ["category", "position"], ["category", "player_class"], ["category", "年齢帯"]]
+    for groups in group_sets:
+        grouped = p.groupby(groups, dropna=False) if groups else [((), p)]
+        for group_value, subset in grouped:
+            if not isinstance(group_value, tuple):
+                group_value = (group_value,)
+            total = max(1, len(subset))
+            normal = pd.to_numeric(subset["normal_pitch_count_primary_only"], errors="coerce")
+            display = pd.to_numeric(subset["display_pitch_count"], errors="coerce")
+            movement = pd.to_numeric(subset["total_movement_primary_only"], errors="coerce")
+            rows.append({
+                "集計軸": "+".join(groups) if groups else "全体",
+                "集計値": " / ".join(f"{key}={value}" for key, value in zip(groups, group_value, strict=False)) if groups else "全体",
+                "人数": int(len(subset)),
+                "通常球種平均": round(normal.mean(), 3),
+                "表示球種平均": round(display.mean(), 3),
+                "総変化量平均": round(movement.mean(), 3),
+                "通常4球種以上率%": round((normal >= 4).sum() / total * 100, 3),
+                "表示4球種以上率%": round((display >= 4).sum() / total * 100, 3),
+                "第二球種率%": round(subset["has_second_pitch"].mean() * 100, 3),
+                "ストレート系第二種率%": round(subset["has_straight_secondary"].mean() * 100, 3),
+                "第二球種+ストレート系第二種率%": round(subset["has_second_and_straight"].mean() * 100, 3),
+            })
+    return pd.DataFrame(rows)
+
+
+def special_count_stats(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    group_sets = [[], ["role"], ["category"], ["category", "role"], ["category", "player_class"], ["category", "年齢帯"], ["category", "position"]]
+    for groups in group_sets:
+        grouped = df.groupby(groups, dropna=False) if groups else [((), df)]
+        for group_value, subset in grouped:
+            if not isinstance(group_value, tuple):
+                group_value = (group_value,)
+            values = pd.to_numeric(subset["特殊能力数"], errors="coerce").dropna()
+            if values.empty:
+                continue
+            total = max(1, len(values))
+            rows.append({
+                "集計軸": "+".join(groups) if groups else "全体",
+                "集計値": " / ".join(f"{key}={value}" for key, value in zip(groups, group_value, strict=False)) if groups else "全体",
+                "人数": int(total),
+                "平均": round(values.mean(), 3),
+                "中央値": round(values.median(), 3),
+                "最小": int(values.min()),
+                "最大": int(values.max()),
+                "上位5%": round(values.quantile(0.95), 3),
+                "上位1%": round(values.quantile(0.99), 3),
+                "0個率%": round((values == 0).sum() / total * 100, 3),
+                "1個率%": round((values == 1).sum() / total * 100, 3),
+                "5個以上率%": round((values >= 5).sum() / total * 100, 3),
+                "8個以上率%": round((values >= 8).sum() / total * 100, 3),
+                "10個以上率%": round((values >= 10).sum() / total * 100, 3),
+            })
+    return pd.DataFrame(rows)
+
+
 def combination_warnings(df: pd.DataFrame) -> pd.DataFrame:
     f = df[df["role"] == "野手"].copy()
     strict = f["category"].eq("架空球団用")
@@ -490,6 +630,10 @@ def combination_warnings(df: pd.DataFrame) -> pd.DataFrame:
         ("外野手の走肩守不足", (f["position"].eq("外野手")) & (f[["走力", "肩力", "守備力"]].max(axis=1) < 53) & (f["パワー"] < 65) & strict),
         ("高齢選手の走守肩過多", (f["age"] >= 35) & (f["走力"] >= 75) & (f["守備力"] >= 70) & (f["肩力"] >= 75)),
         ("若手の完成度過多", (f["age"] <= 22) & (f["総合スコア"] >= 455) & ~(f["category"].eq("ドラフト候補用") & (f[["パワー", "走力", "肩力"]].max(axis=1) >= 85))),
+        ("野手6能力合計450以上", strict & (f["野手6能力合計"] >= 450)),
+        ("一軍主力級で能力合計430以上", strict & (f["player_class"].eq("一軍主力級")) & (f["野手6能力合計"] >= 430)),
+        ("A以上能力4項目以上", strict & (f["野手A以上能力数"] >= 4)),
+        ("最低能力70以上の万能型", strict & (f["明確な弱点なし"])),
     ]
     rows = []
     for name, mask in rules:
@@ -533,9 +677,9 @@ def detect_anomalies(df: pd.DataFrame) -> pd.DataFrame:
     if not direction.empty and direction.iloc[0] >= 0.35:
         rows.append({"異常タイプ": f"投手の球種方向が偏りすぎ: {direction.index[0]}", "件数": int(direction.iloc[0] * len(df[df['role'] == '投手'])), "割合%": round(direction.iloc[0] * 100, 2), "例seed": ""})
     try:
-        from app import BREAKING_BY_NAME, BREAKING_DIRECTIONS
-        known_names = set(BREAKING_BY_NAME)
-        known_directions = set(BREAKING_DIRECTIONS)
+        from app import BREAKING_BY_NAME, BREAKING_DIRECTIONS, SECOND_FASTBALL_TYPES
+        known_names = set(BREAKING_BY_NAME) | set(SECOND_FASTBALL_TYPES)
+        known_directions = set(BREAKING_DIRECTIONS) | {"ストレート系第二種"}
     except Exception:
         known_names, known_directions = set(), set()
     unknown_names = df[df["role"].eq("投手")]["breaking_ball_names"].fillna("").astype(str).str.split(",").explode().str.strip()
@@ -601,6 +745,9 @@ def write_markdown_summary(tables: dict[str, pd.DataFrame], path: Path) -> None:
     category_stats = tables["ability_stats"][tables["ability_stats"]["集計軸"].eq("category") & tables["ability_stats"]["対象"].isin(["野手", "投手"])]
     distributions = tables["position_distribution_diagnostics"]
     extremes = tables["position_extreme_examples"]
+    fielder_totals = tables["fielder_total_stats"]
+    pitch_mix = tables["pitcher_pitch_mix_stats"]
+    special_counts = tables["special_count_stats"]
     combo_warnings = tables["combination_warnings"]
 
     def markdown_table(table: pd.DataFrame) -> str:
@@ -651,6 +798,18 @@ def write_markdown_summary(tables: dict[str, pd.DataFrame], path: Path) -> None:
         "",
         markdown_table(extremes.head(60)),
         "",
+        "## 野手6能力合計・A以上能力数",
+        "",
+        markdown_table(fielder_totals.head(80)),
+        "",
+        "## 投手球種数・表示球種数",
+        "",
+        markdown_table(pitch_mix.head(80)),
+        "",
+        "## 起用法を除いた特殊能力数",
+        "",
+        markdown_table(special_counts.head(80)),
+        "",
         "## 能力の組み合わせが不自然な選手の警告",
         "",
         "警告なし" if combo_warnings.empty else markdown_table(combo_warnings.head(80)),
@@ -685,7 +844,7 @@ def print_console_summary(tables: dict[str, pd.DataFrame], output_dir: Path) -> 
 
 def main() -> None:
     args = parse_args()
-    players = generate_samples(args.count, args.seed)
+    players = generate_samples(args.count, args.seed, args.roles, args.categories)
     df = flatten_players(players)
     special_kind, special_name, ranked_special = special_stats(players, df)
     tables = {
@@ -707,6 +866,9 @@ def main() -> None:
         "position_high_ability_rates": position_high_ability_rates(df),
         "position_distribution_diagnostics": position_distribution_diagnostics(df),
         "position_extreme_examples": position_extreme_examples(df),
+        "fielder_total_stats": fielder_total_stats(df),
+        "pitcher_pitch_mix_stats": pitcher_pitch_mix_stats(df),
+        "special_count_stats": special_count_stats(df),
         "combination_warnings": combination_warnings(df),
     }
     write_reports(tables, args.output_dir, args.excel)

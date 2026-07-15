@@ -26,11 +26,11 @@ def make_master():
 
 def test_position_constraint_helpers():
     assert app.is_special_allowed_for_player("レーザービーム", "野手", "外野手")
-    assert app.is_special_allowed_for_player("レーザービーム", "野手", "遊撃手", [{"position":"外野手","aptitude":"△"}])
+    assert not app.is_special_allowed_for_player("レーザービーム", "野手", "遊撃手", [{"position":"外野手","aptitude":"△"}])
     assert not app.is_special_allowed_for_player("レーザービーム", "野手", "遊撃手")
     assert app.is_special_allowed_for_player("高速チャージ", "野手", "一塁手")
     assert app.is_special_allowed_for_player("高速チャージ", "野手", "三塁手")
-    assert app.is_special_allowed_for_player("高速チャージ", "野手", "二塁手", "一塁手△")
+    assert not app.is_special_allowed_for_player("高速チャージ", "野手", "二塁手", "一塁手△")
     assert not app.is_special_allowed_for_player("高速チャージ", "野手", "二塁手")
 
 
