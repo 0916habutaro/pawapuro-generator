@@ -3655,7 +3655,16 @@ def classify_birthplace_type(birthplace: str, master: MasterData) -> str:
 
 
 SUB_POSITION_LABELS = ["捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手"]
+SUB_POSITION_FIELDING_RATES = {"◎": 1.00, "○": 0.80, "△": 0.70}
+SUB_POSITION_APTITUDE_SYMBOLS = {3: "◎", 2: "○", 1: "△", "3": "◎", "2": "○", "1": "△"}
 UTILITY_TYPES = {"守備職人", "俊足型", "バランス型", "強肩型"}
+
+def normalize_sub_position_aptitude(value: Any) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return SUB_POSITION_APTITUDE_SYMBOLS.get(max(1, min(3, int(value))), "△")
+    text = str(value or "").strip().replace("〇", "○")
+    return SUB_POSITION_APTITUDE_SYMBOLS.get(text, text if text in SUB_POSITION_FIELDING_RATES else "△")
+
 
 def normalize_sub_positions(value: Any) -> list[dict[str, str]]:
     if value is None or (not isinstance(value, (list, dict, str)) and pd.isna(value)):
@@ -3668,16 +3677,16 @@ def normalize_sub_positions(value: Any) -> list[dict[str, str]]:
             return normalize_sub_positions(json.loads(text))
         except json.JSONDecodeError:
             parts = [part.strip() for part in re.split(r"[/、,;；]", text) if part.strip()]
-            return [{"position": (m.group(1).strip() if (m := re.match(r"(.+?)([◎○△])?$", part)) else part), "aptitude": (m.group(2) if m and m.group(2) else "△")} for part in parts]
+            return [{"position": (m.group(1).strip() if (m := re.match(r"(.+?)([◎○△])?$", part)) else part), "aptitude": normalize_sub_position_aptitude(m.group(2) if m and m.group(2) else "△")} for part in parts]
     if isinstance(value, dict):
-        pos = str(value.get("position", "")).strip(); apt = str(value.get("aptitude", "△")).strip() or "△"
-        return [{"position": pos, "aptitude": apt if apt in "◎○△" else "△"}] if pos else []
+        pos = str(value.get("position", "")).strip(); apt = normalize_sub_position_aptitude(value.get("aptitude", "△"))
+        return [{"position": pos, "aptitude": apt}] if pos else []
     if isinstance(value, list):
         out = []
         for item in value:
             if isinstance(item, dict):
-                pos = str(item.get("position", "")).strip(); apt = str(item.get("aptitude", "△")).strip() or "△"
-                if pos in SUB_POSITION_LABELS: out.append({"position": pos, "aptitude": apt if apt in "◎○△" else "△"})
+                pos = str(item.get("position", "")).strip(); apt = normalize_sub_position_aptitude(item.get("aptitude", "△"))
+                if pos in SUB_POSITION_LABELS: out.append({"position": pos, "aptitude": apt})
             else:
                 out.extend(normalize_sub_positions(str(item)))
         dedup=[]; seen=set()
@@ -5268,20 +5277,24 @@ def filtered_ranked_specials(player: dict[str, Any], mode: str) -> dict[str, str
 
 
 
+def calculate_sub_position_fielding(fielding: int | float | str | None, aptitude: Any) -> int | None:
+    mark = normalize_sub_position_aptitude(aptitude)
+    rate = SUB_POSITION_FIELDING_RATES.get(mark)
+    if rate is None:
+        return None
+    try:
+        value = float(fielding)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return max(1, min(99, int(value * rate)))
+
+
 def display_position_defense_value(player: dict[str, Any], full_position: str, mark: str, base_fielding: int | float | None) -> int | None:
     if mark == "－－" or not isinstance(base_fielding, int | float):
         return None
-    if mark == "◎" and player.get("position") == full_position:
-        rate_min, rate_max = 1.0, 1.0
-    elif mark == "◎":
-        rate_min, rate_max = 0.90, 1.0
-    elif mark == "○":
-        rate_min, rate_max = 0.75, 0.90
-    else:
-        rate_min, rate_max = 0.55, 0.75
-    rng = random.Random(f"defense-table:{player.get('seed', 0)}:{full_position}:{mark}")
-    value = int(round(base_fielding * rng.uniform(rate_min, rate_max)))
-    return max(1, min(99, value))
+    if player.get("position") == full_position:
+        return max(1, min(99, int(base_fielding)))
+    return calculate_sub_position_fielding(base_fielding, mark)
 
 
 
@@ -5324,7 +5337,8 @@ def render_defense_usage_left(player: dict[str, Any]) -> str:
         main_cls = " main" if player.get("position") == full else ""
         if isinstance(value, int):
             pos_rank = rank(value)
-            value_html = f'<span class="pp-defense-rank" style="color:{ui_rank_color(pos_rank)};">{e(pos_rank)}</span><span class="pp-defense-num">{e(value)}</span>'
+            mark_html = f'<span class="pp-defense-rank" style="color:{ui_rank_color(pos_rank)};">{e(mark)}</span>'
+            value_html = f'{mark_html}<span class="pp-defense-num">{e(value)}</span>'
         else:
             value_html = '<span class="pp-defense-empty">－－</span>'
         cells.append(f'<div class="pp-defense-pos{main_cls}"><span class="pp-defense-short">{short}</span>{value_html}</div>')
