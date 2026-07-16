@@ -4201,7 +4201,7 @@ def load_history_for_balance() -> pd.DataFrame:
         df["ranked_specials"] = df["ranked_specials"].where(df["ranked_specials"].apply(bool), from_abilities)
     else:
         df["ranked_specials"] = from_abilities
-    df["breaking_balls"] = df["breaking_balls_json", "birth_month", "birth_day", "pitching_form_type", "pitching_form_number", "pitching_form_is_generic", "batting_form_type", "batting_form_number", "batting_form_is_generic", "bat_color", "glove_color", "wristband_left_enabled", "wristband_left_color", "wristband_right_enabled", "wristband_right_color", "draft_source_type"].apply(lambda value: parse_json_column(value, []))
+    df["breaking_balls"] = df["breaking_balls_json"].apply(lambda value: parse_json_column(value, []))
     df["sub_positions"] = df["sub_positions_json"].apply(normalize_sub_positions) if "sub_positions_json" in df.columns else [[] for _ in range(len(df))]
     return df
 
