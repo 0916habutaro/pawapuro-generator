@@ -544,6 +544,44 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertIn('class="pp-defense-rank"', html)
         self.assertIn('class="pp-defense-num"', html)
 
+    def test_sub_position_fielding_display_uses_aptitude_rates_and_floor(self):
+        self.assertEqual(app.calculate_sub_position_fielding(73, "◎"), 73)
+        self.assertEqual(app.calculate_sub_position_fielding(73, "○"), 58)
+        self.assertEqual(app.calculate_sub_position_fielding(73, "△"), 51)
+        self.assertEqual(app.calculate_sub_position_fielding(65, "○"), 52)
+        self.assertEqual(app.calculate_sub_position_fielding(65, "△"), 45)
+        self.assertEqual(app.calculate_sub_position_fielding(66, "△"), 46)
+        self.assertEqual(app.SUB_POSITION_FIELDING_RATES, {"◎": 1.00, "○": 0.80, "△": 0.70})
+
+    def test_defense_table_shows_sub_position_marks_calculated_values_and_empty_slots(self):
+        player = {
+            "role": "野手",
+            "position": "遊撃手",
+            "seed": 1,
+            "abilities": {"走力": app.ability(50), "肩力": app.ability(50), "守備力": app.ability(73), "捕球": app.ability(50)},
+            "sub_positions": [{"position": "二塁手", "aptitude": "○"}, {"position": "三塁手", "aptitude": "△"}],
+        }
+        html = app.render_defense_usage_left(player)
+        self.assertIn("遊</span><span", html)
+        self.assertIn(">B</span><span class=\"pp-defense-num\">◎ 73</span>", html)
+        self.assertIn("二</span><span", html)
+        self.assertIn(">D</span><span class=\"pp-defense-num\">○ 58</span>", html)
+        self.assertIn("三</span><span", html)
+        self.assertIn(">D</span><span class=\"pp-defense-num\">△ 51</span>", html)
+        self.assertIn('<span class="pp-defense-empty">－－</span>', html)
+
+    def test_saved_numeric_sub_position_aptitudes_are_converted_before_display(self):
+        self.assertEqual(app.normalize_sub_positions('[{"position":"二塁手","aptitude":2}]'), [{"position": "二塁手", "aptitude": "○"}])
+        player = {
+            "role": "野手",
+            "position": "遊撃手",
+            "seed": 1,
+            "abilities": {"走力": app.ability(50), "肩力": app.ability(50), "守備力": app.ability(65), "捕球": app.ability(50)},
+            "sub_positions": [{"position": "二塁手", "aptitude": 2}],
+        }
+        html = app.render_defense_usage_left(player)
+        self.assertIn(">D</span><span class=\"pp-defense-num\">○ 52</span>", html)
+
 
     def test_detail_body_has_no_pitcher_aptitude_row_or_section_titles(self):
         player = {"role": "投手", "position": "先発", "abilities": {"球速": "145 km/h", "コントロール": app.ability(50), "スタミナ": app.ability(50)}, "special_abilities": []}
