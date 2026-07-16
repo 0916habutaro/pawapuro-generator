@@ -5337,8 +5337,7 @@ def render_defense_usage_left(player: dict[str, Any]) -> str:
         main_cls = " main" if player.get("position") == full else ""
         if isinstance(value, int):
             pos_rank = rank(value)
-            mark_html = f'<span class="pp-defense-rank" style="color:{ui_rank_color(pos_rank)};">{e(mark)}</span>'
-            value_html = f'{mark_html}<span class="pp-defense-num">{e(value)}</span>'
+            value_html = f'<span class="pp-defense-rank" style="color:{ui_rank_color(pos_rank)};">{e(pos_rank)}</span><span class="pp-defense-num">{e(mark)} {e(value)}</span>'
         else:
             value_html = '<span class="pp-defense-empty">－－</span>'
         cells.append(f'<div class="pp-defense-pos{main_cls}"><span class="pp-defense-short">{short}</span>{value_html}</div>')

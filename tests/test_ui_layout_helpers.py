@@ -563,11 +563,11 @@ class UiLayoutHelpersTest(unittest.TestCase):
         }
         html = app.render_defense_usage_left(player)
         self.assertIn("遊</span><span", html)
-        self.assertIn(">◎</span><span class=\"pp-defense-num\">73</span>", html)
+        self.assertIn(">B</span><span class=\"pp-defense-num\">◎ 73</span>", html)
         self.assertIn("二</span><span", html)
-        self.assertIn(">○</span><span class=\"pp-defense-num\">58</span>", html)
+        self.assertIn(">D</span><span class=\"pp-defense-num\">○ 58</span>", html)
         self.assertIn("三</span><span", html)
-        self.assertIn(">△</span><span class=\"pp-defense-num\">51</span>", html)
+        self.assertIn(">D</span><span class=\"pp-defense-num\">△ 51</span>", html)
         self.assertIn('<span class="pp-defense-empty">－－</span>', html)
 
     def test_saved_numeric_sub_position_aptitudes_are_converted_before_display(self):
@@ -580,7 +580,7 @@ class UiLayoutHelpersTest(unittest.TestCase):
             "sub_positions": [{"position": "二塁手", "aptitude": 2}],
         }
         html = app.render_defense_usage_left(player)
-        self.assertIn(">○</span><span class=\"pp-defense-num\">52</span>", html)
+        self.assertIn(">D</span><span class=\"pp-defense-num\">○ 52</span>", html)
 
 
     def test_detail_body_has_no_pitcher_aptitude_row_or_section_titles(self):
