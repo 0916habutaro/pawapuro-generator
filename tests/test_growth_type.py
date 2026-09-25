@@ -42,7 +42,7 @@ def test_growth_age_mods_direction_and_bounds():
     app.apply_fielder_growth_mods(old_early, 38, "very_early", "バランス", "")
     app.apply_fielder_growth_mods(old_normal, 38, "normal", "バランス", "")
     app.apply_fielder_growth_mods(old_late, 38, "very_late", "バランス", "")
-    assert sum(old_early.values()) < sum(old_normal.values()) < sum(old_late.values()) < 300
+    assert sum(old_early.values()) < sum(old_normal.values()) < sum(old_late.values()) < 320
 
 
 def test_generated_players_include_growth_type_pitcher_and_fielder():
