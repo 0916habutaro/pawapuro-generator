@@ -43,7 +43,20 @@ GROWTH_TYPE_MULTIPLIERS = {
     "high_school_project": {"very_early": 0.75, "early": 0.85, "normal": 1.00, "late": 1.35, "very_late": 1.50},
     "college_ready": {"very_early": 1.15, "early": 1.30, "normal": 1.15, "late": 0.75, "very_late": 0.50},
     "foreign_ready": {"very_early": 1.05, "early": 1.30, "normal": 1.20, "late": 0.75, "very_late": 0.50},
+    # 高齢まで現役に残る選手は、標準～晩成型へ緩やかに寄せる。
+    "active_veteran": {"very_early": 0.20, "early": 0.35, "normal": 1.20, "late": 1.80, "very_late": 2.20},
+    "veteran_survivor": {"very_early": 0.50, "early": 0.70, "normal": 1.10, "late": 1.10, "very_late": 1.20},
 }
+FICTIONAL_ROSTER_AGE_WEIGHTS = [
+    (18, 18), (19, 18),
+    (20, 34), (21, 35), (22, 39),
+    (23, 75), (24, 82), (25, 88), (26, 85),
+    (27, 82), (28, 80), (29, 75), (30, 63),
+    (31, 46), (32, 42), (33, 35), (34, 27),
+    (35, 25), (36, 19),
+    (37, 12), (38, 8), (39, 5),
+    (40, 2), (41, 2), (42, 1), (43, 1), (44, 1), (45, 1), (46, 1),
+]
 POSITIONS = {
     "投手": ["先発", "中継ぎ", "抑え"],
     "野手": ["捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手"],
@@ -561,6 +574,10 @@ def growth_type_weight_map(category: str, age: int, player_class: str | None = N
         apply("college_ready")
     if category == "助っ人外国人用" and player_class in {"大物実績者", "主力期待級", "レギュラー競争級"}:
         apply("foreign_ready")
+    if category == "架空球団用" and age >= 35:
+        apply("active_veteran")
+        if player_class == "ベテラン型":
+            apply("veteran_survivor")
     return {key: max(1, round(weights[key] * max(0.25, min(multipliers[key], 3.0)))) for key in GROWTH_TYPE_LABELS}
 
 
@@ -580,8 +597,15 @@ def choose_player_class(rng: random.Random, category: str, age: int) -> str:
                 continue
             if 18 <= age <= 19 and label == "スター級":
                 weight = max(1, round(weight * 0.25))
-            if age >= 35 and label == "ベテラン型":
-                weight *= 3
+            if age >= 35:
+                if label == "一軍主力級":
+                    weight *= 2
+                elif label == "一軍控え級":
+                    weight = max(1, round(weight * 0.45))
+                elif label == "二軍級":
+                    weight = max(1, round(weight * 0.15))
+                elif label == "ベテラン型":
+                    weight *= 3
         elif category == "助っ人外国人用":
             if age <= 23 and label in {"大物実績者", "再生候補"}:
                 continue
@@ -619,8 +643,11 @@ def choose_development_stage(rng: random.Random, category: str, age: int, player
     return weighted_choice(rng, positive_weight_items(items))
 
 
-def choose_archetype(rng: random.Random, role: str, category: str) -> str:
-    weights = FOREIGN_ARCHETYPE_WEIGHTS[role] if category == "助っ人外国人用" else ARCHETYPE_WEIGHTS[role]
+def choose_archetype(rng: random.Random, role: str, category: str, age: int | None = None, player_class: str = "") -> str:
+    weights = list(FOREIGN_ARCHETYPE_WEIGHTS[role] if category == "助っ人外国人用" else ARCHETYPE_WEIGHTS[role])
+    if category == "架空球団用" and role == "投手" and age is not None and age >= 35:
+        veteran_multipliers = {"総合": 1.0, "制球": 1.50, "速球": 0.45, "変化球": 1.50, "スタミナ": 1.10}
+        weights = [(label, max(1, round(weight * veteran_multipliers[label]))) for label, weight in weights]
     return weighted_choice(rng, weights)
 
 
@@ -935,7 +962,7 @@ def age_for(rng: random.Random, category: str, draft_source_type: str = "") -> i
         source = draft_source_type or choose_draft_source_type(rng)
         return weighted_choice(rng, DRAFT_SOURCE_AGE_WEIGHTS[source])
     if category == "助っ人外国人用": return rng.randint(24, 34)
-    return rng.randint(18, 36)
+    return weighted_choice(rng, FICTIONAL_ROSTER_AGE_WEIGHTS)
 
 
 def pitcher_speed_value(abilities: dict[str, Any]) -> int | None:
@@ -2009,12 +2036,12 @@ def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, 
 
 def fielder_age_mods(age: int, archetype: str, player_class: str) -> dict[str, int]:
     mods = {
-        "ミート": curve_delta(age, [(18, -9), (24, 0), (25, 3), (30, 5), (34, 1), (36, -3)]),
-        "パワー": curve_delta(age, [(18, -8), (21, -3), (25, 3), (31, 5), (34, 1), (36, -3)]),
-        "走力": curve_delta(age, [(18, 4), (23, 8), (27, 6), (31, -1), (34, -7), (36, -12)]),
-        "肩力": curve_delta(age, [(18, 1), (22, 4), (28, 5), (33, 1), (36, -4)]),
-        "守備力": curve_delta(age, [(18, -8), (22, -4), (28, 4), (33, 5), (36, 0)]),
-        "捕球": curve_delta(age, [(18, -8), (22, -4), (28, 4), (33, 5), (36, 0)]),
+        "ミート": curve_delta(age, [(18, -9), (24, 0), (25, 3), (30, 5), (34, 3), (36, -2), (39, -4), (42, -6), (46, -9)]),
+        "パワー": curve_delta(age, [(18, -8), (21, -3), (25, 3), (31, 9), (34, 7), (36, 4), (39, 1), (42, -1), (46, -4)]),
+        "走力": curve_delta(age, [(18, 4), (23, 8), (27, 6), (31, 2), (34, 2), (36, 1), (39, -2), (42, -5), (46, -9)]),
+        "肩力": curve_delta(age, [(18, 1), (22, 4), (28, 5), (33, 2), (34, 1), (36, -1), (39, -4), (42, -7), (46, -11)]),
+        "守備力": curve_delta(age, [(18, -8), (22, -4), (28, 4), (31, 9), (34, 7), (36, 0), (39, -3), (42, -5), (46, -8)]),
+        "捕球": curve_delta(age, [(18, -8), (22, -4), (28, 4), (31, 9), (34, 8), (36, 1), (39, -2), (42, -4), (46, -7)]),
     }
     if age >= 34 and archetype in {"巧打", "守備", "バランス"}:
         for key in ("ミート", "守備力", "捕球"):
@@ -2029,11 +2056,11 @@ def fielder_age_mods(age: int, archetype: str, player_class: str) -> dict[str, i
 def growth_age_delta(age: int, growth_type: str) -> int:
     gt = normalize_growth_type(growth_type)
     points = {
-        "very_early": [(18, 4), (22, 4), (27, 1), (30, -3), (35, -8), (38, -11), (42, -14)],
-        "early": [(18, 2), (22, 3), (28, 2), (31, -1), (35, -6), (38, -9), (42, -12)],
-        "normal": [(18, 0), (24, 0), (29, 1), (33, 0), (35, -4), (38, -7), (42, -10)],
-        "late": [(18, -2), (24, -2), (29, -1), (33, 2), (35, -2), (38, -5), (42, -8)],
-        "very_late": [(18, -3), (24, -3), (29, -2), (34, 3), (35, 1), (38, -3), (42, -6)],
+        "very_early": [(18, 4), (22, 4), (27, 1), (30, -2), (35, -4), (38, -6), (42, -8)],
+        "early": [(18, 2), (22, 3), (28, 2), (31, -1), (35, -3), (38, -4), (42, -6)],
+        "normal": [(18, 0), (24, 0), (29, 1), (33, 0), (35, 0), (42, 0)],
+        "late": [(18, -2), (24, -2), (29, -1), (33, 2), (35, 1), (38, 0), (42, -2)],
+        "very_late": [(18, -3), (24, -3), (29, -2), (34, 3), (35, 3), (38, 2), (42, 0)],
     }
     return curve_delta(age, points[gt])
 
@@ -2607,7 +2634,7 @@ def generate_fielder_abilities(
             values["ミート"] += 1
             values["パワー"] += 1
             values["肩力"] += 1
-        values["走力"] += 2 if age < 35 else 0
+        values["走力"] += 2 if age <= 34 else 1 if age <= 36 else 0
         values["肩力"] += 2
     apply_fielder_archetype_mods(rng, values, archetype, category)
     apply_fielder_position_mods(values, position, position_style)
@@ -2663,9 +2690,9 @@ def pitcher_aptitude_text(player: dict[str, Any]) -> str:
 
 def pitcher_age_mods(age: int, archetype: str, player_class: str) -> dict[str, int]:
     mods = {
-        "球速": curve_delta(age, [(18, 0), (22, 2), (28, 4), (34, 0), (36, -2), (39, -5)]),
-        "コントロール": curve_delta(age, [(18, -8), (21, -4), (29, 4), (35, 6), (36, 3)]),
-        "スタミナ": curve_delta(age, [(18, -5), (23, 0), (30, 5), (34, 0), (36, -5)]),
+        "球速": curve_delta(age, [(18, 0), (22, 2), (28, 4), (34, 0), (35, -2), (36, -3), (39, -6), (42, -9), (46, -12)]),
+        "コントロール": curve_delta(age, [(18, -8), (21, -4), (29, 4), (34, 5), (36, 4), (39, 3), (42, 1), (46, -1)]),
+        "スタミナ": curve_delta(age, [(18, -5), (23, 0), (30, 5), (34, 0), (35, -1), (36, -2), (39, -4), (42, -6), (46, -8)]),
     }
     if player_class == "ベテラン型" or (age >= 34 and archetype in {"制球", "変化球"}):
         mods["球速"] -= 2
@@ -2688,6 +2715,40 @@ def apply_pitcher_growth_mods(values: dict[str, int], age: int, growth_type: str
     values["球速"] += round(base * weights["球速"])
     values["コントロール"] += round(base * weights["コントロール"])
     values["スタミナ"] += round(base * weights["スタミナ"])
+
+
+def apply_young_pitcher_stamina_mods(
+    values: dict[str, int],
+    age: int,
+    category: str,
+    aptitudes: dict[str, str],
+    player_class: str,
+    archetype: str,
+    development_stage: str,
+) -> None:
+    if age > 19:
+        return
+    reduction = 5
+    if player_class in {"若手素材型", "育成候補"} or development_stage == "素材型":
+        reduction += 2
+    if aptitudes.get("starter_aptitude") == "◎":
+        reduction -= 2
+    if player_class in {"スター級", "超上位候補"} and aptitudes.get("starter_aptitude") == "◎":
+        reduction -= 2
+    if archetype == "スタミナ" and aptitudes.get("starter_aptitude") in {"◎", "○"}:
+        reduction -= 2
+    values["スタミナ"] -= max(2, reduction)
+
+
+def apply_veteran_pitcher_role_mods(values: dict[str, int], age: int, aptitudes: dict[str, str], player_class: str, archetype: str) -> None:
+    if age < 35:
+        return
+    starter = aptitudes.get("starter_aptitude", "-")
+    survivor = player_class == "ベテラン型" or archetype == "スタミナ"
+    if starter == "◎":
+        values["スタミナ"] += 5 if survivor else 3
+    elif starter == "○":
+        values["スタミナ"] += 3 if survivor else 2
 
 
 def apply_pitcher_player_class_mods(values: dict[str, int], category: str, player_class: str) -> None:
@@ -2848,7 +2909,6 @@ def finalize_pitcher_values(
         values["球速"] = cap_value(rng, values["球速"], 159)
     if age >= 35:
         values["球速"] = cap_value(rng, values["球速"], 156)
-        values["スタミナ"] -= rng.randint(0, 3)
     if values["球速"] >= 155 and values["コントロール"] >= 70:
         values["コントロール"] = rng.randint(60, 69) if archetype != "制球" else values["コントロール"]
     values["球速"] = clamp(values["球速"], 125, 165)
@@ -2960,6 +3020,8 @@ def generate_pitcher_abilities(
     apply_pitcher_weakness_profile(rng, values, weakness_profile)
     apply_pitcher_variance(rng, values, category, development_stage, weakness_profile)
     apply_pitcher_growth_mods(values, age, growth_type, archetype)
+    apply_young_pitcher_stamina_mods(values, age, category, aptitudes, player_class, archetype, development_stage)
+    apply_veteran_pitcher_role_mods(values, age, aptitudes, player_class, archetype)
     apply_fictional_pitcher_age_speed_shape(rng, values, category, age, player_class, archetype, position_style, weakness_profile)
     shape_pitcher_speed_distribution(rng, values, category, age, player_class, archetype, position_style, weakness_profile)
     finalize_pitcher_values(rng, values, category, age, player_class, archetype, position_style, role, weakness_profile)
@@ -3997,10 +4059,10 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         position = weighted_choice(rng, position_weights)
     batting_throwing = generate_batting_throwing(rng, role, position)
     acquisition_role = choose_acquisition_role(rng, category, role, player_class, position, pitcher_aptitudes, batting_throwing)
-    archetype = choose_archetype(rng, role, category)
+    archetype = choose_archetype(rng, role, category, age=age, player_class=player_class)
     if role == "投手" and position == "抑え" and archetype == "スタミナ":
         for _ in range(4):
-            archetype = choose_archetype(rng, role, category)
+            archetype = choose_archetype(rng, role, category, age=age, player_class=player_class)
             if archetype != "スタミナ":
                 break
         if archetype == "スタミナ":
