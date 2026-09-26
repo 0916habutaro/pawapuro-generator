@@ -392,3 +392,155 @@ def test_strong_special_definition_matches_csv_power():
     for name in ["キレ○", "緩急○", "内角攻め", "クロスファイヤー", "対強打者○", "アベレージヒッター", "パワーヒッター", "守備職人", "レーザービーム"]:
         assert by_name[name]["kind"] == "blue"
         assert by_name[name]["power"] == "strong"
+
+
+def test_first_adjustment_second_base_guards_are_style_and_class_aware():
+    defensive = {key: 35 for key in app.FIELDER_ABILITY_KEYS}
+    batting = defensive.copy()
+
+    app.apply_fictional_position_profile_guards(defensive, "二塁手", "一軍主力級", "守備", "守備走塁二塁手")
+    app.apply_fictional_position_profile_guards(batting, "二塁手", "二軍級", "長打", "打撃型二塁手")
+
+    assert defensive["走力"] >= 68
+    assert defensive["守備力"] >= 58
+    assert defensive["捕球"] >= 51
+    assert batting["守備力"] < 50
+    assert batting["守備力"] < defensive["守備力"]
+
+
+def test_first_adjustment_outfield_guards_link_speed_and_defense_without_touching_slugger():
+    allround = {key: 35 for key in app.FIELDER_ABILITY_KEYS}
+    slugger = allround.copy()
+
+    app.apply_fictional_position_profile_guards(allround, "外野手", "一軍主力級", "バランス", "走攻守外野手")
+    app.apply_fictional_position_profile_guards(slugger, "外野手", "一軍主力級", "長打", "強打外野手")
+
+    assert allround["走力"] >= 69
+    assert allround["肩力"] >= 65
+    assert allround["守備力"] >= 54
+    assert allround["捕球"] >= 48
+    assert slugger == {key: 35 for key in app.FIELDER_ABILITY_KEYS}
+
+
+def test_first_adjustment_trajectory_adds_three_without_inflating_four():
+    assert app.determine_trajectory(54, "巧打", "二塁手", "打撃型二塁手", 52, "一軍主力級") == 3
+    assert app.determine_trajectory(55, "バランス", "外野手", "走攻守外野手", 50, "一軍主力級") == 3
+    assert app.determine_trajectory(60, "長打", "外野手", "強打外野手", 45, "一軍主力級") == 3
+    assert app.determine_trajectory(75, "長打", "外野手", "強打外野手", 45, "一軍主力級") == 4
+    assert app.determine_trajectory(75, "長打", "外野手", "強打外野手", 45, "一軍控え級") == 3
+    assert app.determine_trajectory(60, "長打", "三塁手", "強打三塁手", 45, "一軍控え級") == 4
+
+
+def test_first_adjustment_closer_stamina_change_is_role_local():
+    starter = {"球速": 145, "コントロール": 48, "スタミナ": 48}
+    reliever = starter.copy()
+    closer = starter.copy()
+
+    app.apply_pitcher_role_mods(starter, "先発", "総合型先発")
+    app.apply_pitcher_role_mods(reliever, "中継ぎ", "総合型中継ぎ")
+    app.apply_pitcher_role_mods(closer, "抑え", "総合型クローザー")
+
+    assert starter["スタミナ"] == 59
+    assert reliever["スタミナ"] == 40
+    assert closer["スタミナ"] == 45
+
+
+def test_first_adjustment_closer_direction_two_weight_is_local():
+    closer_rng = random.Random(8128)
+    starter_rng = random.Random(8128)
+    closer = [app.weighted_direction_sample(closer_rng, list(app.DIRECTION_NAMES), 2, "抑え") for _ in range(5000)]
+    starter = [app.weighted_direction_sample(starter_rng, list(app.DIRECTION_NAMES), 2, "先発") for _ in range(5000)]
+
+    closer_rate = sum("2" in values for values in closer) / len(closer)
+    starter_rate = sum("2" in values for values in starter) / len(starter)
+    assert closer_rate < starter_rate - 0.08
+
+
+def test_first_adjustment_special_draws_favor_established_classes():
+    rng = random.Random(19)
+    controls = [app.extra_special_draws(rng, "架空球団用", "一軍控え級", 56) for _ in range(500)]
+    farm = [app.extra_special_draws(rng, "架空球団用", "二軍級", 56) for _ in range(500)]
+    main = [app.extra_special_draws(rng, "架空球団用", "一軍主力級", 62) for _ in range(500)]
+
+    assert min(controls) >= 1
+    assert sum(controls) > sum(farm) * 3
+    assert sum(main) > sum(controls)
+
+
+def test_first_adjustment_bonus_exclusion_does_not_change_strikeout_weights():
+    assert "流し打ち" in app.SPECIAL_COUNT_BONUS_EXCLUSIONS
+    assert "三振" not in app.SPECIAL_COUNT_BONUS_EXCLUSIONS
+    assert "奪三振" not in app.SPECIAL_COUNT_BONUS_EXCLUSIONS
+
+
+def test_second_adjustment_fielder_distribution_guards_are_local():
+    second = {key: 35 for key in app.FIELDER_ABILITY_KEYS}
+    third = {key: 68 for key in app.FIELDER_ABILITY_KEYS}
+    catcher = {key: 48 for key in app.FIELDER_ABILITY_KEYS}
+
+    app.apply_second_adjustment_fielder_distribution_guards(
+        random.Random(1), second, "二塁手", "二軍級", "守備走塁二塁手", "低走力"
+    )
+    app.apply_second_adjustment_fielder_distribution_guards(
+        random.Random(1), third, "三塁手", "一軍主力級", "平均型三塁手", ""
+    )
+    app.apply_second_adjustment_fielder_distribution_guards(
+        random.Random(1), catcher, "捕手", "二軍級", "打撃型捕手", "低捕球"
+    )
+
+    assert second["守備力"] >= 60
+    assert second["走力"] >= 70
+    assert third["肩力"] < 68
+    assert 30 <= catcher["捕球"] <= 39
+
+
+def test_second_adjustment_catcher_tail_does_not_touch_defensive_catcher():
+    values = {key: 48 for key in app.FIELDER_ABILITY_KEYS}
+    app.apply_second_adjustment_fielder_distribution_guards(
+        random.Random(1), values, "捕手", "二軍級", "守備型捕手", "低捕球"
+    )
+    assert values["捕球"] == 48
+
+
+def test_second_adjustment_trajectory_moves_only_target_profiles_to_three():
+    assert app.determine_trajectory(63, "長打", "捕手", "打撃型捕手", 45, "一軍控え級") == 3
+    assert app.determine_trajectory(82, "長打", "捕手", "打撃型捕手", 45, "一軍控え級") == 3
+    assert app.determine_trajectory(69, "長打", "遊撃手", "強打遊撃手", 42, "一軍控え級") == 3
+    assert app.determine_trajectory(52, "バランス", "遊撃手", "守備走塁遊撃手", 48, "一軍主力級") == 2
+
+
+def test_second_adjustment_trajectory_preserves_first_adjustment_positions():
+    assert app.determine_trajectory(54, "巧打", "二塁手", "打撃型二塁手", 52, "一軍主力級") == 3
+    assert app.determine_trajectory(75, "長打", "外野手", "強打外野手", 45, "一軍主力級") == 4
+
+
+def test_second_adjustment_middle_reliever_stamina_is_role_local():
+    assert app.shape_second_adjustment_middle_reliever_stamina(30, "架空球団用", "中継ぎ", "総合型中継ぎ") == 37
+    assert app.shape_second_adjustment_middle_reliever_stamina(61, "架空球団用", "中継ぎ", "総合型中継ぎ") == 56
+    assert app.shape_second_adjustment_middle_reliever_stamina(61, "架空球団用", "中継ぎ", "ロングリリーフ型") == 57
+    assert app.shape_second_adjustment_middle_reliever_stamina(35, "架空球団用", "抑え", "総合型クローザー") == 35
+    assert app.shape_second_adjustment_middle_reliever_stamina(70, "架空球団用", "先発", "総合型先発") == 70
+
+
+def test_second_adjustment_rank_changes_are_group_local():
+    recovery = dict(app.ranked_weight_items_for_group("回復", "投手", "中継ぎ", "技巧派", {}, category="架空球団用", player_class="一軍主力級"))
+    quick = dict(app.ranked_weight_items_for_group("クイック", "投手", "中継ぎ", "技巧派", {}, category="架空球団用", player_class="一軍主力級"))
+    assert recovery["E"] > recovery["D"]
+    assert quick["D"] > quick["E"]
+
+
+def test_second_adjustment_pitcher_rank_shift_is_probabilistic():
+    rng = random.Random(23)
+    shifts = [
+        app.ranked_shift_for_group(rng, "対左打者", "投手", "中継ぎ", "技巧派", {}, "制球")
+        for _ in range(1_000)
+    ]
+    assert 150 <= sum(value > 0 for value in shifts) <= 250
+
+
+def test_second_adjustment_special_boosts_only_named_targets():
+    assert app.PITCHER_REALISTIC_SPECIAL_BOOSTS["球持ち○"] == 2.80
+    assert app.PITCHER_REALISTIC_SPECIAL_BOOSTS["リリース○"] == 3.25
+    assert app.FIELDER_REALISTIC_SPECIAL_BOOSTS["併殺"] == 3.00
+    assert app.FIELDER_REALISTIC_SPECIAL_BOOSTS["内野安打○"] == 1.45
+    assert app.FIELDER_REALISTIC_SPECIAL_BOOSTS["三振"] == 3.25
