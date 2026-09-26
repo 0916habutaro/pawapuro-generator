@@ -419,6 +419,9 @@ def init_db() -> None:
                 category TEXT NOT NULL DEFAULT '',
                 name TEXT NOT NULL DEFAULT '',
                 age INTEGER NOT NULL DEFAULT 0,
+                entry_route TEXT NOT NULL DEFAULT '',
+                pro_entry_age INTEGER NOT NULL DEFAULT 0,
+                pro_years INTEGER NOT NULL DEFAULT 0,
                 nationality TEXT NOT NULL DEFAULT '',
                 actual_nationality TEXT NOT NULL DEFAULT '',
                 nationality_code TEXT NOT NULL DEFAULT '',
@@ -456,6 +459,9 @@ def init_db() -> None:
             "category": "TEXT NOT NULL DEFAULT ''",
             "name": "TEXT NOT NULL DEFAULT ''",
             "age": "INTEGER NOT NULL DEFAULT 0",
+            "entry_route": "TEXT NOT NULL DEFAULT ''",
+            "pro_entry_age": "INTEGER NOT NULL DEFAULT 0",
+            "pro_years": "INTEGER NOT NULL DEFAULT 0",
             "nationality": "TEXT NOT NULL DEFAULT ''",
             "actual_nationality": "TEXT NOT NULL DEFAULT ''",
             "nationality_code": "TEXT NOT NULL DEFAULT ''",
@@ -524,6 +530,24 @@ DRAFT_SOURCE_AGE_WEIGHTS = {
     "独立・クラブ": scaled_weight_items([(19, 7.5), (20, 7.5), (21, 15), (22, 15), (23, 16), (24, 16), (25, 7.5), (26, 7.5), (27, 2), (28, 2), (29, 2), (30, 2)]),
     "その他": [(19, 3), (20, 8), (21, 16), (22, 28), (23, 24), (24, 13), (25, 6), (26, 2)],
 }
+FICTIONAL_ENTRY_ROUTE_WEIGHTS = [("高卒", 27), ("大卒", 38), ("社会人", 17), ("独立・クラブ", 3), ("その他", 10)]
+FICTIONAL_ENTRY_ROUTE_AGE_WEIGHTS = {
+    "20-21": [("高卒", 90), ("独立・クラブ", 4), ("その他", 6)],
+    22: [("高卒", 58), ("大卒", 38), ("社会人", 1), ("独立・クラブ", 1), ("その他", 2)],
+    23: [("高卒", 42), ("大卒", 54), ("社会人", 1), ("独立・クラブ", 1), ("その他", 2)],
+    "24-25": [("高卒", 35), ("大卒", 52), ("社会人", 8), ("独立・クラブ", 1), ("その他", 4)],
+    "27-30": [("高卒", 22), ("大卒", 38), ("社会人", 19), ("独立・クラブ", 4), ("その他", 12)],
+    "31-34": [("高卒", 16), ("大卒", 38), ("社会人", 25), ("独立・クラブ", 4), ("その他", 12)],
+}
+FICTIONAL_ENTRY_AGE_WEIGHTS = {
+    "高卒": [(18, 86), (19, 14)],
+    "大卒": [(22, 86), (23, 14)],
+    "社会人": [(22, 1), (23, 4), (24, 17), (25, 17), (26, 16), (27, 20), (28, 15), (29, 10)],
+    "独立・クラブ": [(20, 2), (21, 3), (22, 2), (23, 3), (24, 10), (25, 10), (26, 10), (27, 17), (28, 15), (29, 12), (30, 8), (31, 8)],
+    "その他": [(19, 1), (20, 1), (21, 1), (22, 1), (23, 1), (24, 8), (25, 8), (26, 9), (27, 13), (28, 12), (29, 11), (30, 10), (31, 7), (32, 4), (33, 2), (34, 1), (35, 1)],
+}
+# NPB在籍年数。1年目を中心にしつつ、長期在籍者もごく少数残す。
+FOREIGN_NPB_TENURE_WEIGHTS = [(1, 55), (2, 18), (3, 11), (4, 7), (5, 4), (6, 2), (7, 1.2), (8, 0.8), (9, 0.5), (10, 0.3), (11, 0.15), (12, 0.05)]
 PITCHING_FORM_RANGES = {"オーバースロー": (195, 34), "スリークォーター": (180, 39), "サイドスロー": (106, 66), "アンダースロー": (40, 33)}
 BATTING_FORM_RANGES = {"スタンダード": (210, 25), "オープン": (141, 24), "クラウチング": (12, 8)}
 PITCHING_FORM_TYPE_WEIGHTS = [("オーバースロー", 55), ("スリークォーター", 34), ("サイドスロー", 9), ("アンダースロー", 2)]
@@ -963,6 +987,55 @@ def age_for(rng: random.Random, category: str, draft_source_type: str = "") -> i
         return weighted_choice(rng, DRAFT_SOURCE_AGE_WEIGHTS[source])
     if category == "助っ人外国人用": return rng.randint(24, 34)
     return weighted_choice(rng, FICTIONAL_ROSTER_AGE_WEIGHTS)
+
+
+def create_career_rng(seed: int, role: str, category: str) -> random.Random:
+    """Keep career generation from consuming the established ability RNG stream."""
+    digest = hashlib.sha256(f"{int(seed)}:career:{role}:{category}".encode("utf-8")).digest()
+    return random.Random(int.from_bytes(digest[:8], "big"))
+
+
+def fictional_entry_route_weights_for_age(age: int) -> list[tuple[str, int]]:
+    if 20 <= age <= 21:
+        return FICTIONAL_ENTRY_ROUTE_AGE_WEIGHTS["20-21"]
+    if age in {22, 23}:
+        return FICTIONAL_ENTRY_ROUTE_AGE_WEIGHTS[age]
+    if 24 <= age <= 25:
+        return FICTIONAL_ENTRY_ROUTE_AGE_WEIGHTS["24-25"]
+    if 27 <= age <= 30:
+        return FICTIONAL_ENTRY_ROUTE_AGE_WEIGHTS["27-30"]
+    if 31 <= age <= 34:
+        return FICTIONAL_ENTRY_ROUTE_AGE_WEIGHTS["31-34"]
+    return FICTIONAL_ENTRY_ROUTE_WEIGHTS
+
+
+def generate_career_history(
+    *,
+    category: str,
+    age: int,
+    seed: int,
+    role: str,
+    draft_source_type: str = "",
+) -> dict[str, Any]:
+    """Generate profile-only career history without changing player abilities."""
+    rng = create_career_rng(seed, role, category)
+    if category == "ドラフト候補用":
+        route_map = {"高校生": "高卒", "大学生": "大卒", "社会人": "社会人", "独立・クラブ": "独立・クラブ", "その他": "その他"}
+        return {"entry_route": route_map.get(draft_source_type, ""), "pro_entry_age": 0, "pro_years": 0}
+    if category == "助っ人外国人用":
+        eligible = [(years, weight) for years, weight in FOREIGN_NPB_TENURE_WEIGHTS if years <= max(1, age - 17)]
+        pro_years = int(weighted_choice(rng, eligible))
+        return {"entry_route": "海外プロ経由", "pro_entry_age": age - pro_years + 1, "pro_years": pro_years}
+
+    route_candidates = [
+        (route, weight)
+        for route, weight in fictional_entry_route_weights_for_age(age)
+        if any(entry_age <= age for entry_age, _ in FICTIONAL_ENTRY_AGE_WEIGHTS[route])
+    ]
+    entry_route = weighted_choice(rng, route_candidates)
+    entry_age_candidates = [(entry_age, weight) for entry_age, weight in FICTIONAL_ENTRY_AGE_WEIGHTS[entry_route] if entry_age <= age]
+    pro_entry_age = int(weighted_choice(rng, entry_age_candidates))
+    return {"entry_route": entry_route, "pro_entry_age": pro_entry_age, "pro_years": age - pro_entry_age + 1}
 
 
 def pitcher_speed_value(abilities: dict[str, Any]) -> int | None:
@@ -4041,6 +4114,13 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     else:
         age = age_for(rng, category, draft_source_type)
         player_class = choose_player_class(rng, category, age)
+    career_history = generate_career_history(
+        category=category,
+        age=age,
+        seed=seed,
+        role=role,
+        draft_source_type=draft_source_type,
+    )
     foreign_profile = None
     if category == "助っ人外国人用":
         foreign_profile = generate_foreign_profile(rng, category, used_names=used_names)
@@ -4127,6 +4207,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     actual_nationality = foreign_profile.actual_nationality if foreign_profile else (nationality if nationality != "日本" else "")
     return {
         "seed": seed, "role": role, "category": category, "name": name, "age": age,
+        **career_history,
         "nationality": nationality, "actual_nationality": actual_nationality,
         "nationality_code": foreign_profile.nationality_code if foreign_profile else "",
         "name_group_id": foreign_profile.name_group_id if foreign_profile else 0,
@@ -4164,9 +4245,9 @@ def save_players(players: list[dict[str, Any]]) -> int:
             if p.get("nationality") == "日本":
                 birthplace = normalize_japanese_prefecture_name(birthplace)
                 region = normalize_japanese_prefecture_name(region)
-            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, nationality, actual_nationality, nationality_code, name_group_id, name_group_name, skin_color, birthplace, region, position, player_type, player_class, growth_type, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json, birth_month, birth_day, pitching_form_type, pitching_form_number, pitching_form_is_generic, batting_form_type, batting_form_number, batting_form_is_generic, bat_color, glove_color, wristband_left_enabled, wristband_left_color, wristband_right_enabled, wristband_right_color, draft_source_type)
-                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("nationality", ""), p.get("actual_nationality", ""), p.get("nationality_code", ""), p.get("name_group_id", 0), p.get("name_group_name", ""), p.get("skin_color", 0), birthplace, region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), normalize_growth_type(p.get("growth_type")), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False), p.get("birth_month", 0), p.get("birth_day", 0), p.get("pitching_form_type", ""), p.get("pitching_form_number", 0), p.get("pitching_form_is_generic", 1), p.get("batting_form_type", ""), p.get("batting_form_number", 0), p.get("batting_form_is_generic", 1), p.get("bat_color", ""), p.get("glove_color", ""), p.get("wristband_left_enabled", 0), p.get("wristband_left_color", ""), p.get("wristband_right_enabled", 0), p.get("wristband_right_color", ""), p.get("draft_source_type", "")))
+            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, entry_route, pro_entry_age, pro_years, nationality, actual_nationality, nationality_code, name_group_id, name_group_name, skin_color, birthplace, region, position, player_type, player_class, growth_type, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json, birth_month, birth_day, pitching_form_type, pitching_form_number, pitching_form_is_generic, batting_form_type, batting_form_number, batting_form_is_generic, bat_color, glove_color, wristband_left_enabled, wristband_left_color, wristband_right_enabled, wristband_right_color, draft_source_type)
+                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("entry_route", ""), p.get("pro_entry_age", 0), p.get("pro_years", 0), p.get("nationality", ""), p.get("actual_nationality", ""), p.get("nationality_code", ""), p.get("name_group_id", 0), p.get("name_group_name", ""), p.get("skin_color", 0), birthplace, region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), normalize_growth_type(p.get("growth_type")), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False), p.get("birth_month", 0), p.get("birth_day", 0), p.get("pitching_form_type", ""), p.get("pitching_form_number", 0), p.get("pitching_form_is_generic", 1), p.get("batting_form_type", ""), p.get("batting_form_number", 0), p.get("batting_form_is_generic", 1), p.get("bat_color", ""), p.get("glove_color", ""), p.get("wristband_left_enabled", 0), p.get("wristband_left_color", ""), p.get("wristband_right_enabled", 0), p.get("wristband_right_color", ""), p.get("draft_source_type", "")))
         return len(players)
 
 
@@ -4191,7 +4272,7 @@ def load_history() -> pd.DataFrame:
     init_db()
     with sqlite3.connect(DB_PATH) as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
-        wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "region", "position", "player_type", "growth_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json", "birth_month", "birth_day", "pitching_form_type", "pitching_form_number", "pitching_form_is_generic", "batting_form_type", "batting_form_number", "batting_form_is_generic", "bat_color", "glove_color", "wristband_left_enabled", "wristband_left_color", "wristband_right_enabled", "wristband_right_color", "draft_source_type"]
+        wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "entry_route", "pro_entry_age", "pro_years", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "region", "position", "player_type", "growth_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json", "birth_month", "birth_day", "pitching_form_type", "pitching_form_number", "pitching_form_is_generic", "batting_form_type", "batting_form_number", "batting_form_is_generic", "bat_color", "glove_color", "wristband_left_enabled", "wristband_left_color", "wristband_right_enabled", "wristband_right_color", "draft_source_type"]
         selected = [column for column in wanted if column in columns]
         history = pd.read_sql_query(f"SELECT {', '.join(selected)} FROM players ORDER BY id DESC", conn)
     if not history.empty:
@@ -4221,7 +4302,7 @@ def load_history() -> pd.DataFrame:
         history["サブポジ"] = history["sub_positions"].apply(format_sub_positions)
         history["サブポジ一覧"] = history["sub_positions"].apply(lambda values: " / ".join(item["position"] for item in values))
         history["サブポジ評価一覧"] = history["sub_positions"].apply(lambda values: " / ".join(item["aptitude"] for item in values))
-        for column in ["birth_month", "birth_day", "pitching_form_number", "pitching_form_is_generic", "batting_form_number", "batting_form_is_generic", "wristband_left_enabled", "wristband_right_enabled"]:
+        for column in ["pro_entry_age", "pro_years", "birth_month", "birth_day", "pitching_form_number", "pitching_form_is_generic", "batting_form_number", "batting_form_is_generic", "wristband_left_enabled", "wristband_right_enabled"]:
             if column in history.columns:
                 history[column] = pd.to_numeric(history[column], errors="coerce").fillna(0).astype(int)
         history["誕生日"] = history.apply(lambda row: f"{int(row.get('birth_month') or 0)}月{int(row.get('birth_day') or 0)}日" if int(row.get('birth_month') or 0) and int(row.get('birth_day') or 0) else "", axis=1)
@@ -4324,7 +4405,7 @@ def ranked_special_distribution(df: pd.DataFrame, group_names: list[str] | None 
     return base.merge(counts, on=["グループ", "ランク"], how="left").fillna({"人数": 0}).astype({"人数": int})
 
 def player_fingerprint(row: pd.Series) -> str:
-    keys = ["role", "category", "name", "age", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "position", "player_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "breaking_balls_json", "birth_month", "birth_day", "pitching_form_type", "pitching_form_number", "pitching_form_is_generic", "batting_form_type", "batting_form_number", "batting_form_is_generic", "bat_color", "glove_color", "wristband_left_enabled", "wristband_left_color", "wristband_right_enabled", "wristband_right_color", "draft_source_type"]
+    keys = ["role", "category", "name", "age", "entry_route", "pro_entry_age", "pro_years", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "position", "player_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "breaking_balls_json", "birth_month", "birth_day", "pitching_form_type", "pitching_form_number", "pitching_form_is_generic", "batting_form_type", "batting_form_number", "batting_form_is_generic", "bat_color", "glove_color", "wristband_left_enabled", "wristband_left_color", "wristband_right_enabled", "wristband_right_color", "draft_source_type"]
     return json.dumps({key: row.get(key) for key in keys}, ensure_ascii=False, sort_keys=True)
 
 
@@ -4361,6 +4442,30 @@ def classification_distribution_table(df: pd.DataFrame, group_columns: list[str]
     totals = counts.groupby(group_columns)["人数"].transform("sum") if group_columns else counts["人数"].sum()
     counts["構成比%"] = (counts["人数"] / totals * 100).round(2)
     return counts.rename(columns={value_column: CLASSIFICATION_LABELS.get(value_column, value_column)})
+
+
+CAREER_AGE_BAND_ORDER = ["18～19歳", "20～22歳", "23～26歳", "27～30歳", "31～34歳", "35～39歳", "40歳以上"]
+
+
+def career_age_band(age: Any) -> str:
+    value = int(age)
+    if value <= 19: return "18～19歳"
+    if value <= 22: return "20～22歳"
+    if value <= 26: return "23～26歳"
+    if value <= 30: return "27～30歳"
+    if value <= 34: return "31～34歳"
+    if value <= 39: return "35～39歳"
+    return "40歳以上"
+
+
+def pro_years_age_band_stats(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=["年齢帯", "人数", "平均", "中央値", "最小", "最大"])
+    work = df.copy()
+    work["年齢帯"] = pd.Categorical(work["age"].apply(career_age_band), categories=CAREER_AGE_BAND_ORDER, ordered=True)
+    stats = work.groupby("年齢帯", observed=False)["pro_years"].agg(["count", "mean", "median", "min", "max"]).reset_index()
+    stats["mean"] = stats["mean"].round(2)
+    return stats.rename(columns={"count": "人数", "mean": "平均", "median": "中央値", "min": "最小", "max": "最大"})
 
 
 def handedness_batting_mismatch_count(df: pd.DataFrame) -> int:
@@ -4569,6 +4674,28 @@ def render_balance_check(master: MasterData) -> None:
     st.subheader("年齢分布")
     age_dist = df["age"].value_counts().sort_index().rename_axis("年齢").reset_index(name="人数")
     st.dataframe(age_dist, use_container_width=True, hide_index=True)
+
+    career_df = df[df["entry_route"].fillna("").ne("")].copy()
+    with st.expander("プロ経歴分布", expanded=False):
+        if career_df.empty:
+            st.info("経歴情報を持つ保存済み選手がありません。")
+        else:
+            career_df["年齢帯"] = pd.Categorical(career_df["age"].apply(career_age_band), categories=CAREER_AGE_BAND_ORDER, ordered=True)
+            st.subheader("プロ年数分布")
+            st.dataframe(career_df["pro_years"].value_counts().sort_index().rename_axis("プロ年数").reset_index(name="人数"), use_container_width=True, hide_index=True)
+            st.subheader("年齢帯 × プロ年数")
+            st.dataframe(pd.crosstab(career_df["年齢帯"], career_df["pro_years"]), use_container_width=True)
+            career_col1, career_col2 = st.columns(2)
+            with career_col1:
+                st.subheader("年齢帯別プロ年数")
+                st.dataframe(pro_years_age_band_stats(career_df), use_container_width=True, hide_index=True)
+            with career_col2:
+                st.subheader("入団経路分布")
+                route_dist = career_df["entry_route"].value_counts().rename_axis("入団経路").reset_index(name="人数")
+                route_dist["構成比%"] = (route_dist["人数"] / len(career_df) * 100).round(2)
+                st.dataframe(route_dist, use_container_width=True, hide_index=True)
+            st.subheader("入団経路 × 年齢帯")
+            st.dataframe(pd.crosstab(career_df["entry_route"], career_df["年齢帯"]), use_container_width=True)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -5407,9 +5534,12 @@ def render_defense_usage_left(player: dict[str, Any]) -> str:
 
 def render_profile_right(player: dict[str, Any]) -> str:
     display_name = player.get("back_name") or player.get("name")
+    pro_years = int(player.get("pro_years") or 0)
+    pro_years_text = "" if "pro_years" not in player else ("不明" if not player.get("entry_route") else ("未経験" if pro_years == 0 else f"{pro_years}年目"))
     items = [
         ("氏名", player.get("name"), " pp-profile-span-3"),
         ("年齢", f"{player.get('age')}歳", ""),
+        ("プロ", pro_years_text, ""),
         ("誕生日", birthday_display(player), ""),
         ("投打", player.get("batting_throwing"), ""),
         ("国籍", player.get("nationality"), ""),
