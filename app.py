@@ -1,4 +1,5 @@
 import csv
+import copy
 import hashlib
 import itertools
 import json
@@ -62,6 +63,28 @@ POSITIONS = {
     "投手": ["先発", "中継ぎ", "抑え"],
     "野手": ["捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手"],
 }
+POSITION_PHYSIQUE = {
+    "投手": {"height_mean": 182.44, "height_sd": 6.41, "height_min": 167, "height_max": 213, "weight_mean": 88.22, "weight_per_cm": 0.930, "weight_resid_sd": 6.63, "weight_min": 67, "weight_max": 122},
+    "捕手": {"height_mean": 178.00, "height_sd": 4.36, "height_min": 170, "height_max": 190, "weight_mean": 87.16, "weight_per_cm": 0.803, "weight_resid_sd": 5.81, "weight_min": 73, "weight_max": 112},
+    "一塁手": {"height_mean": 184.00, "height_sd": 6.61, "height_min": 173, "height_max": 201, "weight_mean": 97.07, "weight_per_cm": 1.055, "weight_resid_sd": 8.98, "weight_min": 76, "weight_max": 117},
+    "二塁手": {"height_mean": 175.88, "height_sd": 5.41, "height_min": 163, "height_max": 186, "weight_mean": 79.98, "weight_per_cm": 0.976, "weight_resid_sd": 6.51, "weight_min": 66, "weight_max": 97},
+    "三塁手": {"height_mean": 181.40, "height_sd": 5.37, "height_min": 170, "height_max": 196, "weight_mean": 91.05, "weight_per_cm": 1.626, "weight_resid_sd": 6.66, "weight_min": 73, "weight_max": 126},
+    "遊撃手": {"height_mean": 177.66, "height_sd": 5.39, "height_min": 164, "height_max": 189, "weight_mean": 79.99, "weight_per_cm": 0.968, "weight_resid_sd": 5.09, "weight_min": 65, "weight_max": 95},
+    "外野手": {"height_mean": 180.98, "height_sd": 6.01, "height_min": 170, "height_max": 203, "weight_mean": 87.21, "weight_per_cm": 1.212, "weight_resid_sd": 6.93, "weight_min": 67, "weight_max": 139},
+}
+FIELDER_PHYSIQUE_EFFECTS = {
+    "power": {"height": 4.16, "build": 4.83, "cap": 13.0},
+    "speed": {"height": -2.67, "build": -4.40, "cap": 11.0},
+    "fielding": {"height": -2.62, "build": -2.40, "cap": 8.0},
+    "catching": {"height": -1.40, "build": -1.23, "cap": 4.0},
+    "arm": {"height": 1.16, "build": 0.0, "cap": 3.0},
+}
+PITCHER_PHYSIQUE_EFFECTS = {
+    "velocity": {"height": 1.42, "build": 0.37, "cap": 3.5},
+    "control": {"height": -1.5, "build": 0.0, "cap": 4.0},
+}
+FIELDER_PHYSIQUE_ABILITY_KEYS = {"power": "パワー", "speed": "走力", "fielding": "守備力", "catching": "捕球", "arm": "肩力"}
+PITCHER_PHYSIQUE_ABILITY_KEYS = {"velocity": "球速", "control": "コントロール"}
 JAPANESE_PREFECTURE_WEIGHTS = {
     "北海道": 32,
     "青森県": 10,
@@ -444,6 +467,8 @@ def init_db() -> None:
                 batting_throwing TEXT NOT NULL DEFAULT '',
                 height INTEGER NOT NULL DEFAULT 0,
                 weight INTEGER NOT NULL DEFAULT 0,
+                height_cm INTEGER,
+                weight_kg INTEGER,
                 abilities_json TEXT NOT NULL DEFAULT '{}',
                 special_abilities_json TEXT NOT NULL DEFAULT '[]',
                 ranked_special_abilities_json TEXT NOT NULL DEFAULT '{}',
@@ -484,6 +509,8 @@ def init_db() -> None:
             "batting_throwing": "TEXT NOT NULL DEFAULT ''",
             "height": "INTEGER NOT NULL DEFAULT 0",
             "weight": "INTEGER NOT NULL DEFAULT 0",
+            "height_cm": "INTEGER",
+            "weight_kg": "INTEGER",
             "abilities_json": "TEXT NOT NULL DEFAULT '{}'",
             "special_abilities_json": "TEXT NOT NULL DEFAULT '[]'",
             "ranked_special_abilities_json": "TEXT NOT NULL DEFAULT '{}'",
@@ -515,6 +542,98 @@ def init_db() -> None:
 
 def weighted_choice(rng: random.Random, items: list[tuple[Any, int]]) -> Any:
     return rng.choices([i[0] for i in items], weights=[i[1] for i in items], k=1)[0]
+
+
+def make_sub_rng(seed: int, namespace: str) -> random.Random:
+    """Return a stable namespaced RNG without consuming the caller's RNG."""
+    payload = f"{int(seed)}:{namespace}".encode("utf-8")
+    digest = hashlib.sha256(payload).digest()
+    return random.Random(int.from_bytes(digest[:8], "big"))
+
+
+def clone_rng(rng: random.Random) -> random.Random:
+    cloned = random.Random()
+    cloned.setstate(rng.getstate())
+    return cloned
+
+
+def sample_truncated_normal(
+    rng: random.Random,
+    mean: float,
+    sd: float,
+    low: float,
+    high: float,
+    max_attempts: int = 100,
+) -> float:
+    for _ in range(max_attempts):
+        value = rng.gauss(mean, sd)
+        if low <= value <= high:
+            return value
+    return min(high, max(low, mean))
+
+
+def physique_position(role: str, position: str) -> str:
+    return "投手" if role == "投手" else position
+
+
+def generate_height(position: str, rng: random.Random) -> int:
+    params = POSITION_PHYSIQUE[position]
+    return int(round(sample_truncated_normal(
+        rng, params["height_mean"], params["height_sd"], params["height_min"], params["height_max"]
+    )))
+
+
+def expected_weight_for_height(position: str, height_cm: int) -> float:
+    params = POSITION_PHYSIQUE[position]
+    return params["weight_mean"] + params["weight_per_cm"] * (height_cm - params["height_mean"])
+
+
+def generate_weight(position: str, height_cm: int, rng: random.Random) -> int:
+    params = POSITION_PHYSIQUE[position]
+    expected_weight = expected_weight_for_height(position, height_cm)
+    return int(round(sample_truncated_normal(
+        rng, expected_weight, params["weight_resid_sd"], params["weight_min"], params["weight_max"]
+    )))
+
+
+def generate_physique(seed: int, role: str, position: str) -> tuple[int, int]:
+    key = physique_position(role, position)
+    rng = make_sub_rng(seed, "physique_v1")
+    height_cm = generate_height(key, rng)
+    return height_cm, generate_weight(key, height_cm, rng)
+
+
+def physique_indices(position: str, height_cm: int, weight_kg: int) -> tuple[float, float]:
+    params = POSITION_PHYSIQUE[position]
+    z_height = (height_cm - params["height_mean"]) / params["height_sd"]
+    z_build = (weight_kg - expected_weight_for_height(position, height_cm)) / params["weight_resid_sd"]
+    return max(-2.5, min(2.5, z_height)), max(-2.5, min(2.5, z_build))
+
+
+def physique_effect_deltas(effects: dict[str, dict[str, float]], z_height: float, z_build: float) -> dict[str, float]:
+    deltas: dict[str, float] = {}
+    for key, effect in effects.items():
+        raw = effect["height"] * z_height + effect["build"] * z_build
+        deltas[key] = max(-effect["cap"], min(effect["cap"], raw))
+    return deltas
+
+
+def apply_fielder_physique_effects(values: dict[str, int], z_height: float, z_build: float) -> dict[str, float]:
+    deltas = physique_effect_deltas(FIELDER_PHYSIQUE_EFFECTS, z_height, z_build)
+    for key, delta in deltas.items():
+        values[FIELDER_PHYSIQUE_ABILITY_KEYS[key]] += round(delta)
+    return deltas
+
+
+def apply_pitcher_physique_effects(values: dict[str, int], z_height: float, z_build: float) -> dict[str, float]:
+    deltas = physique_effect_deltas(PITCHER_PHYSIQUE_EFFECTS, z_height, z_build)
+    for key, delta in deltas.items():
+        values[PITCHER_PHYSIQUE_ABILITY_KEYS[key]] += round(delta)
+    return deltas
+
+
+def trajectory_physique_adjustment(z_height: float, z_build: float) -> float:
+    return max(-0.54, min(0.54, 0.155 * z_height + 0.210 * z_build))
 
 
 def positive_weight_items(items: list[tuple[str, int]]) -> list[tuple[str, int]]:
@@ -3093,51 +3212,52 @@ def finalize_fielder_values(
         values[key] = clamp(values[key])
 
 
-def determine_trajectory(power: int, archetype: str, position: str, position_style: str, contact: int | None = None, player_class: str = "") -> int:
-    trajectory = 4 if power >= 80 else 3 if power >= 58 else 2 if power >= 38 else 1
+def determine_trajectory(power: int, archetype: str, position: str, position_style: str, contact: int | None = None, player_class: str = "", physique_score: float = 0.0) -> int:
+    power_score = power + max(-0.54, min(0.54, physique_score))
+    trajectory = 4 if power_score >= 80 else 3 if power_score >= 58 else 2 if power_score >= 38 else 1
     power_profile = archetype == "長打" or position_style in {"強打一塁手", "強打三塁手", "強打外野手"}
     if position in {"二塁手", "外野手"}:
-        if power_profile and 55 <= power < 58:
+        if power_profile and 55 <= power_score < 58:
             trajectory = 3
-        elif power_profile and 72 <= power < 80 and player_class in {"スター級", "一軍主力級", "大物実績者", "主力期待級"}:
+        elif power_profile and 72 <= power_score < 80 and player_class in {"スター級", "一軍主力級", "大物実績者", "主力期待級"}:
             trajectory = 4
-    elif power_profile and power >= 55:
+    elif power_profile and power_score >= 55:
         # 今回の弾道調整対象外は従来挙動を維持する。
         trajectory = min(4, trajectory + 1)
-    if position in {"一塁手", "三塁手"} and power >= 52:
+    if position in {"一塁手", "三塁手"} and power_score >= 52:
         trajectory = max(trajectory, 3)
     established = player_class in {"スター級", "一軍主力級", "ベテラン型"}
     contact = int(contact or 0)
     if position == "二塁手" and trajectory < 3:
         middle_profile = position_style == "打撃型二塁手" or archetype in {"巧打", "長打", "バランス"}
-        if power >= 50 and (middle_profile or established) and (contact >= 42 or power >= 55):
+        if power_score >= 50 and (middle_profile or established) and (contact >= 42 or power_score >= 55):
             trajectory = 3
     if position == "外野手" and trajectory < 3:
         middle_profile = position_style in {"走攻守外野手", "強打外野手"} or archetype in {"巧打", "長打", "バランス"}
-        if power >= 50 and (middle_profile or established) and (contact >= 42 or power >= 55):
+        if power_score >= 50 and (middle_profile or established) and (contact >= 42 or power_score >= 55):
             trajectory = 3
     if position == "捕手":
         top_class = player_class in {"スター級", "一軍主力級"}
-        if trajectory == 4 and not (top_class and power >= 85):
+        if trajectory == 4 and not (top_class and power_score >= 85):
             trajectory = 3
         if trajectory == 2:
             middle_profile = (
-                (position_style == "打撃型捕手" and power >= 50 and contact >= 38)
-                or (position_style == "平均型捕手" and power >= 52 and contact >= 42)
-                or (position_style == "守備型捕手" and established and power >= 54 and contact >= 40)
+                (position_style == "打撃型捕手" and power_score >= 50 and contact >= 38)
+                or (position_style == "平均型捕手" and power_score >= 52 and contact >= 42)
+                or (position_style == "守備型捕手" and established and power_score >= 54 and contact >= 40)
             )
             if middle_profile:
                 trajectory = 3
     if position == "遊撃手":
-        if trajectory == 4 and not (player_class == "スター級" and power >= 88):
+        if trajectory == 4 and not (player_class == "スター級" and power_score >= 88):
             trajectory = 3
         if trajectory == 2 and position_style != "守備走塁遊撃手":
             middle_profile = (
-                (position_style == "強打遊撃手" and power >= 55)
+                (position_style == "強打遊撃手" and power_score >= 55)
                 or (
                     position_style in {"巧打遊撃手", "平均型遊撃手"}
                     and established
-                    and power >= 48
+                    and power_score >= 48
                     and contact >= 45
                 )
             )
@@ -3178,6 +3298,8 @@ def generate_fielder_abilities(
     weakness_profile: str = "",
     allow_foreign_allrounder: bool = False,
     growth_type: str = "normal",
+    physique_z_height: float = 0.0,
+    physique_z_build: float = 0.0,
 ) -> dict[str, Any]:
     archetype = archetype or legacy_archetype_from_player_type("野手", player_type) or "バランス"
     player_class = player_class or player_class_from_legacy_roster_tier(roster_tier) or "一軍控え級"
@@ -3203,6 +3325,7 @@ def generate_fielder_abilities(
     apply_fielder_weakness_profile(rng, values, weakness_profile)
     apply_fielder_variance(rng, values, category, development_stage)
     apply_fielder_growth_mods(values, age, growth_type, archetype, position_style)
+    apply_fielder_physique_effects(values, physique_z_height, physique_z_build)
     finalize_fielder_values(
         rng,
         values,
@@ -3217,7 +3340,10 @@ def generate_fielder_abilities(
         False,
     )
     result = ability_values(values)
-    result["弾道"] = determine_trajectory(values["パワー"], archetype, position, position_style, values["ミート"], player_class)
+    result["弾道"] = determine_trajectory(
+        values["パワー"], archetype, position, position_style, values["ミート"], player_class,
+        trajectory_physique_adjustment(physique_z_height, physique_z_build),
+    )
     return result
 
 
@@ -3571,6 +3697,8 @@ def generate_pitcher_abilities(
     acquisition_role: str = "",
     weakness_profile: str = "",
     growth_type: str = "normal",
+    physique_z_height: float = 0.0,
+    physique_z_build: float = 0.0,
 ) -> dict[str, Any]:
     archetype = archetype or legacy_archetype_from_player_type("投手", player_type) or "総合"
     player_class = player_class or "一軍控え級"
@@ -3596,6 +3724,7 @@ def generate_pitcher_abilities(
     apply_veteran_pitcher_role_mods(values, age, aptitudes, player_class, archetype)
     apply_fictional_pitcher_age_speed_shape(rng, values, category, age, player_class, archetype, position_style, weakness_profile)
     shape_pitcher_speed_distribution(rng, values, category, age, player_class, archetype, position_style, weakness_profile)
+    apply_pitcher_physique_effects(values, physique_z_height, physique_z_build)
     finalize_pitcher_values(rng, values, category, age, player_class, archetype, position_style, role, weakness_profile)
     return {"球速": f"{values['球速']} km/h", "コントロール": ability(values["コントロール"]), "スタミナ": ability(values["スタミナ"]), **aptitudes}
 
@@ -5109,7 +5238,7 @@ def birthday_display(player: dict[str, Any]) -> str:
     m, d = int(player.get("birth_month") or 0), int(player.get("birth_day") or 0)
     return f"{m}月{d}日" if m and d else ""
 
-def generate_player(role: str, category: str, master: MasterData, seed: int | None = None, used_names: set[str] | None = None, apply_age_special_tail: bool = True, apply_individual_age_profile: bool = True, apply_ranked_age_profile: bool = True, apply_pro_year_profile: bool = True) -> dict[str, Any]:
+def generate_player(role: str, category: str, master: MasterData, seed: int | None = None, used_names: set[str] | None = None, apply_age_special_tail: bool = True, apply_individual_age_profile: bool = True, apply_ranked_age_profile: bool = True, apply_pro_year_profile: bool = True, apply_physique: bool = True, include_physique_baseline: bool = False) -> dict[str, Any]:
     seed = seed if seed is not None else random.SystemRandom().randrange(SEED_MAX)
     rng = random.Random(seed)
     draft_source_type = choose_draft_source_type(rng) if category == "ドラフト候補用" else ""
@@ -5161,16 +5290,31 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     allow_foreign_allrounder = choose_foreign_allrounder_candidate(rng, category, player_class, age, archetype, position_style) if role == "野手" else False
     player_type = legacy_player_type_from_archetype(role, archetype)
     roster_tier = legacy_roster_tier_from_player_class(player_class)
-    height = rng.randint(168, 196) + (3 if role == "投手" else 0)
-    weight = rng.randint(68, 105)
+    # Keep the legacy draws in place so every downstream main-RNG draw remains
+    # identical for an existing seed.  The displayed physique uses a stable,
+    # namespaced sub-RNG instead.
+    legacy_height = rng.randint(168, 196) + (3 if role == "投手" else 0)
+    legacy_weight = rng.randint(68, 105)
+    height_cm, weight_kg = generate_physique(seed, role, position)
+    z_height, z_build = physique_indices(physique_position(role, position), height_cm, weight_kg)
+    effect_z_height, effect_z_build = (z_height, z_build) if apply_physique else (0.0, 0.0)
     if role == "投手":
+        physique_ability_rng = clone_rng(rng)
         abilities = generate_pitcher_abilities(
+            physique_ability_rng, age, player_type, category, pitcher_aptitudes,
+            player_class=player_class, archetype=archetype, position_style=position_style,
+            development_stage=development_stage, acquisition_role=acquisition_role,
+            weakness_profile=weakness_profile, growth_type=growth_type,
+            physique_z_height=effect_z_height, physique_z_build=effect_z_build,
+        )
+        abilities.update(generate_pitcher_batting_abilities(physique_ability_rng, age, legacy_weight, pitcher_speed_value(abilities) or 145))
+        baseline_abilities = generate_pitcher_abilities(
             rng, age, player_type, category, pitcher_aptitudes,
             player_class=player_class, archetype=archetype, position_style=position_style,
             development_stage=development_stage, acquisition_role=acquisition_role,
             weakness_profile=weakness_profile, growth_type=growth_type,
         )
-        abilities.update(generate_pitcher_batting_abilities(rng, age, weight, pitcher_speed_value(abilities) or 145))
+        baseline_abilities.update(generate_pitcher_batting_abilities(rng, age, legacy_weight, pitcher_speed_value(baseline_abilities) or 145))
         breaking_balls = generate_breaking_balls(
             rng, player_type, category, pitcher_aptitudes, batting_throwing,
             age=age, player_class=player_class, archetype=archetype, position_style=position_style,
@@ -5178,62 +5322,83 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
             weakness_profile=weakness_profile,
         )
     else:
+        physique_ability_rng = clone_rng(rng)
         abilities = generate_fielder_abilities(
+            physique_ability_rng, age, position, player_type, category, position_style, roster_tier,
+            player_class=player_class, archetype=archetype, development_stage=development_stage,
+            acquisition_role=acquisition_role, weakness_profile=weakness_profile,
+            allow_foreign_allrounder=allow_foreign_allrounder, growth_type=growth_type,
+            physique_z_height=effect_z_height, physique_z_build=effect_z_build,
+        )
+        baseline_abilities = generate_fielder_abilities(
             rng, age, position, player_type, category, position_style, roster_tier,
             player_class=player_class, archetype=archetype, development_stage=development_stage,
             acquisition_role=acquisition_role, weakness_profile=weakness_profile,
             allow_foreign_allrounder=allow_foreign_allrounder, growth_type=growth_type,
         )
         breaking_balls = []
+    baseline_breaking_balls = copy.deepcopy(breaking_balls)
+    physique_audit_rng = clone_rng(rng)
     abilities, breaking_balls = audit_generated_player(
-        rng, role, category, age, position, player_class, archetype, position_style,
+        physique_audit_rng, role, category, age, position, player_class, archetype, position_style,
         development_stage, acquisition_role, weakness_profile, abilities, breaking_balls,
         allow_foreign_allrounder=allow_foreign_allrounder,
     )
-    if role == "投手":
-        abilities["肩力"] = ability(clamp((pitcher_speed_value(abilities) or 145) - 81 + weighted_choice(rng, [(-1, 15), (0, 35), (1, 35), (2, 15)]), 49, 82))
-    sub_positions = generate_sub_positions(rng, role, position, player_type, category, age, batting_throwing, abilities, player_class, archetype, position_style, acquisition_role)
-    special_args = (
-        master, role, player_type, position, age, abilities, breaking_balls, category,
-        player_class, archetype, position_style, development_stage, acquisition_role,
-        weakness_profile, sub_positions, pitcher_aptitudes,
+    baseline_abilities, _ = audit_generated_player(
+        rng, role, category, age, position, player_class, archetype, position_style,
+        development_stage, acquisition_role, weakness_profile, baseline_abilities, baseline_breaking_balls,
+        allow_foreign_allrounder=allow_foreign_allrounder,
     )
-    if category == "架空球団用" and (apply_age_special_tail or apply_individual_age_profile or apply_pro_year_profile):
-        # Phase 1の個数調整は局所RNGで行い、後続の誕生日・フォーム・装備・氏名・
-        # ランク特殊能力へ乱数消費量を波及させません。
-        special_rng = random.Random()
-        special_rng.setstate(rng.getstate())
-        special_abilities = generate_specials(
-            special_rng,
-            *special_args,
+    if role == "投手":
+        shoulder_delta = weighted_choice(rng, [(-1, 15), (0, 35), (1, 35), (2, 15)])
+        abilities["肩力"] = ability(clamp((pitcher_speed_value(abilities) or 145) - 81 + shoulder_delta, 49, 82))
+        baseline_abilities["肩力"] = ability(clamp((pitcher_speed_value(baseline_abilities) or 145) - 81 + shoulder_delta, 49, 82))
+    physique_sub_rng = clone_rng(rng)
+    sub_positions = generate_sub_positions(physique_sub_rng, role, position, player_type, category, age, batting_throwing, abilities, player_class, archetype, position_style, acquisition_role)
+    baseline_sub_positions = generate_sub_positions(rng, role, position, player_type, category, age, batting_throwing, baseline_abilities, player_class, archetype, position_style, acquisition_role)
+    def generate_player_specials(
+        target_rng: random.Random,
+        target_abilities: dict[str, Any],
+        target_breaking_balls: list[dict[str, Any]],
+        target_sub_positions: list[dict[str, str]],
+    ) -> list[str]:
+        special_args = (
+            master, role, player_type, position, age, target_abilities, target_breaking_balls, category,
+            player_class, archetype, position_style, development_stage, acquisition_role,
+            weakness_profile, target_sub_positions, pitcher_aptitudes,
+        )
+        if category == "架空球団用" and (apply_age_special_tail or apply_individual_age_profile or apply_pro_year_profile):
+            # 補正後の結果とメインRNG消費を分離し、既存seedの後続系列を維持する。
+            special_rng = clone_rng(target_rng)
+            result = generate_specials(
+                special_rng, *special_args,
+                apply_age_tail=apply_age_special_tail,
+                apply_age_profile=apply_individual_age_profile,
+                pro_years=career_history.get("pro_years"),
+                apply_pro_year_profile=apply_pro_year_profile,
+            )
+            generate_specials(
+                target_rng, *special_args, apply_age_tail=False, apply_age_profile=False,
+                pro_years=career_history.get("pro_years"), apply_pro_year_profile=False,
+            )
+            return result
+        return generate_specials(
+            target_rng, *special_args,
             apply_age_tail=apply_age_special_tail,
             apply_age_profile=apply_individual_age_profile,
             pro_years=career_history.get("pro_years"),
             apply_pro_year_profile=apply_pro_year_profile,
         )
-        generate_specials(
-            rng,
-            *special_args,
-            apply_age_tail=False,
-            apply_age_profile=False,
-            pro_years=career_history.get("pro_years"),
-            apply_pro_year_profile=False,
-        )
-    else:
-        special_abilities = generate_specials(
-            rng,
-            *special_args,
-            apply_age_tail=apply_age_special_tail,
-            apply_age_profile=apply_individual_age_profile,
-            pro_years=career_history.get("pro_years"),
-            apply_pro_year_profile=apply_pro_year_profile,
-        )
+
+    physique_special_rng = clone_rng(rng)
+    special_abilities = generate_player_specials(physique_special_rng, abilities, breaking_balls, sub_positions)
+    generate_player_specials(rng, baseline_abilities, baseline_breaking_balls, baseline_sub_positions)
     birth_month, birth_day = generate_birthday(rng)
     if role == "投手":
         pitching_form_type, pitching_form_number, pitching_form_is_generic = generate_pitching_form(rng, category, archetype, position)
     else:
         pitching_form_type, pitching_form_number, pitching_form_is_generic = "", 0, 1
-    batting_form_type, batting_form_number, batting_form_is_generic = generate_batting_form(rng, role, category, archetype, height)
+    batting_form_type, batting_form_number, batting_form_is_generic = generate_batting_form(rng, role, category, archetype, legacy_height)
     equipment = generate_equipment(rng, role, category, archetype, position)
     if foreign_profile:
         name = foreign_profile.name
@@ -5259,7 +5424,8 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         "development_stage": development_stage, "acquisition_role": acquisition_role, "weakness_profile": weakness_profile,
         "handedness": handedness_from_batting_throwing(batting_throwing),
         "batting_throwing": batting_throwing,
-        "height": height, "weight": weight,
+        "height": height_cm, "weight": weight_kg,
+        "height_cm": height_cm, "weight_kg": weight_kg,
         "birth_month": birth_month, "birth_day": birth_day,
         "pitching_form_type": pitching_form_type, "pitching_form_number": pitching_form_number, "pitching_form_is_generic": pitching_form_is_generic,
         "batting_form_type": batting_form_type, "batting_form_number": batting_form_number, "batting_form_is_generic": batting_form_is_generic,
@@ -5268,6 +5434,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         "abilities": {**abilities, "ranked_specials": generate_ranked_specials(rng, master, role, position, player_type, abilities, age, category, player_class, archetype, position_style, weakness_profile, sub_positions, pitcher_aptitudes, apply_ranked_age_profile)}, "special_abilities": special_abilities,
         "breaking_balls": breaking_balls,
         "sub_positions": sub_positions,
+        **({"_baseline_abilities": baseline_abilities} if include_physique_baseline else {}),
         **pitcher_aptitudes,
     }
 
@@ -5284,9 +5451,9 @@ def save_players(players: list[dict[str, Any]]) -> int:
             if p.get("nationality") == "日本":
                 birthplace = normalize_japanese_prefecture_name(birthplace)
                 region = normalize_japanese_prefecture_name(region)
-            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, entry_route, pro_entry_age, pro_years, nationality, actual_nationality, nationality_code, name_group_id, name_group_name, skin_color, birthplace, region, position, player_type, player_class, growth_type, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json, birth_month, birth_day, pitching_form_type, pitching_form_number, pitching_form_is_generic, batting_form_type, batting_form_number, batting_form_is_generic, bat_color, glove_color, wristband_left_enabled, wristband_left_color, wristband_right_enabled, wristband_right_color, draft_source_type)
-                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("entry_route", ""), p.get("pro_entry_age", 0), p.get("pro_years", 0), p.get("nationality", ""), p.get("actual_nationality", ""), p.get("nationality_code", ""), p.get("name_group_id", 0), p.get("name_group_name", ""), p.get("skin_color", 0), birthplace, region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), normalize_growth_type(p.get("growth_type")), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False), p.get("birth_month", 0), p.get("birth_day", 0), p.get("pitching_form_type", ""), p.get("pitching_form_number", 0), p.get("pitching_form_is_generic", 1), p.get("batting_form_type", ""), p.get("batting_form_number", 0), p.get("batting_form_is_generic", 1), p.get("bat_color", ""), p.get("glove_color", ""), p.get("wristband_left_enabled", 0), p.get("wristband_left_color", ""), p.get("wristband_right_enabled", 0), p.get("wristband_right_color", ""), p.get("draft_source_type", "")))
+            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, entry_route, pro_entry_age, pro_years, nationality, actual_nationality, nationality_code, name_group_id, name_group_name, skin_color, birthplace, region, position, player_type, player_class, growth_type, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, height_cm, weight_kg, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json, birth_month, birth_day, pitching_form_type, pitching_form_number, pitching_form_is_generic, batting_form_type, batting_form_number, batting_form_is_generic, bat_color, glove_color, wristband_left_enabled, wristband_left_color, wristband_right_enabled, wristband_right_color, draft_source_type)
+                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("entry_route", ""), p.get("pro_entry_age", 0), p.get("pro_years", 0), p.get("nationality", ""), p.get("actual_nationality", ""), p.get("nationality_code", ""), p.get("name_group_id", 0), p.get("name_group_name", ""), p.get("skin_color", 0), birthplace, region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), normalize_growth_type(p.get("growth_type")), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), p.get("height_cm"), p.get("weight_kg"), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False), p.get("birth_month", 0), p.get("birth_day", 0), p.get("pitching_form_type", ""), p.get("pitching_form_number", 0), p.get("pitching_form_is_generic", 1), p.get("batting_form_type", ""), p.get("batting_form_number", 0), p.get("batting_form_is_generic", 1), p.get("bat_color", ""), p.get("glove_color", ""), p.get("wristband_left_enabled", 0), p.get("wristband_left_color", ""), p.get("wristband_right_enabled", 0), p.get("wristband_right_color", ""), p.get("draft_source_type", "")))
         return len(players)
 
 
@@ -5311,7 +5478,7 @@ def load_history() -> pd.DataFrame:
     init_db()
     with sqlite3.connect(DB_PATH) as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
-        wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "entry_route", "pro_entry_age", "pro_years", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "region", "position", "player_type", "growth_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json", "birth_month", "birth_day", "pitching_form_type", "pitching_form_number", "pitching_form_is_generic", "batting_form_type", "batting_form_number", "batting_form_is_generic", "bat_color", "glove_color", "wristband_left_enabled", "wristband_left_color", "wristband_right_enabled", "wristband_right_color", "draft_source_type"]
+        wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "entry_route", "pro_entry_age", "pro_years", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "region", "position", "player_type", "growth_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "height_cm", "weight_kg", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json", "birth_month", "birth_day", "pitching_form_type", "pitching_form_number", "pitching_form_is_generic", "batting_form_type", "batting_form_number", "batting_form_is_generic", "bat_color", "glove_color", "wristband_left_enabled", "wristband_left_color", "wristband_right_enabled", "wristband_right_color", "draft_source_type"]
         selected = [column for column in wanted if column in columns]
         history = pd.read_sql_query(f"SELECT {', '.join(selected)} FROM players ORDER BY id DESC", conn)
     if not history.empty:
@@ -5444,7 +5611,7 @@ def ranked_special_distribution(df: pd.DataFrame, group_names: list[str] | None 
     return base.merge(counts, on=["グループ", "ランク"], how="left").fillna({"人数": 0}).astype({"人数": int})
 
 def player_fingerprint(row: pd.Series) -> str:
-    keys = ["role", "category", "name", "age", "entry_route", "pro_entry_age", "pro_years", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "position", "player_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "abilities_json", "special_abilities_json", "breaking_balls_json", "birth_month", "birth_day", "pitching_form_type", "pitching_form_number", "pitching_form_is_generic", "batting_form_type", "batting_form_number", "batting_form_is_generic", "bat_color", "glove_color", "wristband_left_enabled", "wristband_left_color", "wristband_right_enabled", "wristband_right_color", "draft_source_type"]
+    keys = ["role", "category", "name", "age", "entry_route", "pro_entry_age", "pro_years", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "position", "player_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "height_cm", "weight_kg", "abilities_json", "special_abilities_json", "breaking_balls_json", "birth_month", "birth_day", "pitching_form_type", "pitching_form_number", "pitching_form_is_generic", "batting_form_type", "batting_form_number", "batting_form_is_generic", "bat_color", "glove_color", "wristband_left_enabled", "wristband_left_color", "wristband_right_enabled", "wristband_right_color", "draft_source_type"]
     return json.dumps({key: row.get(key) for key in keys}, ensure_ascii=False, sort_keys=True)
 
 
@@ -6571,6 +6738,13 @@ def render_defense_usage_left(player: dict[str, Any]) -> str:
         cells.append(f'<div class="pp-defense-pos{main_cls}"><span class="pp-defense-short">{short}</span>{value_html}</div>')
     return render_ability_rows([("走力", f.get("走力")), ("肩力", f.get("肩力"))]) + '<div class="pp-defense-compact">' + ''.join(cells) + '</div>' + render_ability_rows([("守備力", f.get("守備力")), ("捕球", f.get("捕球"))])
 
+def profile_physique_text(player: dict[str, Any], key: str, legacy_key: str, unit: str) -> str:
+    value = player.get(key) if key in player else player.get(legacy_key)
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "-"
+    return f"{int(value)}{unit}"
+
+
 def render_profile_right(player: dict[str, Any]) -> str:
     display_name = player.get("back_name") or player.get("name")
     pro_years = int(player.get("pro_years") or 0)
@@ -6585,8 +6759,8 @@ def render_profile_right(player: dict[str, Any]) -> str:
         ("実国籍", player.get("actual_nationality"), ""),
         ("肌色", player.get("skin_color") or "", ""),
         ("出身地", player.get("birthplace"), ""),
-        ("身長", f"{player.get('height')}cm", ""),
-        ("体重", f"{player.get('weight')}kg", ""),
+        ("身長", profile_physique_text(player, "height_cm", "height", "cm"), ""),
+        ("体重", profile_physique_text(player, "weight_kg", "weight", "kg"), ""),
         ("投球フォーム", form_display(player, "pitching") if player.get("role") == "投手" else "", ""),
         ("打撃フォーム", form_display(player, "batting"), ""),
         ("バット", player.get("bat_color"), ""),
