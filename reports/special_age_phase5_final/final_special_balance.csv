@@ -1,0 +1,511 @@
+﻿role,metric,real_n,real,generated,diff,severity,note
+投手,nonrank_average,402,4.422886,4.158467,-0.264419,low,非ランク個数
+投手,nonrank_median,402,4.000000,4.000000,0.000000,low,非ランク個数
+投手,nonrank_p75,402,6.000000,6.000000,0.000000,low,非ランク個数
+投手,nonrank_p90,402,8.000000,8.000000,0.000000,low,非ランク個数
+投手,nonrank_5plus_pct,402,45.273632,43.310000,-1.963632,low,非ランク個数
+投手,nonrank_8plus_pct,402,11.442786,10.416667,-1.026119,low,非ランク個数
+投手,nonrank_10plus_pct,402,3.233831,1.826667,-1.407164,low,非ランク個数
+投手,display_average,402,7.746269,7.557867,-0.188402,low,Dを除く表示総数
+投手,display_median,402,8.000000,7.000000,-1.000000,low,Dを除く表示総数
+投手,display_p75,402,10.000000,10.000000,0.000000,low,Dを除く表示総数
+投手,display_p90,402,12.000000,12.000000,0.000000,low,Dを除く表示総数
+投手,display_5plus_pct,402,84.577114,80.680000,-3.897114,low,Dを除く表示総数
+投手,display_8plus_pct,402,51.492537,48.180000,-3.312537,low,Dを除く表示総数
+投手,display_10plus_pct,402,26.119403,28.523333,2.403930,low,Dを除く表示総数
+投手,rank_A_mean,402,0.024876,0.070133,0.045258,low,rank平均
+投手,rank_B_mean,402,0.345771,0.271267,-0.074504,low,rank平均
+投手,rank_C_mean,402,1.149254,1.092400,-0.056854,low,rank平均
+投手,rank_D_mean,402,,4.600600,,low,Dは生成側参考
+投手,rank_E_mean,402,1.455224,1.500633,0.045409,low,rank平均
+投手,rank_F_mean,402,0.330846,0.373033,0.042188,low,rank平均
+投手,rank_G_mean,402,0.017413,0.091933,0.074520,low,rank平均
+投手,rank_ABC_mean,402,1.519900,1.433800,-0.086100,low,実在直接比較対象
+投手,rank_EFG_mean,402,1.803483,1.965600,0.162117,low,実在直接比較対象
+投手,special:オリックスキラー,5,1.243781,0.000000,-1.243781,low,kind=other; real_count_group=<30
+投手,special:キレ○,59,14.676617,22.356667,7.680050,medium,kind=blue; real_count_group=50+; Phase 2対象
+投手,special:クロスファイヤー,27,6.716418,4.400000,-2.316418,low,kind=blue; real_count_group=<30
+投手,special:ゴロピッチャー,39,9.701493,2.480000,-7.221493,low,kind=mixed; real_count_group=30-49
+投手,special:ジャイロボール,1,0.248756,1.836667,1.587910,low,kind=blue; real_count_group=<30
+投手,special:ストライク先行,9,2.238806,3.166667,0.927861,low,kind=blue; real_count_group=<30
+投手,special:スロースターター,45,11.194030,4.536667,-6.657363,low,kind=red; real_count_group=30-49
+投手,special:ダメ押し,1,0.248756,0.000000,-0.248756,low,kind=blue; real_count_group=<30
+投手,special:チームプレイ○,1,0.248756,0.000000,-0.248756,low,kind=green; real_count_group=<30
+投手,special:テンポ○,25,6.218905,6.613333,0.394428,low,kind=green; real_count_group=<30
+投手,special:ナチュラルシュート,47,11.691542,7.366667,-4.324876,low,kind=blue; real_count_group=30-49
+投手,special:ハイボールヒッター,1,0.248756,0.000000,-0.248756,low,kind=blue; real_count_group=<30
+投手,special:バント職人,1,0.248756,0.000000,-0.248756,low,kind=blue; real_count_group=<30
+投手,special:ファイターズキラー,3,0.746269,0.000000,-0.746269,low,kind=other; real_count_group=<30
+投手,special:フライボールピッチャー,44,10.945274,1.820000,-9.125274,low,kind=mixed; real_count_group=30-49
+投手,special:プルヒッター,1,0.248756,0.000000,-0.248756,low,kind=blue; real_count_group=<30
+投手,special:ヘッドスライディング,1,0.248756,0.000000,-0.248756,low,kind=blue; real_count_group=<30
+投手,special:ホークスキラー,4,0.995025,0.000000,-0.995025,low,kind=other; real_count_group=<30
+投手,special:ボール先行,0,0.000000,4.183333,4.183333,low,kind=red; real_count_group=<30
+投手,special:ポーカーフェイス,16,3.980100,1.376667,-2.603433,low,kind=mixed; real_count_group=<30
+投手,special:ムード×,0,0.000000,0.450000,0.450000,low,kind=red; real_count_group=<30
+投手,special:ムード○,0,0.000000,1.660000,1.660000,low,kind=blue; real_count_group=<30
+投手,special:リリース○,123,30.597015,26.186667,-4.410348,low,kind=blue; real_count_group=50+; protected
+投手,special:一発,42,10.447761,3.803333,-6.644428,low,kind=red; real_count_group=30-49
+投手,special:中日キラー,3,0.746269,0.000000,-0.746269,low,kind=other; real_count_group=<30
+投手,special:乱調,15,3.731343,3.866667,0.135323,low,kind=red; real_count_group=<30
+投手,special:人気者,0,0.000000,3.180000,3.180000,low,kind=green; real_count_group=<30
+投手,special:低め○,14,3.482587,8.666667,5.184080,low,kind=blue; real_count_group=<30; protected
+投手,special:全開,0,0.000000,1.063333,1.063333,low,kind=mixed; real_count_group=<30
+投手,special:内角攻め,65,16.169154,13.450000,-2.719154,low,kind=blue; real_count_group=50+
+投手,special:内野安打○,1,0.248756,0.000000,-0.248756,low,kind=blue; real_count_group=<30
+投手,special:力配分,19,4.726368,1.043333,-3.683035,low,kind=mixed; real_count_group=<30
+投手,special:勝ち運,9,2.238806,1.913333,-0.325473,low,kind=blue; real_count_group=<30
+投手,special:四球,113,28.109453,20.720000,-7.389453,medium,kind=red; real_count_group=50+
+投手,special:回またぎ○,47,11.691542,5.840000,-5.851542,low,kind=blue; real_count_group=30-49
+投手,special:国際大会×,0,0.000000,0.860000,0.860000,low,kind=red; real_count_group=<30
+投手,special:国際大会○,1,0.248756,2.093333,1.844577,low,kind=blue; real_count_group=<30
+投手,special:変化球中心,50,12.437811,7.326667,-5.111144,low,kind=green; real_count_group=50+; Phase 2対象
+投手,special:夏男,1,0.248756,0.000000,-0.248756,low,kind=other; real_count_group=<30
+投手,special:奪三振,116,28.855721,30.430000,1.574279,low,kind=blue; real_count_group=50+; protected
+投手,special:存在感,3,0.746269,0.000000,-0.746269,low,kind=other; real_count_group=<30
+投手,special:守備職人,1,0.248756,0.000000,-0.248756,low,kind=blue; real_count_group=<30
+投手,special:安全圏○,0,0.000000,7.893333,7.893333,low,kind=blue; real_count_group=<30
+投手,special:寸前,14,3.482587,3.326667,-0.155920,low,kind=red; real_count_group=<30
+投手,special:対ランナー,37,9.203980,5.006667,-4.197313,low,kind=blue; real_count_group=30-49
+投手,special:対ランナー×,0,0.000000,3.680000,3.680000,low,kind=red; real_count_group=<30
+投手,special:対ランナー○,13,3.233831,0.000000,-3.233831,low,kind=other; real_count_group=<30
+投手,special:対変化球○,1,0.248756,0.000000,-0.248756,low,kind=blue; real_count_group=<30
+投手,special:対強打者○,0,0.000000,4.226667,4.226667,low,kind=blue; real_count_group=<30
+投手,special:尻上がり,8,1.990050,3.343333,1.353284,low,kind=blue; real_count_group=<30
+投手,special:巨人キラー,3,0.746269,0.000000,-0.746269,low,kind=other; real_count_group=<30
+投手,special:広島キラー,2,0.497512,0.000000,-0.497512,low,kind=other; real_count_group=<30
+投手,special:慎重盗塁,1,0.248756,0.000000,-0.248756,low,kind=green; real_count_group=<30
+投手,special:打球反応○,33,8.208955,6.186667,-2.022289,low,kind=blue; real_count_group=30-49; protected
+投手,special:投手存在感,0,0.000000,0.676667,0.676667,low,kind=blue; real_count_group=<30
+投手,special:投手調子安定,0,0.000000,3.460000,3.460000,low,kind=green; real_count_group=<30
+投手,special:投手調子極端,0,0.000000,1.323333,1.323333,low,kind=green; real_count_group=<30
+投手,special:投打躍動,0,0.000000,0.993333,0.993333,low,kind=blue; real_count_group=<30
+投手,special:投球位置右,5,1.243781,3.106667,1.862886,low,kind=green; real_count_group=<30
+投手,special:投球位置左,2,0.497512,2.963333,2.465821,low,kind=green; real_count_group=<30
+投手,special:抜け球,98,24.378109,17.283333,-7.094776,medium,kind=red; real_count_group=50+
+投手,special:根性,0,0.000000,4.410000,4.410000,low,kind=blue; real_count_group=<30
+投手,special:楽天キラー,1,0.248756,0.000000,-0.248756,low,kind=other; real_count_group=<30
+投手,special:火消し,1,0.248756,3.010000,2.761244,low,kind=blue; real_count_group=<30
+投手,special:牽制○,56,13.930348,10.096667,-3.833682,low,kind=blue; real_count_group=50+; protected
+投手,special:球持ち○,88,21.890547,22.830000,0.939453,low,kind=blue; real_count_group=50+; protected
+投手,special:球速安定,126,31.343284,25.950000,-5.393284,low,kind=blue; real_count_group=50+
+投手,special:真っスラ,33,8.208955,7.243333,-0.965622,low,kind=blue; real_count_group=30-49
+投手,special:短気,0,0.000000,3.893333,3.893333,low,kind=red; real_count_group=<30
+投手,special:秋男,1,0.248756,0.000000,-0.248756,low,kind=other; real_count_group=<30
+投手,special:積極守備,1,0.248756,0.000000,-0.248756,low,kind=green; real_count_group=<30
+投手,special:積極打法,1,0.248756,0.000000,-0.248756,low,kind=green; real_count_group=<30
+投手,special:積極走塁,1,0.248756,0.000000,-0.248756,low,kind=green; real_count_group=<30
+投手,special:立ち上がり○,0,0.000000,6.780000,6.780000,low,kind=blue; real_count_group=<30
+投手,special:緊急登板○,33,8.208955,4.363333,-3.845622,low,kind=blue; real_count_group=30-49
+投手,special:緩急○,53,13.184080,17.940000,4.755920,low,kind=blue; real_count_group=50+; protected
+投手,special:荒れ球,44,10.945274,3.786667,-7.158607,low,kind=mixed; real_count_group=30-49
+投手,special:西武キラー,2,0.497512,0.000000,-0.497512,low,kind=other; real_count_group=<30
+投手,special:要所○,18,4.477612,3.766667,-0.710945,low,kind=blue; real_count_group=<30
+投手,special:負け運,15,3.731343,4.953333,1.221990,low,kind=red; real_count_group=<30
+投手,special:軽い球,3,0.746269,2.633333,1.887065,low,kind=red; real_count_group=<30
+投手,special:逃げ球,88,21.890547,19.493333,-2.397214,low,kind=blue; real_count_group=50+; Phase 2対象
+投手,special:速球中心,42,10.447761,7.506667,-2.941095,low,kind=green; real_count_group=30-49
+投手,special:重い球,0,0.000000,6.243333,6.243333,low,kind=blue; real_count_group=<30
+投手,special:闘志,0,0.000000,4.786667,4.786667,low,kind=blue; real_count_group=<30
+投手,special:阪神キラー,1,0.248756,0.000000,-0.248756,low,kind=other; real_count_group=<30
+投手,kind_blue_mean,402,2.736318,2.946067,0.209748,low,gold極低率/0は仕様維持
+投手,kind_blue_1plus_pct,402,92.288557,83.266667,-9.021891,low,gold極低率/0は仕様維持
+投手,kind_red_mean,402,0.858209,0.741900,-0.116309,low,gold極低率/0は仕様維持
+投手,kind_red_1plus_pct,402,56.965174,52.586667,-4.378507,low,gold極低率/0は仕様維持
+投手,kind_green_mean,402,0.320896,0.354800,0.033904,low,gold極低率/0は仕様維持
+投手,kind_green_1plus_pct,402,27.611940,31.143333,3.531393,low,gold極低率/0は仕様維持
+投手,kind_gold_mean,402,0.000000,0.000000,0.000000,low,gold極低率/0は仕様維持
+投手,kind_gold_1plus_pct,402,0.000000,0.000000,0.000000,low,gold極低率/0は仕様維持
+投手,kind_mixed_mean,402,0.402985,0.115700,-0.287285,low,gold極低率/0は仕様維持
+投手,kind_mixed_1plus_pct,402,36.815920,11.036667,-25.779254,medium,gold極低率/0は仕様維持
+投手,kind_other_mean,402,0.104478,0.000000,-0.104478,low,gold極低率/0は仕様維持
+投手,kind_other_1plus_pct,402,9.701493,0.000000,-9.701493,low,gold極低率/0は仕様維持
+投手,class:スター級:nonrank_average,,,8.057113,,low,generated n=963
+投手,class:スター級:nonrank_5plus_pct,,,100.000000,,low,generated n=963
+投手,class:スター級:nonrank_8plus_pct,,,65.939772,,low,generated n=963
+投手,class:スター級:rank_ABC_mean,,,2.553479,,low,generated n=963
+投手,class:スター級:rank_A_rate_pct,,,15.057113,,low,generated n=963
+投手,class:一軍主力級:nonrank_average,,,6.066448,,low,generated n=6998
+投手,class:一軍主力級:nonrank_5plus_pct,,,79.851386,,low,generated n=6998
+投手,class:一軍主力級:nonrank_8plus_pct,,,20.977422,,low,generated n=6998
+投手,class:一軍主力級:rank_ABC_mean,,,2.039869,,low,generated n=6998
+投手,class:一軍主力級:rank_A_rate_pct,,,10.945985,,low,generated n=6998
+投手,class:一軍控え級:nonrank_average,,,4.030428,,low,generated n=6770
+投手,class:一軍控え級:nonrank_5plus_pct,,,39.143279,,low,generated n=6770
+投手,class:一軍控え級:nonrank_8plus_pct,,,2.186115,,low,generated n=6770
+投手,class:一軍控え級:rank_ABC_mean,,,1.370162,,low,generated n=6770
+投手,class:一軍控え級:rank_A_rate_pct,,,8.183161,,low,generated n=6770
+投手,class:二軍級:nonrank_average,,,2.079277,,low,generated n=7745
+投手,class:二軍級:nonrank_5plus_pct,,,4.906391,,low,generated n=7745
+投手,class:二軍級:nonrank_8plus_pct,,,0.000000,,low,generated n=7745
+投手,class:二軍級:rank_ABC_mean,,,0.868560,,low,generated n=7745
+投手,class:二軍級:rank_A_rate_pct,,,1.407360,,low,generated n=7745
+投手,class:若手素材型:nonrank_average,,,1.989290,,low,generated n=3735
+投手,class:若手素材型:nonrank_5plus_pct,,,5.087015,,low,generated n=3735
+投手,class:若手素材型:nonrank_8plus_pct,,,0.000000,,low,generated n=3735
+投手,class:若手素材型:rank_ABC_mean,,,0.855422,,low,generated n=3735
+投手,class:若手素材型:rank_A_rate_pct,,,1.552878,,low,generated n=3735
+投手,class:ベテラン型:nonrank_average,,,6.260755,,low,generated n=3789
+投手,class:ベテラン型:nonrank_5plus_pct,,,85.035629,,low,generated n=3789
+投手,class:ベテラン型:nonrank_8plus_pct,,,23.066772,,low,generated n=3789
+投手,class:ベテラン型:rank_ABC_mean,,,1.869095,,low,generated n=3789
+投手,class:ベテラン型:rank_A_rate_pct,,,10.187385,,low,generated n=3789
+投手,class_age:若手素材型:18～22:nonrank_average,,,1.422145,,low,generated n=867
+投手,class_age:若手素材型:18～22:nonrank_5plus_pct,,,2.422145,,low,generated n=867
+投手,class_age:若手素材型:18～22:nonrank_8plus_pct,,,0.000000,,low,generated n=867
+投手,class_age:若手素材型:18～22:rank_ABC_mean,,,0.809689,,low,generated n=867
+投手,class_age:若手素材型:18～22:rank_A_rate_pct,,,1.268743,,low,generated n=867
+投手,class_age:スター級:18～22:nonrank_average,,,7.492537,,low,generated n=134
+投手,class_age:スター級:18～22:nonrank_5plus_pct,,,100.000000,,low,generated n=134
+投手,class_age:スター級:18～22:nonrank_8plus_pct,,,45.522388,,low,generated n=134
+投手,class_age:スター級:18～22:rank_ABC_mean,,,2.089552,,low,generated n=134
+投手,class_age:スター級:18～22:rank_A_rate_pct,,,17.910448,,low,generated n=134
+投手,class_age:一軍主力級:27～30:nonrank_average,,,6.813532,,low,generated n=1877
+投手,class_age:一軍主力級:27～30:nonrank_5plus_pct,,,93.979755,,low,generated n=1877
+投手,class_age:一軍主力級:27～30:nonrank_8plus_pct,,,31.486414,,low,generated n=1877
+投手,class_age:一軍主力級:27～30:rank_ABC_mean,,,2.034097,,low,generated n=1877
+投手,class_age:一軍主力級:27～30:rank_A_rate_pct,,,11.507725,,low,generated n=1877
+投手,class_age:一軍主力級:31～34:nonrank_average,,,6.830755,,low,generated n=1099
+投手,class_age:一軍主力級:31～34:nonrank_5plus_pct,,,93.084622,,low,generated n=1099
+投手,class_age:一軍主力級:31～34:nonrank_8plus_pct,,,33.030027,,low,generated n=1099
+投手,class_age:一軍主力級:31～34:rank_ABC_mean,,,2.639672,,low,generated n=1099
+投手,class_age:一軍主力級:31～34:rank_A_rate_pct,,,13.830755,,low,generated n=1099
+投手,class_age:ベテラン型:31+:nonrank_average,,,6.270782,,low,generated n=1636
+投手,class_age:ベテラン型:31+:nonrank_5plus_pct,,,84.290954,,low,generated n=1636
+投手,class_age:ベテラン型:31+:nonrank_8plus_pct,,,23.838631,,low,generated n=1636
+投手,class_age:ベテラン型:31+:rank_ABC_mean,,,2.044621,,low,generated n=1636
+投手,class_age:ベテラン型:31+:rank_A_rate_pct,,,10.391198,,low,generated n=1636
+投手,class_age:二軍級:35+:nonrank_average,,,2.196262,,low,generated n=107
+投手,class_age:二軍級:35+:nonrank_5plus_pct,,,5.607477,,low,generated n=107
+投手,class_age:二軍級:35+:nonrank_8plus_pct,,,0.000000,,low,generated n=107
+投手,class_age:二軍級:35+:rank_ABC_mean,,,0.850467,,low,generated n=107
+投手,class_age:二軍級:35+:rank_A_rate_pct,,,0.000000,,low,generated n=107
+投手,position:先発:nonrank_average,,,4.206347,,low,generated n=14810
+投手,position:先発:rank_ABC_mean,,,1.459622,,low,generated n=14810
+投手,position:中継ぎ:nonrank_average,,,4.110043,,low,generated n=12586
+投手,position:中継ぎ:rank_ABC_mean,,,1.400127,,low,generated n=12586
+投手,position:抑え:nonrank_average,,,4.120200,,low,generated n=2604
+投手,position:抑え:rank_ABC_mean,,,1.449693,,low,generated n=2604
+投手,ability_corr:球速:normal_count,402,-0.042499,0.054884,0.097384,low,Spearman correlation
+投手,ability_corr:球速:rank_ABC,402,0.002927,0.149847,0.146920,low,Spearman correlation
+投手,ability_corr:球速:special:キレ○,402,0.088169,-0.011071,-0.099240,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球速:special:リリース○,402,-0.127365,-0.016586,0.110779,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球速:special:低め○,402,-0.039056,-0.017848,0.021208,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球速:special:変化球中心,402,-0.254668,-0.010361,0.244307,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球速:special:奪三振,402,0.373968,0.028885,-0.345083,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球速:special:打球反応○,402,-0.138416,-0.001683,0.136733,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球速:special:牽制○,402,-0.231010,-0.008447,0.222563,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球速:special:球持ち○,402,-0.151662,-0.032731,0.118931,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球速:special:緩急○,402,-0.236467,0.024086,0.260554,medium,主要個別特能とのSpearman correlation
+投手,ability_corr:球速:special:逃げ球,402,0.051195,-0.028900,-0.080095,low,主要個別特能とのSpearman correlation
+投手,ability_corr:コントロール:normal_count,402,0.305876,0.593754,0.287878,low,Spearman correlation
+投手,ability_corr:コントロール:rank_ABC,402,0.279243,0.353935,0.074693,low,Spearman correlation
+投手,ability_corr:コントロール:special:キレ○,402,0.106753,0.263514,0.156761,low,主要個別特能とのSpearman correlation
+投手,ability_corr:コントロール:special:リリース○,402,0.310648,0.358453,0.047805,low,主要個別特能とのSpearman correlation
+投手,ability_corr:コントロール:special:低め○,402,0.208156,0.243990,0.035834,low,主要個別特能とのSpearman correlation
+投手,ability_corr:コントロール:special:変化球中心,402,0.181212,0.013358,-0.167853,low,主要個別特能とのSpearman correlation
+投手,ability_corr:コントロール:special:奪三振,402,-0.047711,0.280105,0.327816,medium,主要個別特能とのSpearman correlation
+投手,ability_corr:コントロール:special:打球反応○,402,0.189419,0.099646,-0.089773,low,主要個別特能とのSpearman correlation
+投手,ability_corr:コントロール:special:牽制○,402,0.270937,0.160098,-0.110839,low,主要個別特能とのSpearman correlation
+投手,ability_corr:コントロール:special:球持ち○,402,0.069212,0.383255,0.314043,low,主要個別特能とのSpearman correlation
+投手,ability_corr:コントロール:special:緩急○,402,0.205257,0.259397,0.054140,low,主要個別特能とのSpearman correlation
+投手,ability_corr:コントロール:special:逃げ球,402,0.160804,0.347410,0.186605,low,主要個別特能とのSpearman correlation
+投手,ability_corr:スタミナ:normal_count,402,0.319477,0.295684,-0.023793,low,Spearman correlation
+投手,ability_corr:スタミナ:rank_ABC,402,0.147475,0.149203,0.001728,low,Spearman correlation
+投手,ability_corr:スタミナ:special:キレ○,402,0.100314,0.135317,0.035003,low,主要個別特能とのSpearman correlation
+投手,ability_corr:スタミナ:special:リリース○,402,0.206400,0.149915,-0.056484,low,主要個別特能とのSpearman correlation
+投手,ability_corr:スタミナ:special:低め○,402,0.149970,0.074219,-0.075751,low,主要個別特能とのSpearman correlation
+投手,ability_corr:スタミナ:special:変化球中心,402,0.110395,0.007270,-0.103124,low,主要個別特能とのSpearman correlation
+投手,ability_corr:スタミナ:special:奪三振,402,-0.027394,0.146075,0.173469,low,主要個別特能とのSpearman correlation
+投手,ability_corr:スタミナ:special:打球反応○,402,0.191653,0.042860,-0.148794,low,主要個別特能とのSpearman correlation
+投手,ability_corr:スタミナ:special:牽制○,402,0.212875,0.062056,-0.150819,low,主要個別特能とのSpearman correlation
+投手,ability_corr:スタミナ:special:球持ち○,402,0.058503,0.135712,0.077209,low,主要個別特能とのSpearman correlation
+投手,ability_corr:スタミナ:special:緩急○,402,0.182138,0.122024,-0.060114,low,主要個別特能とのSpearman correlation
+投手,ability_corr:スタミナ:special:逃げ球,402,0.129562,0.119082,-0.010480,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球種数:normal_count,402,0.078402,0.002823,-0.075578,low,Spearman correlation
+投手,ability_corr:球種数:rank_ABC,402,-0.029766,-0.009386,0.020380,low,Spearman correlation
+投手,ability_corr:球種数:special:キレ○,402,-0.007679,0.054764,0.062443,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球種数:special:リリース○,402,0.065929,-0.006139,-0.072068,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球種数:special:低め○,402,0.042396,-0.007326,-0.049722,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球種数:special:変化球中心,402,0.171659,0.007783,-0.163876,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球種数:special:奪三振,402,-0.159312,0.014445,0.173758,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球種数:special:打球反応○,402,0.135382,0.000981,-0.134402,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球種数:special:牽制○,402,0.140024,-0.008360,-0.148384,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球種数:special:球持ち○,402,0.001776,-0.015565,-0.017341,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球種数:special:緩急○,402,0.080792,0.033201,-0.047591,low,主要個別特能とのSpearman correlation
+投手,ability_corr:球種数:special:逃げ球,402,0.076818,-0.018148,-0.094966,low,主要個別特能とのSpearman correlation
+投手,ability_corr:総変化量:normal_count,402,0.398733,0.162154,-0.236579,low,Spearman correlation
+投手,ability_corr:総変化量:rank_ABC,402,0.242735,0.039837,-0.202898,low,Spearman correlation
+投手,ability_corr:総変化量:special:キレ○,402,0.414045,0.162009,-0.252036,low,主要個別特能とのSpearman correlation
+投手,ability_corr:総変化量:special:リリース○,402,0.180739,0.073964,-0.106774,low,主要個別特能とのSpearman correlation
+投手,ability_corr:総変化量:special:低め○,402,0.167865,0.036666,-0.131199,low,主要個別特能とのSpearman correlation
+投手,ability_corr:総変化量:special:変化球中心,402,0.233838,0.019356,-0.214482,low,主要個別特能とのSpearman correlation
+投手,ability_corr:総変化量:special:奪三振,402,0.197684,0.068278,-0.129406,low,主要個別特能とのSpearman correlation
+投手,ability_corr:総変化量:special:打球反応○,402,0.117718,0.024910,-0.092808,low,主要個別特能とのSpearman correlation
+投手,ability_corr:総変化量:special:牽制○,402,0.167651,0.028015,-0.139636,low,主要個別特能とのSpearman correlation
+投手,ability_corr:総変化量:special:球持ち○,402,0.046339,0.075596,0.029257,low,主要個別特能とのSpearman correlation
+投手,ability_corr:総変化量:special:緩急○,402,0.110148,0.104441,-0.005707,low,主要個別特能とのSpearman correlation
+投手,ability_corr:総変化量:special:逃げ球,402,0.323214,0.051851,-0.271363,low,主要個別特能とのSpearman correlation
+野手,nonrank_average,389,4.712082,4.756800,0.044718,low,非ランク個数
+野手,nonrank_median,389,4.000000,4.000000,0.000000,low,非ランク個数
+野手,nonrank_p75,389,7.000000,7.000000,0.000000,low,非ランク個数
+野手,nonrank_p90,389,9.000000,9.000000,0.000000,low,非ランク個数
+野手,nonrank_5plus_pct,389,47.300771,49.030000,1.729229,low,非ランク個数
+野手,nonrank_8plus_pct,389,19.023136,20.400000,1.376864,low,非ランク個数
+野手,nonrank_10plus_pct,389,8.483290,7.010000,-1.473290,low,非ランク個数
+野手,display_average,389,8.326478,8.472000,0.145522,low,Dを除く表示総数
+野手,display_median,389,8.000000,8.000000,0.000000,low,Dを除く表示総数
+野手,display_p75,389,11.000000,11.000000,0.000000,low,Dを除く表示総数
+野手,display_p90,389,13.000000,13.000000,0.000000,low,Dを除く表示総数
+野手,display_5plus_pct,389,82.519280,85.593333,3.074053,low,Dを除く表示総数
+野手,display_8plus_pct,389,54.755784,56.516667,1.760883,low,Dを除く表示総数
+野手,display_10plus_pct,389,37.532134,38.436667,0.904533,low,Dを除く表示総数
+野手,rank_A_mean,389,0.020566,0.112833,0.092268,low,rank平均
+野手,rank_B_mean,389,0.336761,0.425367,0.088606,low,rank平均
+野手,rank_C_mean,389,1.179949,1.155167,-0.024782,low,rank平均
+野手,rank_D_mean,389,,3.412067,,low,Dは生成側参考
+野手,rank_E_mean,389,1.665810,1.539033,-0.126776,low,rank平均
+野手,rank_F_mean,389,0.401028,0.383600,-0.017428,low,rank平均
+野手,rank_G_mean,389,0.010283,0.099200,0.088917,low,rank平均
+野手,rank_ABC_mean,389,1.537275,1.693367,0.156092,low,実在直接比較対象
+野手,rank_EFG_mean,389,2.077121,2.021833,-0.055287,low,実在直接比較対象
+野手,special:DeNAキラー,1,0.257069,0.000000,-0.257069,low,kind=other; real_count_group=<30
+野手,special:いぶし銀,5,1.285347,2.190000,0.904653,low,kind=blue; real_count_group=<30
+野手,special:お祭り男,14,3.598972,0.000000,-3.598972,low,kind=other; real_count_group=<30
+野手,special:かく乱,7,1.799486,3.100000,1.300514,low,kind=blue; real_count_group=<30
+野手,special:ささやき破り,0,0.000000,2.103333,2.103333,low,kind=blue; real_count_group=<30
+野手,special:アウトコースヒッター,9,2.313625,3.850000,1.536375,low,kind=blue; real_count_group=<30
+野手,special:アベレージヒッター,3,0.771208,1.820000,1.048792,low,kind=blue; real_count_group=<30
+野手,special:インコースヒッター,30,7.712082,3.906667,-3.805416,low,kind=blue; real_count_group=30-49
+野手,special:エラー,43,11.053985,6.680000,-4.373985,low,kind=red; real_count_group=30-49
+野手,special:オリックスキラー,3,0.771208,0.000000,-0.771208,low,kind=other; real_count_group=<30
+野手,special:カット打ち,38,9.768638,15.293333,5.524696,low,kind=blue; real_count_group=30-49
+野手,special:サヨナラ男,80,20.565553,16.943333,-3.622219,low,kind=blue; real_count_group=50+; protected
+野手,special:ダメ押し,3,0.771208,2.223333,1.452125,low,kind=blue; real_count_group=<30
+野手,special:チャンスメーカー,5,1.285347,2.236667,0.951320,low,kind=blue; real_count_group=<30
+野手,special:チームプレイ×,0,0.000000,4.643333,4.643333,low,kind=green; real_count_group=<30
+野手,special:チームプレイ○,31,7.969152,6.683333,-1.285818,low,kind=green; real_count_group=30-49
+野手,special:ハイボールヒッター,15,3.856041,3.713333,-0.142708,low,kind=blue; real_count_group=<30
+野手,special:バント○,53,13.624679,9.943333,-3.681345,low,kind=blue; real_count_group=50+; Phase 2対象
+野手,special:バント職人,7,1.799486,2.246667,0.447181,low,kind=blue; real_count_group=<30; protected
+野手,special:パワーヒッター,4,1.028278,2.366667,1.338389,low,kind=blue; real_count_group=<30
+野手,special:ファイターズキラー,1,0.257069,0.000000,-0.257069,low,kind=other; real_count_group=<30
+野手,special:フル出場,1,0.257069,11.363333,11.106264,low,kind=green; real_count_group=<30
+野手,special:フレーミング○,0,0.000000,0.570000,0.570000,low,kind=blue; real_count_group=<30
+野手,special:フレーミング◎,0,0.000000,0.250000,0.250000,low,kind=blue; real_count_group=<30
+野手,special:ブロッキング,0,0.000000,0.720000,0.720000,low,kind=blue; real_count_group=<30
+野手,special:プルヒッター,26,6.683805,4.063333,-2.620471,low,kind=blue; real_count_group=<30
+野手,special:プレッシャーラン,1,0.257069,2.893333,2.636264,low,kind=blue; real_count_group=<30
+野手,special:ヘッドスライディング,39,10.025707,19.916667,9.890960,low,kind=blue; real_count_group=30-49
+野手,special:ホークスキラー,2,0.514139,0.000000,-0.514139,low,kind=other; real_count_group=<30
+野手,special:ホーム死守,13,3.341902,0.733333,-2.608569,low,kind=blue; real_count_group=<30
+野手,special:ホーム突入,19,4.884319,4.096667,-0.787652,low,kind=blue; real_count_group=<30
+野手,special:マルチ弾,18,4.627249,4.046667,-0.580583,low,kind=blue; real_count_group=<30
+野手,special:ミート多用,34,8.740360,10.326667,1.586307,low,kind=green; real_count_group=30-49
+野手,special:ムード○,0,0.000000,3.183333,3.183333,low,kind=blue; real_count_group=<30
+野手,special:ヤクルトキラー,3,0.771208,0.000000,-0.771208,low,kind=other; real_count_group=<30
+野手,special:ラインドライブ,12,3.084833,3.713333,0.628500,low,kind=blue; real_count_group=<30
+野手,special:リベンジ,0,0.000000,2.356667,2.356667,low,kind=blue; real_count_group=<30
+野手,special:レーザービーム,17,4.370180,1.493333,-2.876847,low,kind=blue; real_count_group=<30
+野手,special:ロッテキラー,2,0.514139,0.000000,-0.514139,low,kind=other; real_count_group=<30
+野手,special:ローボールヒッター,10,2.570694,2.046667,-0.524027,low,kind=blue; real_count_group=<30
+野手,special:三振,135,34.704370,37.810000,3.105630,low,kind=red; real_count_group=50+; Phase 2対象
+野手,special:人気者,0,0.000000,5.530000,5.530000,low,kind=green; real_count_group=<30
+野手,special:代打○,4,1.028278,2.323333,1.295056,low,kind=blue; real_count_group=<30
+野手,special:併殺,67,17.223650,23.176667,5.953016,low,kind=red; real_count_group=50+; protected
+野手,special:内野安打○,74,19.023136,18.760000,-0.263136,low,kind=blue; real_count_group=50+
+野手,special:初球○,37,9.511568,6.560000,-2.951568,low,kind=blue; real_count_group=30-49
+野手,special:固め打ち,75,19.280206,28.566667,9.286461,medium,kind=blue; real_count_group=50+; protected
+野手,special:国際大会×,0,0.000000,0.023333,0.023333,low,kind=red; real_count_group=<30
+野手,special:国際大会○,5,1.285347,4.526667,3.241320,low,kind=blue; real_count_group=<30
+野手,special:夏男,5,1.285347,0.000000,-1.285347,low,kind=other; real_count_group=<30
+野手,special:存在感,5,1.285347,0.000000,-1.285347,low,kind=other; real_count_group=<30
+野手,special:守備職人,11,2.827763,1.916667,-0.911097,low,kind=blue; real_count_group=<30
+野手,special:対エース○,0,0.000000,1.753333,1.753333,low,kind=blue; real_count_group=<30
+野手,special:対ストレート○,23,5.912596,5.970000,0.057404,low,kind=blue; real_count_group=<30
+野手,special:対変化球○,10,2.570694,3.320000,0.749306,low,kind=blue; real_count_group=<30
+野手,special:巨人キラー,2,0.514139,0.000000,-0.514139,low,kind=other; real_count_group=<30
+野手,special:帳尻合わせ,0,0.000000,2.193333,2.193333,low,kind=blue; real_count_group=<30
+野手,special:広角打法,29,7.455013,3.653333,-3.801680,low,kind=blue; real_count_group=<30
+野手,special:強振多用,41,10.539846,10.640000,0.100154,low,kind=green; real_count_group=30-49
+野手,special:悪球打ち,18,4.627249,1.043333,-3.583916,low,kind=mixed; real_count_group=<30
+野手,special:意外性,24,6.169666,3.853333,-2.316332,low,kind=blue; real_count_group=<30
+野手,special:慎重打法,49,12.596401,10.326667,-2.269734,low,kind=green; real_count_group=30-49
+野手,special:慎重盗塁,40,10.282776,10.833333,0.550557,low,kind=green; real_count_group=30-49
+野手,special:春男,7,1.799486,0.000000,-1.799486,low,kind=other; real_count_group=<30
+野手,special:楽天キラー,2,0.514139,0.000000,-0.514139,low,kind=other; real_count_group=<30
+野手,special:死球集中,34,8.740360,1.126667,-7.613693,low,kind=mixed; real_count_group=30-49
+野手,special:決勝打,51,13.110540,22.816667,9.706127,medium,kind=blue; real_count_group=50+; protected
+野手,special:流し打ち,66,16.966581,13.120000,-3.846581,low,kind=blue; real_count_group=50+
+野手,special:満塁男,67,17.223650,14.683333,-2.540317,low,kind=blue; real_count_group=50+; Phase 2対象
+野手,special:秋男,2,0.514139,0.000000,-0.514139,low,kind=other; real_count_group=<30
+野手,special:積極守備,59,15.167095,10.626667,-4.540428,low,kind=green; real_count_group=50+; Phase 2対象
+野手,special:積極打法,89,22.879177,10.560000,-12.319177,medium,kind=green; real_count_group=50+
+野手,special:積極盗塁,49,12.596401,10.883333,-1.713068,low,kind=green; real_count_group=30-49
+野手,special:積極走塁,73,18.766067,12.000000,-6.766067,low,kind=green; real_count_group=50+
+野手,special:窮地○,0,0.000000,3.176667,3.176667,low,kind=blue; real_count_group=<30
+野手,special:粘り打ち,27,6.940874,4.820000,-2.120874,low,kind=blue; real_count_group=<30
+野手,special:西武キラー,1,0.257069,0.000000,-0.257069,low,kind=other; real_count_group=<30
+野手,special:逆境○,30,7.712082,6.080000,-1.632082,low,kind=blue; real_count_group=30-49
+野手,special:選球眼,71,18.251928,8.356667,-9.895261,medium,kind=green; real_count_group=50+; Phase 2対象
+野手,special:野手存在感,0,0.000000,1.390000,1.390000,low,kind=blue; real_count_group=<30
+野手,special:野手調子安定,0,0.000000,8.290000,8.290000,low,kind=green; real_count_group=<30
+野手,special:野手調子極端,0,0.000000,2.210000,2.210000,low,kind=green; real_count_group=<30
+野手,special:阪神キラー,1,0.257069,0.000000,-0.257069,low,kind=other; real_count_group=<30
+野手,special:高速チャージ,1,0.257069,1.043333,0.786264,low,kind=blue; real_count_group=<30
+野手,kind_blue_mean,389,2.437018,2.725467,0.288449,low,gold極低率/0は仕様維持
+野手,kind_blue_1plus_pct,389,82.776350,78.256667,-4.519683,low,gold極低率/0は仕様維持
+野手,kind_red_mean,389,0.629820,0.676900,0.047080,low,gold極低率/0は仕様維持
+野手,kind_red_1plus_pct,389,50.642674,52.343333,1.700660,low,gold極低率/0は仕様維持
+野手,kind_green_mean,389,1.380463,1.332733,-0.047729,low,gold極低率/0は仕様維持
+野手,kind_green_1plus_pct,389,70.951157,75.643333,4.692177,low,gold極低率/0は仕様維持
+野手,kind_gold_mean,389,0.000000,0.000000,0.000000,low,gold極低率/0は仕様維持
+野手,kind_gold_1plus_pct,389,0.000000,0.000000,0.000000,low,gold極低率/0は仕様維持
+野手,kind_mixed_mean,389,0.133676,0.021700,-0.111976,low,gold極低率/0は仕様維持
+野手,kind_mixed_1plus_pct,389,12.339332,2.166667,-10.172665,low,gold極低率/0は仕様維持
+野手,kind_other_mean,389,0.131105,0.000000,-0.131105,low,gold極低率/0は仕様維持
+野手,kind_other_1plus_pct,389,12.339332,0.000000,-12.339332,medium,gold極低率/0は仕様維持
+野手,class:スター級:nonrank_average,,,9.311321,,low,generated n=954
+野手,class:スター級:nonrank_5plus_pct,,,100.000000,,low,generated n=954
+野手,class:スター級:nonrank_8plus_pct,,,81.341719,,low,generated n=954
+野手,class:スター級:rank_ABC_mean,,,2.433962,,low,generated n=954
+野手,class:スター級:rank_A_rate_pct,,,19.077568,,low,generated n=954
+野手,class:一軍主力級:nonrank_average,,,7.044322,,low,generated n=6904
+野手,class:一軍主力級:nonrank_5plus_pct,,,85.385284,,low,generated n=6904
+野手,class:一軍主力級:nonrank_8plus_pct,,,42.294322,,low,generated n=6904
+野手,class:一軍主力級:rank_ABC_mean,,,2.084299,,low,generated n=6904
+野手,class:一軍主力級:rank_A_rate_pct,,,16.063152,,low,generated n=6904
+野手,class:一軍控え級:nonrank_average,,,4.646127,,low,generated n=6881
+野手,class:一軍控え級:nonrank_5plus_pct,,,51.969191,,low,generated n=6881
+野手,class:一軍控え級:nonrank_8plus_pct,,,9.489900,,low,generated n=6881
+野手,class:一軍控え級:rank_ABC_mean,,,1.887952,,low,generated n=6881
+野手,class:一軍控え級:rank_A_rate_pct,,,13.965993,,low,generated n=6881
+野手,class:二軍級:nonrank_average,,,2.194910,,low,generated n=7701
+野手,class:二軍級:nonrank_5plus_pct,,,6.544605,,low,generated n=7701
+野手,class:二軍級:nonrank_8plus_pct,,,0.103883,,low,generated n=7701
+野手,class:二軍級:rank_ABC_mean,,,1.158421,,low,generated n=7701
+野手,class:二軍級:rank_A_rate_pct,,,3.025581,,low,generated n=7701
+野手,class:若手素材型:nonrank_average,,,2.133572,,low,generated n=3631
+野手,class:若手素材型:nonrank_5plus_pct,,,6.664831,,low,generated n=3631
+野手,class:若手素材型:nonrank_8plus_pct,,,0.000000,,low,generated n=3631
+野手,class:若手素材型:rank_ABC_mean,,,1.416965,,low,generated n=3631
+野手,class:若手素材型:rank_A_rate_pct,,,3.057009,,low,generated n=3631
+野手,class:ベテラン型:nonrank_average,,,7.270807,,low,generated n=3929
+野手,class:ベテラン型:nonrank_5plus_pct,,,90.048358,,low,generated n=3929
+野手,class:ベテラン型:nonrank_8plus_pct,,,44.871469,,low,generated n=3929
+野手,class:ベテラン型:rank_ABC_mean,,,1.789768,,low,generated n=3929
+野手,class:ベテラン型:rank_A_rate_pct,,,12.878595,,low,generated n=3929
+野手,class_age:若手素材型:18～22:nonrank_average,,,1.619668,,low,generated n=844
+野手,class_age:若手素材型:18～22:nonrank_5plus_pct,,,3.199052,,low,generated n=844
+野手,class_age:若手素材型:18～22:nonrank_8plus_pct,,,0.000000,,low,generated n=844
+野手,class_age:若手素材型:18～22:rank_ABC_mean,,,1.259479,,low,generated n=844
+野手,class_age:若手素材型:18～22:rank_A_rate_pct,,,1.895735,,low,generated n=844
+野手,class_age:スター級:18～22:nonrank_average,,,8.235294,,low,generated n=136
+野手,class_age:スター級:18～22:nonrank_5plus_pct,,,100.000000,,low,generated n=136
+野手,class_age:スター級:18～22:nonrank_8plus_pct,,,62.500000,,low,generated n=136
+野手,class_age:スター級:18～22:rank_ABC_mean,,,2.014706,,low,generated n=136
+野手,class_age:スター級:18～22:rank_A_rate_pct,,,20.588235,,low,generated n=136
+野手,class_age:一軍主力級:27～30:nonrank_average,,,8.124108,,low,generated n=1821
+野手,class_age:一軍主力級:27～30:nonrank_5plus_pct,,,99.341021,,low,generated n=1821
+野手,class_age:一軍主力級:27～30:nonrank_8plus_pct,,,61.943987,,low,generated n=1821
+野手,class_age:一軍主力級:27～30:rank_ABC_mean,,,2.162548,,low,generated n=1821
+野手,class_age:一軍主力級:27～30:rank_A_rate_pct,,,18.231741,,low,generated n=1821
+野手,class_age:一軍主力級:31～34:nonrank_average,,,9.145815,,low,generated n=1111
+野手,class_age:一軍主力級:31～34:nonrank_5plus_pct,,,99.099910,,low,generated n=1111
+野手,class_age:一軍主力級:31～34:nonrank_8plus_pct,,,83.348335,,low,generated n=1111
+野手,class_age:一軍主力級:31～34:rank_ABC_mean,,,2.360036,,low,generated n=1111
+野手,class_age:一軍主力級:31～34:rank_A_rate_pct,,,19.171917,,low,generated n=1111
+野手,class_age:ベテラン型:31+:nonrank_average,,,7.631875,,low,generated n=1600
+野手,class_age:ベテラン型:31+:nonrank_5plus_pct,,,91.750000,,low,generated n=1600
+野手,class_age:ベテラン型:31+:nonrank_8plus_pct,,,51.687500,,low,generated n=1600
+野手,class_age:ベテラン型:31+:rank_ABC_mean,,,1.937500,,low,generated n=1600
+野手,class_age:ベテラン型:31+:rank_A_rate_pct,,,14.875000,,low,generated n=1600
+野手,class_age:二軍級:35+:nonrank_average,,,2.114943,,low,generated n=87
+野手,class_age:二軍級:35+:nonrank_5plus_pct,,,5.747126,,low,generated n=87
+野手,class_age:二軍級:35+:nonrank_8plus_pct,,,0.000000,,low,generated n=87
+野手,class_age:二軍級:35+:rank_ABC_mean,,,0.954023,,low,generated n=87
+野手,class_age:二軍級:35+:rank_A_rate_pct,,,4.597701,,low,generated n=87
+野手,position:捕手:nonrank_average,,,4.725952,,low,generated n=3649
+野手,position:捕手:rank_ABC_mean,,,1.477939,,low,generated n=3649
+野手,position:一塁手:nonrank_average,,,4.543540,,low,generated n=4226
+野手,position:一塁手:rank_ABC_mean,,,1.333649,,low,generated n=4226
+野手,position:二塁手:nonrank_average,,,4.828221,,low,generated n=4238
+野手,position:二塁手:rank_ABC_mean,,,1.980415,,low,generated n=4238
+野手,position:三塁手:nonrank_average,,,4.578884,,low,generated n=4177
+野手,position:三塁手:rank_ABC_mean,,,1.397175,,low,generated n=4177
+野手,position:遊撃手:nonrank_average,,,4.786067,,low,generated n=4866
+野手,position:遊撃手:rank_ABC_mean,,,1.838060,,low,generated n=4866
+野手,position:外野手:nonrank_average,,,4.905133,,low,generated n=8844
+野手,position:外野手:rank_ABC_mean,,,1.876866,,low,generated n=8844
+野手,ability_corr:ミート:normal_count,389,0.552509,0.540159,-0.012350,low,Spearman correlation
+野手,ability_corr:ミート:rank_ABC,389,0.352998,0.159030,-0.193968,low,Spearman correlation
+野手,ability_corr:ミート:special:サヨナラ男,389,0.261099,0.208198,-0.052901,low,主要個別特能とのSpearman correlation
+野手,ability_corr:ミート:special:バント○,389,0.087831,0.143466,0.055635,low,主要個別特能とのSpearman correlation
+野手,ability_corr:ミート:special:バント職人,389,0.041352,0.068425,0.027073,low,主要個別特能とのSpearman correlation
+野手,ability_corr:ミート:special:三振,389,-0.144802,0.152656,0.297458,low,主要個別特能とのSpearman correlation
+野手,ability_corr:ミート:special:併殺,389,0.222833,0.200491,-0.022342,low,主要個別特能とのSpearman correlation
+野手,ability_corr:ミート:special:固め打ち,389,0.447635,0.347877,-0.099757,low,主要個別特能とのSpearman correlation
+野手,ability_corr:ミート:special:決勝打,389,0.294042,0.264932,-0.029110,low,主要個別特能とのSpearman correlation
+野手,ability_corr:ミート:special:満塁男,389,0.221104,0.162635,-0.058470,low,主要個別特能とのSpearman correlation
+野手,ability_corr:ミート:special:積極守備,389,0.096546,0.026605,-0.069941,low,主要個別特能とのSpearman correlation
+野手,ability_corr:ミート:special:選球眼,389,0.255801,0.145105,-0.110696,low,主要個別特能とのSpearman correlation
+野手,ability_corr:パワー:normal_count,389,0.353943,0.284612,-0.069331,low,Spearman correlation
+野手,ability_corr:パワー:rank_ABC,389,0.115962,-0.098387,-0.214348,low,Spearman correlation
+野手,ability_corr:パワー:special:サヨナラ男,389,0.203892,0.250013,0.046120,low,主要個別特能とのSpearman correlation
+野手,ability_corr:パワー:special:バント○,389,-0.130209,0.071931,0.202140,low,主要個別特能とのSpearman correlation
+野手,ability_corr:パワー:special:バント職人,389,-0.085276,0.035515,0.120792,low,主要個別特能とのSpearman correlation
+野手,ability_corr:パワー:special:三振,389,0.305006,0.115222,-0.189784,low,主要個別特能とのSpearman correlation
+野手,ability_corr:パワー:special:併殺,389,0.281421,0.236415,-0.045006,low,主要個別特能とのSpearman correlation
+野手,ability_corr:パワー:special:固め打ち,389,0.259255,0.139455,-0.119799,low,主要個別特能とのSpearman correlation
+野手,ability_corr:パワー:special:決勝打,389,0.352828,0.125857,-0.226971,low,主要個別特能とのSpearman correlation
+野手,ability_corr:パワー:special:満塁男,389,0.254279,0.217976,-0.036304,low,主要個別特能とのSpearman correlation
+野手,ability_corr:パワー:special:積極守備,389,0.033678,-0.002144,-0.035821,low,主要個別特能とのSpearman correlation
+野手,ability_corr:パワー:special:選球眼,389,0.126252,0.043213,-0.083039,low,主要個別特能とのSpearman correlation
+野手,ability_corr:走力:normal_count,389,0.156534,-0.017705,-0.174239,low,Spearman correlation
+野手,ability_corr:走力:rank_ABC,389,0.183032,0.424051,0.241019,low,Spearman correlation
+野手,ability_corr:走力:special:サヨナラ男,389,-0.014022,-0.089965,-0.075943,low,主要個別特能とのSpearman correlation
+野手,ability_corr:走力:special:バント○,389,0.046859,-0.023236,-0.070095,low,主要個別特能とのSpearman correlation
+野手,ability_corr:走力:special:バント職人,389,0.010249,-0.005411,-0.015661,low,主要個別特能とのSpearman correlation
+野手,ability_corr:走力:special:三振,389,-0.028454,-0.017827,0.010627,low,主要個別特能とのSpearman correlation
+野手,ability_corr:走力:special:併殺,389,-0.249345,-0.373319,-0.123973,low,主要個別特能とのSpearman correlation
+野手,ability_corr:走力:special:固め打ち,389,0.126133,-0.024000,-0.150134,low,主要個別特能とのSpearman correlation
+野手,ability_corr:走力:special:決勝打,389,-0.085757,-0.033559,0.052198,low,主要個別特能とのSpearman correlation
+野手,ability_corr:走力:special:満塁男,389,-0.121807,-0.078517,0.043290,low,主要個別特能とのSpearman correlation
+野手,ability_corr:走力:special:積極守備,389,0.130326,0.004820,-0.125506,low,主要個別特能とのSpearman correlation
+野手,ability_corr:走力:special:選球眼,389,-0.051220,-0.010507,0.040712,low,主要個別特能とのSpearman correlation
+野手,ability_corr:肩力:normal_count,389,-0.108553,-0.013153,0.095400,low,Spearman correlation
+野手,ability_corr:肩力:rank_ABC,389,-0.099378,0.094708,0.194086,low,Spearman correlation
+野手,ability_corr:肩力:special:サヨナラ男,389,-0.011276,-0.020256,-0.008979,low,主要個別特能とのSpearman correlation
+野手,ability_corr:肩力:special:バント○,389,-0.046734,-0.026118,0.020616,low,主要個別特能とのSpearman correlation
+野手,ability_corr:肩力:special:バント職人,389,0.031271,-0.004826,-0.036097,low,主要個別特能とのSpearman correlation
+野手,ability_corr:肩力:special:三振,389,0.055233,0.002169,-0.053064,low,主要個別特能とのSpearman correlation
+野手,ability_corr:肩力:special:併殺,389,0.031966,-0.053539,-0.085505,low,主要個別特能とのSpearman correlation
+野手,ability_corr:肩力:special:固め打ち,389,-0.067461,-0.003206,0.064255,low,主要個別特能とのSpearman correlation
+野手,ability_corr:肩力:special:決勝打,389,0.012452,-0.001149,-0.013601,low,主要個別特能とのSpearman correlation
+野手,ability_corr:肩力:special:満塁男,389,-0.007400,0.000181,0.007581,low,主要個別特能とのSpearman correlation
+野手,ability_corr:肩力:special:積極守備,389,0.030233,0.000130,-0.030103,low,主要個別特能とのSpearman correlation
+野手,ability_corr:肩力:special:選球眼,389,-0.055853,-0.030432,0.025421,low,主要個別特能とのSpearman correlation
+野手,ability_corr:守備力:normal_count,389,0.386872,0.439728,0.052856,low,Spearman correlation
+野手,ability_corr:守備力:rank_ABC,389,0.459612,0.337452,-0.122160,low,Spearman correlation
+野手,ability_corr:守備力:special:サヨナラ男,389,0.086817,0.149077,0.062260,low,主要個別特能とのSpearman correlation
+野手,ability_corr:守備力:special:バント○,389,0.260224,0.144771,-0.115453,low,主要個別特能とのSpearman correlation
+野手,ability_corr:守備力:special:バント職人,389,0.132844,0.067615,-0.065229,low,主要個別特能とのSpearman correlation
+野手,ability_corr:守備力:special:三振,389,-0.063488,0.198742,0.262231,low,主要個別特能とのSpearman correlation
+野手,ability_corr:守備力:special:併殺,389,0.052562,0.080249,0.027687,low,主要個別特能とのSpearman correlation
+野手,ability_corr:守備力:special:固め打ち,389,0.156993,0.273586,0.116593,low,主要個別特能とのSpearman correlation
+野手,ability_corr:守備力:special:決勝打,389,0.063790,0.254310,0.190520,low,主要個別特能とのSpearman correlation
+野手,ability_corr:守備力:special:満塁男,389,0.018137,0.102595,0.084457,low,主要個別特能とのSpearman correlation
+野手,ability_corr:守備力:special:積極守備,389,0.272368,0.069458,-0.202910,low,主要個別特能とのSpearman correlation
+野手,ability_corr:守備力:special:選球眼,389,0.141599,0.078621,-0.062978,low,主要個別特能とのSpearman correlation
+野手,ability_corr:捕球:normal_count,389,0.420542,0.505058,0.084516,low,Spearman correlation
+野手,ability_corr:捕球:rank_ABC,389,0.456667,0.286932,-0.169735,low,Spearman correlation
+野手,ability_corr:捕球:special:サヨナラ男,389,0.120363,0.197079,0.076715,low,主要個別特能とのSpearman correlation
+野手,ability_corr:捕球:special:バント○,389,0.257010,0.156839,-0.100171,low,主要個別特能とのSpearman correlation
+野手,ability_corr:捕球:special:バント職人,389,0.145627,0.070176,-0.075451,low,主要個別特能とのSpearman correlation
+野手,ability_corr:捕球:special:三振,389,-0.022186,0.219749,0.241935,medium,主要個別特能とのSpearman correlation
+野手,ability_corr:捕球:special:併殺,389,0.122409,0.163262,0.040852,low,主要個別特能とのSpearman correlation
+野手,ability_corr:捕球:special:固め打ち,389,0.212429,0.312734,0.100304,low,主要個別特能とのSpearman correlation
+野手,ability_corr:捕球:special:決勝打,389,0.093908,0.281622,0.187714,low,主要個別特能とのSpearman correlation
+野手,ability_corr:捕球:special:満塁男,389,0.112610,0.140098,0.027488,low,主要個別特能とのSpearman correlation
+野手,ability_corr:捕球:special:積極守備,389,0.139488,0.068441,-0.071047,low,主要個別特能とのSpearman correlation
+野手,ability_corr:捕球:special:選球眼,389,0.201266,0.094910,-0.106357,low,主要個別特能とのSpearman correlation

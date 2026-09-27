@@ -1,0 +1,14 @@
+﻿metric,role,before,after,delta_or_mismatch,limit,passed
+phase1_normal_count_mean,投手,4.164800,4.182800,0.018000,abs(delta)<=0.02,True
+protected_non_special_fingerprint,投手,5000.000000,5000.000000,0.000000,0,True
+phase3_ranked_output,投手,5000.000000,5000.000000,0.000000,0,True
+phase2_8_special_outputs,投手,5000.000000,5000.000000,0.000000,0,True
+all_non_target_special_outputs,投手,5000.000000,5000.000000,0.000000,0,True
+special_constraints,投手,0.000000,0.000000,0.000000,0,True
+phase1_normal_count_mean,野手,4.960000,4.960000,0.000000,abs(delta)<=0.02,True
+protected_non_special_fingerprint,野手,500.000000,500.000000,0.000000,0,True
+phase3_ranked_output,野手,500.000000,500.000000,0.000000,0,True
+phase2_8_special_outputs,野手,500.000000,500.000000,0.000000,0,True
+all_non_target_special_outputs,野手,500.000000,500.000000,0.000000,0,True
+special_constraints,野手,0.000000,0.000000,0.000000,0,True
+same_seed_reproducibility,全体,30.000000,30.000000,0.000000,0,True

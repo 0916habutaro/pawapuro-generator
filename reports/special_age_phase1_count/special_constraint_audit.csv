@@ -1,0 +1,11 @@
+﻿dataset,check,violations,players
+before,duplicate_special,0,20000
+before,duplicate_group,0,20000
+before,conflict,0,20000
+before,position_or_aptitude,0,20000
+before,hard_bounds,18,20000
+after,duplicate_special,0,20000
+after,duplicate_group,0,20000
+after,conflict,0,20000
+after,position_or_aptitude,0,20000
+after,hard_bounds,0,20000

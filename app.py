@@ -1085,6 +1085,66 @@ FIELDER_REALISTIC_SPECIAL_SUPPRESSIONS = {
     "リベンジ": 0.70, "帳尻合わせ": 0.70,
 }
 
+INDIVIDUAL_SPECIAL_AGE_PROFILES = {
+    ("投手", "変化球中心"): "experience_up",
+    ("投手", "逃げ球"): "mild_experience_up",
+    ("投手", "キレ○"): "mild_experience_up",
+    ("野手", "選球眼"): "experience_up",
+    ("野手", "積極守備"): "experience_up",
+    ("野手", "バント○"): "experience_up",
+    ("野手", "満塁男"): "flatten_age_bias",
+    ("野手", "三振"): "flatten_age_bias",
+}
+
+INDIVIDUAL_SPECIAL_AGE_CURVES = {
+    "experience_up": [(18, 0.85), (22, 0.90), (26, 0.97), (30, 1.08), (34, 1.18), (38, 1.15), (42, 1.07)],
+    "mild_experience_up": [(18, 0.70), (22, 0.88), (26, 0.98), (30, 1.04), (34, 1.08), (38, 1.08), (42, 1.04)],
+    "flatten_age_bias": [(18, 1.025), (22, 1.015), (26, 1.00), (30, 0.98), (34, 0.94), (38, 0.95), (42, 0.98)],
+}
+
+
+def special_age_multiplier(name: str, role: str, age: int | None) -> float:
+    """Phase 2: 対象特能だけを滑らかに年齢再配分する決定論的倍率。"""
+    if not isinstance(age, int):
+        return 1.0
+    profile = INDIVIDUAL_SPECIAL_AGE_PROFILES.get((role, name))
+    points = INDIVIDUAL_SPECIAL_AGE_CURVES.get(profile or "")
+    if not points:
+        return 1.0
+    if age <= points[0][0]:
+        return float(points[0][1])
+    for (left_age, left_value), (right_age, right_value) in zip(points, points[1:]):
+        if age <= right_age:
+            ratio = (age - left_age) / (right_age - left_age)
+            return float(left_value + (right_value - left_value) * ratio)
+    return float(points[-1][1])
+
+
+PICKOFF_PRO_YEAR_CURVE = [
+    (1, 1.00),
+    (2, 1.00),
+    (4, 1.08),
+    (6, 1.16),
+    (8, 1.22),
+    (10, 1.26),
+    (12, 1.28),
+    (15, 1.30),
+    (20, 1.30),
+]
+
+
+def pro_year_special_multiplier(name: str, role: str, pro_years: int | None) -> float:
+    """Phase 4b: 投手「牽制○」だけをプロ年数でごく弱く再配分する決定論的倍率。"""
+    if name != "牽制○" or role != "投手" or not isinstance(pro_years, int):
+        return 1.0
+    if pro_years <= PICKOFF_PRO_YEAR_CURVE[0][0]:
+        return float(PICKOFF_PRO_YEAR_CURVE[0][1])
+    for (left_year, left_value), (right_year, right_value) in zip(PICKOFF_PRO_YEAR_CURVE, PICKOFF_PRO_YEAR_CURVE[1:]):
+        if pro_years <= right_year:
+            ratio = (pro_years - left_year) / (right_year - left_year)
+            return float(left_value + (right_value - left_value) * ratio)
+    return float(PICKOFF_PRO_YEAR_CURVE[-1][1])
+
 
 def special_deviation(value: int | float | None, average: int | float, step: float = 10.0) -> float:
     if not isinstance(value, int | float):
@@ -1347,7 +1407,7 @@ def special_context_multiplier(special_name: str, role: str, main_position: str 
             multiplier *= relief_context_multiplier(special_name, pitcher_aptitudes, player_class, archetype, position_style, acquisition_role)
     return max(0.0, min(1.8, float(multiplier)))
 
-def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, player_type: str, position: str | None = None, age: int | None = None, abilities: dict[str, Any] | None = None, breaking_balls: list[dict[str, Any]] | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, development_stage: str | None = None, acquisition_role: str | None = None, weakness_profile: str | None = None, sub_positions: Any = None, pitcher_aptitudes: dict[str, Any] | None = None) -> float:
+def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, player_type: str, position: str | None = None, age: int | None = None, abilities: dict[str, Any] | None = None, breaking_balls: list[dict[str, Any]] | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, development_stage: str | None = None, acquisition_role: str | None = None, weakness_profile: str | None = None, sub_positions: Any = None, pitcher_aptitudes: dict[str, Any] | None = None, apply_age_profile: bool = True, pro_years: int | None = None, apply_pro_year_profile: bool = True) -> float:
     abilities = abilities or {}
     name = str(row.get("name", ""))
     kind = str(row.get("kind", ""))
@@ -1756,6 +1816,10 @@ def adjust_special_chance(row: dict[str, Any], base_chance: int, role: str, play
         player_class=player_class,
         archetype=archetype,
     )
+    if category == "架空球団用" and apply_age_profile:
+        chance *= special_age_multiplier(name, role, age)
+    if category == "架空球団用" and apply_pro_year_profile:
+        chance *= pro_year_special_multiplier(name, role, pro_years)
     if role == "投手" and name in {"リリース○", "奪三振", "球持ち○", "内角攻め", "キレ○", "緩急○", "低め○", "クロスファイヤー", "対強打者○"}:
         max_chance = 18.0
     else:
@@ -1784,7 +1848,73 @@ def special_count_bounds(category: str | None, player_class: str | None) -> tupl
     return (0, 7)
 
 
-def weighted_special_cap(rng: random.Random, category: str | None, player_class: str | None, player_score: float) -> int:
+def special_age_tail_adjustment(
+    role: str | None,
+    age: int | None,
+    player_class: str | None,
+    player_score: float,
+) -> tuple[int, int]:
+    """Phase 1: 個別chanceを変えず、非ランク個数のsoft tailだけを年齢で調整します。"""
+    if role not in {"投手", "野手"} or not isinstance(age, int):
+        return 0, 0
+    cls = player_class or ""
+    cap_delta = 0
+    draw_delta = 0
+    if role == "投手":
+        young_main_exception_score = 95
+        young_control_exception_score = 90
+        young_material_exception_score = 84
+        prime_score = 82
+        control_prime_score = 85
+    else:
+        young_main_exception_score = 66
+        young_control_exception_score = 60
+        young_material_exception_score = 55
+        prime_score = 52
+        control_prime_score = 52
+    if age <= 22:
+        if cls == "一軍主力級" and player_score < young_main_exception_score:
+            cap_delta = -2 if role == "野手" else -1
+            draw_delta = -2 if role == "野手" else -1
+        elif cls == "一軍控え級" and player_score < young_control_exception_score:
+            cap_delta = -2 if role == "野手" else -1
+            draw_delta = -2 if role == "野手" else -1
+        elif cls == "若手素材型" and player_score < young_material_exception_score:
+            cap_delta = -1
+            draw_delta = -1
+        elif cls == "ベテラン型" and player_score < young_main_exception_score:
+            cap_delta = -1
+            draw_delta = -1
+    elif 27 <= age <= 30:
+        if cls in {"スター級", "一軍主力級", "ベテラン型"} and player_score >= prime_score:
+            cap_delta = 2 if role == "野手" else 1
+            draw_delta = 1
+        elif cls == "一軍控え級" and player_score >= control_prime_score:
+            cap_delta = 1
+            draw_delta = 1
+    elif 31 <= age <= 34:
+        if cls in {"スター級", "一軍主力級", "ベテラン型"} and player_score >= prime_score:
+            cap_delta = 3 if role == "野手" else 1
+            draw_delta = 2 if role == "野手" else 1
+        elif cls == "一軍控え級" and player_score >= control_prime_score:
+            cap_delta = 2 if role == "野手" else 1
+            draw_delta = 2 if role == "野手" else 1
+    elif age >= 35:
+        if role == "野手" and cls in {"スター級", "一軍主力級", "ベテラン型"} and player_score >= prime_score:
+            cap_delta = 1
+        elif role == "野手" and cls == "一軍控え級" and player_score >= control_prime_score:
+            cap_delta = 1
+    return cap_delta, draw_delta
+
+
+def weighted_special_cap(
+    rng: random.Random,
+    category: str | None,
+    player_class: str | None,
+    player_score: float,
+    role: str | None = None,
+    age: int | None = None,
+) -> int:
     low, high = special_count_bounds(category, player_class)
     if high <= low:
         return high
@@ -1804,10 +1934,20 @@ def weighted_special_cap(rng: random.Random, category: str | None, player_class:
         base += 1
     elif player_score < 45 and rng.random() < 0.35:
         base -= 1
+    if category == "架空球団用":
+        cap_delta, _draw_delta = special_age_tail_adjustment(role, age, player_class, player_score)
+        base += cap_delta
     return max(low, min(high, base))
 
 
-def extra_special_draws(rng: random.Random, category: str | None, player_class: str | None, player_score: float) -> int:
+def extra_special_draws(
+    rng: random.Random,
+    category: str | None,
+    player_class: str | None,
+    player_score: float,
+    role: str | None = None,
+    age: int | None = None,
+) -> int:
     if category != "架空球団用":
         return 0
     draws = 0
@@ -1827,7 +1967,8 @@ def extra_special_draws(rng: random.Random, category: str | None, player_class: 
         draws = int(player_score >= 58 and rng.random() < 0.32)
     elif player_class == "二軍級":
         draws = int(player_score >= 60 and rng.random() < 0.18)
-    return draws
+    _cap_delta, draw_delta = special_age_tail_adjustment(role, age, player_class, player_score)
+    return max(0, draws + draw_delta)
 
 
 SPECIAL_COUNT_BONUS_EXCLUSIONS = {"流し打ち"}
@@ -1899,7 +2040,20 @@ def rebuild_special_generation_state(selected: list[str], row_by_name: dict[str,
     return selected_names, used_groups
 
 
-def generate_specials(rng: random.Random, master: MasterData, role: str, player_type: str, position: str | None = None, age: int | None = None, abilities: dict[str, Any] | None = None, breaking_balls: list[dict[str, Any]] | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, development_stage: str | None = None, acquisition_role: str | None = None, weakness_profile: str | None = None, sub_positions: Any = None, pitcher_aptitudes: dict[str, Any] | None = None) -> list[str]:
+def special_player_score(role: str, abilities: dict[str, Any] | None) -> float:
+    if role == "投手":
+        values = [
+            pitcher_speed_value(abilities or {}),
+            ability_numeric_value(abilities or {}, "コントロール"),
+            ability_numeric_value(abilities or {}, "スタミナ"),
+        ]
+    else:
+        values = [ability_numeric_value(abilities or {}, key) for key in ("ミート", "パワー", "走力", "肩力", "守備力", "捕球")]
+    numeric_values = [value for value in values if isinstance(value, int | float)]
+    return sum(numeric_values) / max(1, len(numeric_values))
+
+
+def generate_specials(rng: random.Random, master: MasterData, role: str, player_type: str, position: str | None = None, age: int | None = None, abilities: dict[str, Any] | None = None, breaking_balls: list[dict[str, Any]] | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, development_stage: str | None = None, acquisition_role: str | None = None, weakness_profile: str | None = None, sub_positions: Any = None, pitcher_aptitudes: dict[str, Any] | None = None, apply_age_tail: bool = True, apply_age_profile: bool = True, pro_years: int | None = None, apply_pro_year_profile: bool = True) -> list[str]:
     selected, selected_names, used_groups = [], set(), set()
     conflicts = {
         "積極打法": "慎重打法", "慎重打法": "積極打法",
@@ -1913,6 +2067,9 @@ def generate_specials(rng: random.Random, master: MasterData, role: str, player_
     rng.shuffle(candidates)
     chance_by_name: dict[str, float] = {}
     row_by_name: dict[str, dict[str, Any]] = {}
+    pickoff_draw: float | None = None
+    pickoff_base_chance: float | None = None
+    pickoff_adjusted_chance: float | None = None
     for row in candidates:
         group = str(row.get("group", "") or "").strip()
         if group and group in used_groups:
@@ -1920,32 +2077,41 @@ def generate_specials(rng: random.Random, master: MasterData, role: str, player_
         name = row["name"]
         if not is_special_allowed_for_player(name, role, position, sub_positions, pitcher_aptitudes):
             continue
-        chance = adjust_special_chance(row, int(row.get("weight", 0) or 0), role, player_type, position, age, abilities, breaking_balls, category, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, sub_positions, pitcher_aptitudes)
+        chance = adjust_special_chance(row, int(row.get("weight", 0) or 0), role, player_type, position, age, abilities, breaking_balls, category, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, sub_positions, pitcher_aptitudes, apply_age_profile, pro_years, False)
+        if name == "牽制○" and role == "投手" and category == "架空球団用" and apply_pro_year_profile:
+            pickoff_base_chance = chance
+            pickoff_adjusted_chance = adjust_special_chance(row, int(row.get("weight", 0) or 0), role, player_type, position, age, abilities, breaking_balls, category, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, sub_positions, pitcher_aptitudes, apply_age_profile, pro_years, True)
         chance_by_name[name] = chance
         row_by_name[name] = row
         if name in selected_names:
             continue
-        if rng.random() < chance / 100 and conflicts.get(name) not in selected_names:
+        draw = rng.random()
+        if name == "牽制○" and role == "投手" and category == "架空球団用" and apply_pro_year_profile:
+            pickoff_draw = draw
+        if draw < chance / 100 and conflicts.get(name) not in selected_names:
             selected.append(name)
             selected_names.add(name)
             if group:
                 used_groups.add(group)
     selected = audit_special_selection(rng, selected, role, position, abilities, sub_positions, pitcher_aptitudes)
     selected_names, used_groups = rebuild_special_generation_state(selected, row_by_name)
-    if role == "投手":
-        score_values = [pitcher_speed_value(abilities or {}), ability_numeric_value(abilities or {}, "コントロール"), ability_numeric_value(abilities or {}, "スタミナ")]
-    else:
-        score_values = [ability_numeric_value(abilities or {}, key) for key in ("ミート", "パワー", "走力", "肩力", "守備力", "捕球")]
-    numeric_scores = [value for value in score_values if isinstance(value, int | float)]
-    player_score = sum(numeric_scores) / max(1, len(numeric_scores))
+    player_score = special_player_score(role, abilities)
     if category == "架空球団用":
-        min_count, _max_count = special_count_bounds(category, player_class)
-        cap = weighted_special_cap(rng, category, player_class, player_score)
+        min_count, max_count = special_count_bounds(category, player_class)
+        cap = weighted_special_cap(
+            rng,
+            category,
+            player_class,
+            player_score,
+            role=role if apply_age_tail else None,
+            age=age if apply_age_tail else None,
+        )
     else:
         min_count = 0
         cap = 6 if category == "助っ人外国人用" else 5
         if category == "助っ人外国人用" and player_score >= 68:
             cap += 1
+        max_count = cap
     countable = [name for name in selected if is_countable_special(name)]
     if len(countable) < min_count:
         fill_candidates = sorted(
@@ -1967,7 +2133,14 @@ def generate_specials(rng: random.Random, master: MasterData, role: str, player_
             countable.append(name)
             if len(countable) >= min_count:
                 break
-    bonus_draws = extra_special_draws(rng, category, player_class, player_score)
+    bonus_draws = extra_special_draws(
+        rng,
+        category,
+        player_class,
+        player_score,
+        role=role if apply_age_tail else None,
+        age=age if apply_age_tail else None,
+    )
     if bonus_draws > 0 and len(countable) < cap:
         extra_candidates = sorted(
             [
@@ -2006,6 +2179,40 @@ def generate_specials(rng: random.Random, master: MasterData, role: str, player_
         keep = set(sorted_countable[:cap])
         selected = usage + [name for name in selected if name in keep]
     selected = audit_special_selection(rng, selected, role, position, abilities, sub_positions, pitcher_aptitudes)
+    if apply_age_tail and category == "架空球団用":
+        countable = [name for name in selected if is_countable_special(name)]
+        if len(countable) < min_count:
+            selected_names, used_groups = rebuild_special_generation_state(selected, row_by_name)
+            refill_candidates = sorted(
+                [
+                    name
+                    for name, chance in chance_by_name.items()
+                    if is_countable_special(name) and name not in selected_names and chance > 0
+                ],
+                key=lambda item: chance_by_name[item],
+                reverse=True,
+            )
+            for name in refill_candidates:
+                row = row_by_name[name]
+                group = str(row.get("group", "") or "").strip()
+                if group and group in used_groups:
+                    continue
+                if conflicts.get(name) in selected_names:
+                    continue
+                trial = audit_special_selection(rng, selected + [name], role, position, abilities, sub_positions, pitcher_aptitudes)
+                if len(trial) == len(selected):
+                    continue
+                selected = trial
+                selected_names, used_groups = rebuild_special_generation_state(selected, row_by_name)
+                countable = [item for item in selected if is_countable_special(item)]
+                if len(countable) >= min_count:
+                    break
+    if pickoff_draw is not None and pickoff_base_chance is not None and pickoff_adjusted_chance is not None:
+        countable = [name for name in selected if is_countable_special(name)]
+        has_pickoff = "牽制○" in selected
+        crossed_by_profile = pickoff_base_chance / 100 <= pickoff_draw < pickoff_adjusted_chance / 100
+        if not has_pickoff and crossed_by_profile and len(countable) < max_count:
+            selected.append("牽制○")
     return selected
 
 
@@ -2053,7 +2260,95 @@ def shifted_rank(rank_value: str, shift: int) -> str:
     return RANKED_SPECIAL_RANKS[max(0, min(len(RANKED_SPECIAL_RANKS) - 1, index - shift))]
 
 
-def ranked_weight_items_for_group(group_name: str, role: str, position: str, player_type: str, abilities: dict[str, Any], age: int | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, sub_positions: Any = None) -> list[tuple[str, int]]:
+RANKED_SPECIAL_AGE_CURVE = [
+    (18, -1.00), (22, -0.90), (26, -0.18), (30, 0.55), (34, 1.15), (38, 1.00), (42, 0.70),
+]
+
+
+def ranked_related_ability_score(group_name: str, role: str, abilities: dict[str, Any]) -> float:
+    """Rank groupに関連する既存能力だけを0～100へ正規化する。"""
+    def value(key: str) -> float | None:
+        item = abilities.get(key)
+        if isinstance(item, dict):
+            item = item.get("value")
+        return float(item) if isinstance(item, int | float) else None
+
+    def average(keys: list[str]) -> float:
+        values = [value(key) for key in keys]
+        present = [item for item in values if item is not None]
+        return sum(present) / len(present) if present else 50.0
+
+    if role == "投手":
+        speed = pitcher_speed_value(abilities)
+        speed_score = max(0.0, min(100.0, ((float(speed) - 125.0) / 35.0) * 100.0)) if isinstance(speed, int | float) else 50.0
+        control = value("コントロール")
+        stamina = value("スタミナ")
+        if group_name == "ノビ":
+            score = speed_score
+        elif group_name == "クイック":
+            score = control if control is not None else 50.0
+        else:
+            candidates = [control, stamina, speed_score]
+            score = sum(item for item in candidates if item is not None) / max(1, sum(item is not None for item in candidates))
+    elif group_name in {"盗塁", "走塁"}:
+        score = average(["走力"])
+    elif group_name == "送球":
+        score = average(["肩力", "守備力"])
+    elif group_name == "キャッチャー":
+        score = average(["肩力", "守備力", "捕球"])
+    elif group_name in {"チャンス", "対左投手"}:
+        score = average(["ミート", "パワー"])
+    else:
+        score = average(["ミート", "パワー", "走力", "肩力", "守備力", "捕球"])
+    return max(0.0, min(100.0, float(score)))
+
+
+def ranked_age_weight_adjustment(group_name: str, role: str, age: int | None, player_class: str | None, abilities: dict[str, Any]) -> dict[str, float]:
+    """Phase 3: class・関連能力を守りながらgood rankを年齢間で再配分する決定論的倍率。"""
+    neutral = {rank: 1.0 for rank in RANKED_SPECIAL_RANKS}
+    if not isinstance(age, int):
+        return neutral
+    if age <= RANKED_SPECIAL_AGE_CURVE[0][0]:
+        age_signal = RANKED_SPECIAL_AGE_CURVE[0][1]
+    else:
+        age_signal = RANKED_SPECIAL_AGE_CURVE[-1][1]
+        for (left_age, left_value), (right_age, right_value) in zip(RANKED_SPECIAL_AGE_CURVE, RANKED_SPECIAL_AGE_CURVE[1:]):
+            if age <= right_age:
+                ratio = (age - left_age) / (right_age - left_age)
+                age_signal = left_value + (right_value - left_value) * ratio
+                break
+
+    related = ranked_related_ability_score(group_name, role, abilities)
+    ability_gate = max(0.0, min(1.0, (related - 48.0) / 27.0))
+    if age_signal < 0:
+        class_factor = {
+            "スター級": 0.22, "一軍主力級": 0.55, "ベテラン型": 0.40,
+            "一軍控え級": 0.78, "二軍級": 1.00, "若手素材型": 1.08,
+        }.get(player_class or "", 0.75)
+        role_factor = 0.78 if role == "投手" else 1.15
+        strength = min(1.0, -age_signal) * class_factor * role_factor * (1.0 - 0.55 * ability_gate)
+        neutral.update({
+            "A": max(0.18, 1.0 - 0.90 * strength),
+            "B": max(0.35, 1.0 - 0.75 * strength),
+            "C": max(0.55, 1.0 - 0.50 * strength),
+        })
+        return neutral
+
+    class_factor = {
+        "スター級": 1.00, "一軍主力級": 1.00, "ベテラン型": 0.92,
+        "一軍控え級": 0.28, "二軍級": 0.0, "若手素材型": 0.0,
+    }.get(player_class or "", 0.20)
+    role_factor = 1.05 if role == "投手" else 1.30
+    strength = age_signal * class_factor * ability_gate * role_factor
+    neutral.update({
+        "A": 1.0,
+        "B": 1.0 + 0.48 * strength,
+        "C": 1.0 + 1.25 * strength,
+    })
+    return neutral
+
+
+def ranked_weight_items_for_group(group_name: str, role: str, position: str, player_type: str, abilities: dict[str, Any], age: int | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, sub_positions: Any = None, apply_age_profile: bool = True) -> list[tuple[str, float]]:
     weights = RANKED_SPECIAL_BASE_WEIGHTS.copy()
     if role == "投手" and group_name == "クイック":
         control = ability_numeric_value(abilities, "コントロール")
@@ -2068,7 +2363,8 @@ def ranked_weight_items_for_group(group_name: str, role: str, position: str, pla
             catching = ability_numeric_value(abilities, "捕球")
             if player_type == "守備職人":
                 weights.update({"B": weights["B"] + 1, "C": weights["C"] + 3, "D": weights["D"] - 3, "E": weights["E"] - 1})
-            if isinstance(age, int) and age >= 30:
+            if isinstance(age, int) and age >= 30 and not apply_age_profile:
+                # Phase 2 baselineの捕手年齢補正。Phase 3有効時は共通profileへ統合する。
                 weights.update({"B": weights["B"] + 1, "C": weights["C"] + 2, "D": weights["D"] - 2, "E": weights["E"] - 1})
             if isinstance(fielding, int | float) and fielding >= 70:
                 weights.update({"B": weights["B"] + 1, "C": weights["C"] + 2, "D": weights["D"] - 2, "E": weights["E"] - 1})
@@ -2111,10 +2407,17 @@ def ranked_weight_items_for_group(group_name: str, role: str, position: str, pla
     if category == "架空球団用" and group_name == "回復":
         transfer = min(24, max(0, weights["D"] - 1))
         weights.update({"D": weights["D"] - transfer, "E": weights["E"] + transfer})
-    return [(rank_name, max(1, weight)) for rank_name, weight in weights.items()]
+    if category == "架空球団用" and apply_age_profile:
+        multipliers = ranked_age_weight_adjustment(group_name, role, age, player_class, abilities)
+        prior_good = sum(float(weights[rank]) for rank in ("A", "B", "C"))
+        for rank in ("A", "B", "C"):
+            weights[rank] = max(0.1, float(weights[rank]) * multipliers[rank])
+        good_delta = sum(float(weights[rank]) for rank in ("A", "B", "C")) - prior_good
+        weights["D"] = max(0.25, float(weights["D"]) - good_delta)
+    return [(rank_name, max(0.1, float(weight))) for rank_name, weight in weights.items()]
 
 
-def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, position: str, player_type: str, abilities: dict[str, Any], age: int | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, weakness_profile: str | None = None, sub_positions: Any = None, pitcher_aptitudes: dict[str, Any] | None = None) -> dict[str, str]:
+def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, position: str, player_type: str, abilities: dict[str, Any], age: int | None = None, category: str | None = None, player_class: str | None = None, archetype: str | None = None, position_style: str | None = None, weakness_profile: str | None = None, sub_positions: Any = None, pitcher_aptitudes: dict[str, Any] | None = None, apply_age_profile: bool = True) -> dict[str, str]:
     ranked_rows = [row for row in master.abilities if special_target_role(row) in (role, "共通") and is_ranked_special(row)]
     rows_by_group: dict[str, list[dict[str, Any]]] = {}
     for row in ranked_rows:
@@ -2127,7 +2430,7 @@ def generate_ranked_specials(rng: random.Random, master: MasterData, role: str, 
         group_name = ranked_special_base_name(names_by_rank["D"])
         if group_name == "キャッチャー" and not has_position_aptitude(position, sub_positions, {"捕手"}):
             continue
-        rank_value = weighted_choice(rng, ranked_weight_items_for_group(group_name, role, position, player_type, abilities, age, category, player_class, archetype, position_style, sub_positions))
+        rank_value = weighted_choice(rng, ranked_weight_items_for_group(group_name, role, position, player_type, abilities, age, category, player_class, archetype, position_style, sub_positions, apply_age_profile))
         if category == "架空球団用" and player_class in {"二軍級", "若手素材型"} and rank_value in {"A", "B", "G"} and rng.random() < 0.78:
             rank_value = weighted_choice(rng, [("C", 8), ("D", 58), ("E", 28), ("F", 6)])
         if group_name == "チャンス" and player_type == "長距離砲" and rng.random() < 0.35:
@@ -4806,7 +5109,7 @@ def birthday_display(player: dict[str, Any]) -> str:
     m, d = int(player.get("birth_month") or 0), int(player.get("birth_day") or 0)
     return f"{m}月{d}日" if m and d else ""
 
-def generate_player(role: str, category: str, master: MasterData, seed: int | None = None, used_names: set[str] | None = None) -> dict[str, Any]:
+def generate_player(role: str, category: str, master: MasterData, seed: int | None = None, used_names: set[str] | None = None, apply_age_special_tail: bool = True, apply_individual_age_profile: bool = True, apply_ranked_age_profile: bool = True, apply_pro_year_profile: bool = True) -> dict[str, Any]:
     seed = seed if seed is not None else random.SystemRandom().randrange(SEED_MAX)
     rng = random.Random(seed)
     draft_source_type = choose_draft_source_type(rng) if category == "ドラフト候補用" else ""
@@ -4890,7 +5193,41 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     if role == "投手":
         abilities["肩力"] = ability(clamp((pitcher_speed_value(abilities) or 145) - 81 + weighted_choice(rng, [(-1, 15), (0, 35), (1, 35), (2, 15)]), 49, 82))
     sub_positions = generate_sub_positions(rng, role, position, player_type, category, age, batting_throwing, abilities, player_class, archetype, position_style, acquisition_role)
-    special_abilities = generate_specials(rng, master, role, player_type, position, age, abilities, breaking_balls, category, player_class, archetype, position_style, development_stage, acquisition_role, weakness_profile, sub_positions, pitcher_aptitudes)
+    special_args = (
+        master, role, player_type, position, age, abilities, breaking_balls, category,
+        player_class, archetype, position_style, development_stage, acquisition_role,
+        weakness_profile, sub_positions, pitcher_aptitudes,
+    )
+    if category == "架空球団用" and (apply_age_special_tail or apply_individual_age_profile or apply_pro_year_profile):
+        # Phase 1の個数調整は局所RNGで行い、後続の誕生日・フォーム・装備・氏名・
+        # ランク特殊能力へ乱数消費量を波及させません。
+        special_rng = random.Random()
+        special_rng.setstate(rng.getstate())
+        special_abilities = generate_specials(
+            special_rng,
+            *special_args,
+            apply_age_tail=apply_age_special_tail,
+            apply_age_profile=apply_individual_age_profile,
+            pro_years=career_history.get("pro_years"),
+            apply_pro_year_profile=apply_pro_year_profile,
+        )
+        generate_specials(
+            rng,
+            *special_args,
+            apply_age_tail=False,
+            apply_age_profile=False,
+            pro_years=career_history.get("pro_years"),
+            apply_pro_year_profile=False,
+        )
+    else:
+        special_abilities = generate_specials(
+            rng,
+            *special_args,
+            apply_age_tail=apply_age_special_tail,
+            apply_age_profile=apply_individual_age_profile,
+            pro_years=career_history.get("pro_years"),
+            apply_pro_year_profile=apply_pro_year_profile,
+        )
     birth_month, birth_day = generate_birthday(rng)
     if role == "投手":
         pitching_form_type, pitching_form_number, pitching_form_is_generic = generate_pitching_form(rng, category, archetype, position)
@@ -4928,7 +5265,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         "batting_form_type": batting_form_type, "batting_form_number": batting_form_number, "batting_form_is_generic": batting_form_is_generic,
         "draft_source_type": draft_source_type,
         **equipment,
-        "abilities": {**abilities, "ranked_specials": generate_ranked_specials(rng, master, role, position, player_type, abilities, age, category, player_class, archetype, position_style, weakness_profile, sub_positions, pitcher_aptitudes)}, "special_abilities": special_abilities,
+        "abilities": {**abilities, "ranked_specials": generate_ranked_specials(rng, master, role, position, player_type, abilities, age, category, player_class, archetype, position_style, weakness_profile, sub_positions, pitcher_aptitudes, apply_ranked_age_profile)}, "special_abilities": special_abilities,
         "breaking_balls": breaking_balls,
         "sub_positions": sub_positions,
         **pitcher_aptitudes,
