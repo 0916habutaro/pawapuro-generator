@@ -1,0 +1,16 @@
+﻿field,compared,mismatches,match_rate_pct
+age,20000,0,100.000000
+pro_years,20000,0,100.000000
+player_class,20000,0,100.000000
+archetype,20000,0,100.000000
+position_style,20000,0,100.000000
+position,20000,0,100.000000
+abilities_json,20000,0,100.000000
+breaking_balls_json,20000,0,100.000000
+aptitudes_json,20000,0,100.000000
+protected_player_json,20000,0,100.000000
+ranked_specials,20000,0,100.000000
+same_seed_reproducibility,1,0,100.000000
+same_seed_reproducibility,1,0,100.000000
+same_seed_reproducibility,1,0,100.000000
+same_seed_reproducibility,1,0,100.000000

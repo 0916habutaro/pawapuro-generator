@@ -1,0 +1,25 @@
+﻿area,metric,value,limit,passed,note
+Phase 1 count,age_profile_max_mean_change,0.17847056401384087,<=0.25,True,
+Phase 1 count,age_profile_max_8plus_change_pt,3.19299808304498,<=5pt,True,
+Phase 1 count,投手_prime_5plus_minus_young,29.244355910379543,>=0,True,
+Phase 1 count,投手_young_star_8plus_exception,45.52238805970149,>=young overall,True,
+Phase 1 count,投手_old_low_class_unconditional_boost,0.17618136095785042,<=0.5,True,
+Phase 1 count,野手_prime_5plus_minus_young,40.87961749566801,>=0,True,
+Phase 1 count,野手_young_star_8plus_exception,62.5,>=young overall,True,
+Phase 1 count,野手_old_low_class_unconditional_boost,0.09396350775661144,<=0.5,True,
+Phase 2 individual,eight_special_profile_guard,0,0 failures: MAEまたはgradient改善、overall差<=2pt,True,"投手変化球中心:MAE 6.79, gradient_error 17.04, overall_delta 0.05; 投手逃げ球:MAE 4.70, gradient_error 2.07, overall_delta 0.55; 投手キレ○:MAE 7.64, gradient_error 0.61, overall_delta 1.78; 野手選球眼:MAE 9.88, gradient_error 22.14, overall_delta 0.06; 野手積極守備:MAE 6.05, gradient_error 14.19, overall_delta 0.19; 野手バント○:MAE 3.74, gradient_error 12.53, overall_delta 0.32; 野手満塁男:MAE 2.58, gradient_error 3.34, overall_delta 0.50; 野手三振:MAE 3.92, gradient_error 8.47, overall_delta 0.57"
+Phase 3 rank,abc_age_profile_max_change,0.10520567901503597,<=0.15,True,
+Phase 3 rank,abc_improvement_failures,0,0,True,
+Phase 4b pickoff,overall_rate_change_from_phase4b_pt,0.01666666666666572,abs<=1.0pt,True,
+Phase 4b pickoff,three_band_direction,3,3 bands improve from Phase 4 baseline,True,23～26:+2.42; 27～30:+2.58; 31～34:+0.92
+pro_years scope,cap_extra_rank_unconnected,1,1,True,
+player_class,expected_order_failures,0,0,True,"投手: star 8.06/2.55, main 6.07/2.04, minor 2.08/0.87; 野手: star 9.31/2.43, main 7.04/2.08, minor 2.19/1.16"
+role / position,extreme_position_bias,0,0 (range<=1.0),True,"投手: nonrank range 0.10, ABC range 0.06; 野手: nonrank range 0.36, ABC range 0.65"
+constraints,all_constraint_violations,0,0,True,"violation_duplicate_special=0, violation_duplicate_group=0, violation_conflict=0, violation_position_or_aptitude=0, violation_count_bounds=0, violation_ranked_group=0"
+seed reproducibility,full_player_mismatch,0,0,True,compared=120
+fingerprint,protected_non_special_mismatch,0,0,True,
+ability balance,same_seed_ability_mismatch,0,0,True,
+breaking ball,same_seed_breaking_ball_mismatch,0,0,True,
+Phase 1-4b regression,non_target_special_mismatch,0,0,True,
+seed stability,max_age_band_mean_range,0.18692229167540653,<=0.20,True,
+fingerprint,phase4b_app_sha256,3b9f1355a45739a958e7d9962732ba5dd435398e8de1fe8b6087a16412c0dab0,3b9f1355a45739a958e7d9962732ba5dd435398e8de1fe8b6087a16412c0dab0,True,Phase 5中にapp.py変更なし

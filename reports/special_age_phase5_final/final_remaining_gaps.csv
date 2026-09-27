@@ -1,0 +1,8 @@
+﻿area,role,metric,severity,evidence,recommendation
+individual special,野手,special:積極打法,medium,"real=22.88, generated=10.56, diff=-12.32, real_n=89",Phase 5では調整せず、将来の独立テーマとして扱う
+individual special,野手,special:選球眼,medium,"real=18.25, generated=8.36, diff=-9.90, real_n=71",Phase 5では調整せず、将来の独立テーマとして扱う
+individual special,野手,special:決勝打,medium,"real=13.11, generated=22.82, diff=+9.71, real_n=51",Phase 5では調整せず、将来の独立テーマとして扱う
+individual special,野手,special:固め打ち,medium,"real=19.28, generated=28.57, diff=+9.29, real_n=75",Phase 5では調整せず、将来の独立テーマとして扱う
+individual special,投手,special:キレ○,medium,"real=14.68, generated=22.36, diff=+7.68, real_n=59",Phase 5では調整せず、将来の独立テーマとして扱う
+individual special,投手,special:四球,medium,"real=28.11, generated=20.72, diff=-7.39, real_n=113",Phase 5では調整せず、将来の独立テーマとして扱う
+individual special,投手,special:抜け球,medium,"real=24.38, generated=17.28, diff=-7.09, real_n=98",Phase 5では調整せず、将来の独立テーマとして扱う
