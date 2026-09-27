@@ -1,0 +1,4 @@
+﻿run,sample,second_breaking_rate_pct,second_fastball_rate_pct,overlap_rate_pct,either_secondary_rate_pct,primary_only_rate_pct,average_total_pitch_count,2_pitch_rate_pct,3_pitch_rate_pct,4_pitch_rate_pct,5_plus_pitch_rate_pct,second_pitch_rate_pct
+seed_202609270001,10000,16.4,11.65,0.0,28.05,71.95,2.7935,22.24,76.17,1.59,0.0,16.4
+seed_202619270001,10000,16.72,11.45,0.0,28.17,71.83,2.7944,22.0,76.56,1.44,0.0,16.72
+seed_202629270001,10000,17.41,12.08,0.0,29.49,70.51,2.7941,22.22,76.15,1.63,0.0,17.41

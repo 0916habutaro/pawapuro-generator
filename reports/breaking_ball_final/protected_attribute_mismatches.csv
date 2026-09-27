@@ -1,0 +1,12 @@
+﻿metric,mismatch_count,sample,mismatch_rate_pct,passed
+age,0,3000,0.0,True
+pro_years,0,3000,0.0,True
+growth_type,0,3000,0.0,True
+player_class,0,3000,0.0,True
+archetype,0,3000,0.0,True
+weakness_profile,0,3000,0.0,True
+position,0,3000,0.0,True
+batting_throwing,0,3000,0.0,True
+starter_aptitude,0,3000,0.0,True
+reliever_aptitude,0,3000,0.0,True
+closer_aptitude,0,3000,0.0,True

@@ -1,0 +1,8 @@
+﻿metric,protected,final,change,tolerance,passed
+average_special_count,3.949,3.96233,0.01333,0.1,True
+five_plus_rate_pct,39.5,40.3,0.8,2.0,True
+球持ち○_rate_pct,21.63333,21.8,0.16667,2.0,True
+リリース○_rate_pct,24.33333,25.4,1.06667,2.0,True
+奪三振_rate_pct,28.6,28.06667,-0.53333,2.0,True
+四球_rate_pct,20.96667,20.53333,-0.43334,2.0,True
+キレ○_rate_pct,20.0,21.73333,1.73333,2.0,True

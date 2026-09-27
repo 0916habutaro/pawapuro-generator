@@ -1,0 +1,4 @@
+﻿dataset,sample,average_total_pitch_count,2_pitch_rate_pct,3_pitch_rate_pct,4_pitch_rate_pct,5_plus_pitch_rate_pct,second_pitch_rate_pct,second_fastball_rate_pct
+実在,402,2.8209,19.403,79.104,1.493,0.0,18.159,11.692
+Phase 4前,30000,2.794,22.153,76.293,1.553,0.0,10.8,6.043
+Phase 4後,30000,2.794,22.153,76.293,1.553,0.0,16.843,11.727
