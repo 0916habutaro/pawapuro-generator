@@ -1,0 +1,4 @@
+﻿metric,protected_mean,final_mean,mean_change,mismatch_count,mismatch_rate_pct,tolerance_mean,passed
+球速,150.68367,150.67933,-0.00433,24,0.8,0.1,True
+コントロール,50.20233,50.20233,0.0,0,0.0,0.1,True
+スタミナ,52.64833,52.64833,0.0,0,0.0,0.1,True

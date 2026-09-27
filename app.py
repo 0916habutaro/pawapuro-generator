@@ -1,5 +1,6 @@
 import csv
 import hashlib
+import itertools
 import json
 import random
 import re
@@ -3336,15 +3337,83 @@ def _ball(name: str, code: str, weight: int, second_weight: int | None = None, m
     }
 
 BREAKING_BALL_MASTER = [
-    _ball("スライダー", "1", 127, 23, 2, 4), _ball("Hスライダー", "1", 65, 9, 1, 3), _ball("カットボール", "1", 135, 26, 1, 3),
-    _ball("カーブ", "2", 66, 10, 1, 3), _ball("スローカーブ", "2", 30, 4, 1, 2), _ball("ドロップカーブ", "2", 42, 6, 1, 3), _ball("スラーブ", "2", 73, 12, 2, 4), _ball("ナックルカーブ", "2", 30, 4, 2, 3), _ball("パワーカーブ", "2", 13, 4, 2, 4, {"速球派": 3, "助っ人外国人用": 8}), _ball("Dスライダー", "2", 3, 1, 3, 5),
-    _ball("フォーク", "3", 96, 18, 2, 4), _ball("パーム", "3", 4, 1, 1, 3), _ball("チェンジアップ", "3", 34, 6, 2, 4), _ball("Vスライダー", "3", 59, 10, 2, 4), _ball("SFF", "3", 102, 22, 2, 4, {"助っ人外国人用": 10}), _ball("ナックル", "3", 1, 0, 2, 5),
-    _ball("シンカー", "4", 10, 2, 1, 3), _ball("Hシンカー", "4", 34, 3, 2, 3), _ball("スクリュー", "4", 10, 2, 1, 3), _ball("サークルチェンジ", "4", 65, 4, 2, 3), _ball("シンキングスプリット", "4", 44, 4, 2, 4, {"助っ人外国人用": 8}), _ball("ファストチェンジ", "4", 10, 1, 2, 3),
-    _ball("シュート", "5", 3, 1, 1, 2), _ball("Hシュート", "5", 15, 1, 1, 2), _ball("シンキングツーシーム", "5", 27, 1, 1, 3),
+    _ball("スライダー", "1", 127, 23, 1, 6), _ball("Hスライダー", "1", 65, 9, 1, 5), _ball("カットボール", "1", 135, 26, 1, 6),
+    _ball("カーブ", "2", 66, 10, 1, 5), _ball("スローカーブ", "2", 30, 4, 1, 3), _ball("ドロップカーブ", "2", 42, 6, 1, 5), _ball("スラーブ", "2", 73, 12, 1, 6), _ball("ナックルカーブ", "2", 30, 4, 1, 5), _ball("パワーカーブ", "2", 13, 4, 1, 5, {"速球派": 3, "助っ人外国人用": 8}), _ball("Dスライダー", "2", 3, 1, 1, 5),
+    _ball("フォーク", "3", 96, 18, 1, 6), _ball("パーム", "3", 4, 1, 1, 3), _ball("チェンジアップ", "3", 34, 6, 1, 5), _ball("Vスライダー", "3", 59, 10, 1, 6), _ball("SFF", "3", 102, 22, 1, 6, {"助っ人外国人用": 10}), _ball("ナックル", "3", 1, 0, 1, 5),
+    _ball("シンカー", "4", 10, 2, 1, 3), _ball("Hシンカー", "4", 34, 3, 1, 5), _ball("スクリュー", "4", 10, 2, 1, 3), _ball("サークルチェンジ", "4", 65, 4, 1, 6), _ball("シンキングスプリット", "4", 44, 4, 1, 5, {"助っ人外国人用": 8}), _ball("ファストチェンジ", "4", 10, 1, 1, 4),
+    _ball("シュート", "5", 3, 1, 1, 2), _ball("Hシュート", "5", 15, 1, 1, 4), _ball("シンキングツーシーム", "5", 27, 1, 1, 4),
 ]
 BREAKING_BY_NAME = {ball["name"]: ball for ball in BREAKING_BALL_MASTER}
 DIRECTION_SELECTION_WEIGHTS = {"1": 32, "2": 24, "3": 28, "4": 13, "5": 4}
+# Phase 3: 実在402投手の左右別方向セット件数へ全候補1件の疑似カウントを加えたsoft weight。
+# 少標本の左投手や未観測セットを固定・排除せず、方向セット相関だけを表現する。
+DIRECTION_SET_WEIGHTS_BY_HAND = {
+    "右投": {
+        2: {
+            ("1", "2"): 8, ("1", "3"): 47, ("1", "4"): 19, ("1", "5"): 2,
+            ("2", "3"): 27, ("2", "4"): 8, ("2", "5"): 1, ("3", "4"): 10,
+            ("3", "5"): 1, ("4", "5"): 1,
+        },
+        3: {
+            ("1", "2", "3"): 72, ("1", "2", "4"): 35, ("1", "2", "5"): 7,
+            ("1", "3", "4"): 21, ("1", "3", "5"): 5, ("1", "4", "5"): 4,
+            ("2", "3", "4"): 6, ("2", "3", "5"): 4, ("2", "4", "5"): 4,
+            ("3", "4", "5"): 1,
+        },
+    },
+    "左投": {
+        2: {
+            ("1", "2"): 6, ("1", "3"): 24, ("1", "4"): 10, ("1", "5"): 2,
+            ("2", "3"): 14, ("2", "4"): 12, ("2", "5"): 2, ("3", "4"): 2,
+            ("3", "5"): 1, ("4", "5"): 1,
+        },
+        3: {
+            ("1", "2", "3"): 23, ("1", "2", "4"): 32, ("1", "2", "5"): 6,
+            ("1", "3", "4"): 9, ("1", "3", "5"): 6, ("1", "4", "5"): 1,
+            ("2", "3", "4"): 9, ("2", "3", "5"): 1, ("2", "4", "5"): 2,
+            ("3", "4", "5"): 1,
+        },
+    },
+}
 SECOND_PITCH_DIRECTION_WEIGHTS = {"1": 23, "2": 12, "3": 34, "4": 3, "5": 1}
+
+# Phase 0の実在402投手を基準にしたsoft分布。30件未満の球種は全体分布へ縮約する。
+MOVEMENT_GLOBAL_WEIGHTS = {1: 24, 2: 27, 3: 30, 4: 13, 5: 4, 6: 2}
+MOVEMENT_PREFERENCE_WEIGHTS = {
+    "スライダー": {1: 16, 2: 32, 3: 32, 4: 15, 5: 2, 6: 2},
+    "Hスライダー": {1: 28, 2: 35, 3: 31, 4: 3, 5: 3},
+    "カットボール": {1: 32, 2: 21, 3: 33, 4: 10, 5: 2, 6: 1},
+    "カーブ": {1: 52, 2: 30, 3: 14, 4: 2, 5: 3},
+    "スラーブ": {1: 19, 2: 15, 3: 33, 4: 26, 5: 4, 6: 3},
+    "Vスライダー": {1: 7, 2: 32, 3: 41, 4: 17, 5: 2, 6: 2},
+    "フォーク": {1: 11, 2: 22, 3: 29, 4: 23, 5: 7, 6: 7},
+    "SFF": {1: 13, 2: 25, 3: 35, 4: 18, 5: 7, 6: 3},
+    "チェンジアップ": {1: 15, 2: 9, 3: 44, 4: 29, 5: 3},
+    "サークルチェンジ": {1: 22, 2: 37, 3: 28, 4: 9, 5: 1, 6: 4},
+    "Hシンカー": {1: 21, 2: 29, 3: 32, 4: 15, 5: 3},
+}
+MOVEMENT_STYLE_WEIGHTS_BY_TOTAL = {
+    5: {"balanced": 47, "primary_pitch": 1, "finisher": 53},
+    6: {"balanced": 30, "primary_pitch": 46, "finisher": 25},
+    7: {"balanced": 37, "primary_pitch": 54, "finisher": 9},
+    8: {"balanced": 35, "primary_pitch": 33, "finisher": 32},
+    9: {"balanced": 21, "primary_pitch": 36, "finisher": 44},
+    10: {"balanced": 40, "primary_pitch": 25, "finisher": 35},
+}
+SECOND_PITCH_MOVEMENT_WEIGHTS = {1: 40, 2: 30, 3: 27, 4: 15}
+PHASE2_PITCH_COUNT_ENABLED = True
+PHASE3_DIRECTION_SETS_ENABLED = True
+PHASE4_SECONDARY_SLOTS_ENABLED = True
+LEGACY_MOVEMENT_BOUNDS = {
+    "スライダー": (2, 4), "Hスライダー": (1, 3), "カットボール": (1, 3),
+    "カーブ": (1, 3), "スローカーブ": (1, 2), "ドロップカーブ": (1, 3),
+    "スラーブ": (2, 4), "ナックルカーブ": (2, 3), "パワーカーブ": (2, 4), "Dスライダー": (3, 5),
+    "フォーク": (2, 4), "パーム": (1, 3), "チェンジアップ": (2, 4), "Vスライダー": (2, 4),
+    "SFF": (2, 4), "ナックル": (2, 5), "シンカー": (1, 3), "Hシンカー": (2, 3),
+    "スクリュー": (1, 3), "サークルチェンジ": (2, 3), "シンキングスプリット": (2, 4),
+    "ファストチェンジ": (2, 3), "シュート": (1, 2), "Hシュート": (1, 2),
+    "シンキングツーシーム": (1, 3),
+}
 
 
 def allowed_pitch_names_for_generation(direction_code: str, batting_throwing: str) -> set[str]:
@@ -3428,7 +3497,13 @@ def make_breaking_ball(name: str, movement: int, is_second_pitch: bool, slot: in
     }
 
 
-def generate_second_fastball(rng: random.Random, player_type: str, category: str, aptitudes: dict[str, str]) -> dict[str, Any] | None:
+def second_fastball_age_adjustment(age: int | None) -> float:
+    if age is None:
+        return 0.0
+    return max(-0.07, min(0.15, (age - 24) * 0.018))
+
+
+def generate_second_fastball(rng: random.Random, player_type: str, category: str, aptitudes: dict[str, str], age: int | None = None) -> dict[str, Any] | None:
     chance = 0.115
     if player_type in {"技巧派", "変化球派"}:
         chance += 0.015
@@ -3438,10 +3513,11 @@ def generate_second_fastball(rng: random.Random, player_type: str, category: str
         chance -= 0.045
     if aptitudes.get("closer_aptitude") == "◎":
         chance += 0.01
-    if rng.random() >= max(0.04, min(0.24, chance)):
+    if PHASE2_PITCH_COUNT_ENABLED:
+        chance += second_fastball_age_adjustment(age)
+    if rng.random() >= max(0.01 if PHASE2_PITCH_COUNT_ENABLED else 0.04, min(0.30, chance)):
         return None
-    name = weighted_choice(rng, [("ツーシームファスト", 43), ("ムービングファスト", 3), ("超スローボール", 1)])
-    return {"name": name, "direction_code": None, "direction": "ストレート系第二種", "movement": 0, "level": 0, "is_second_pitch": False, "slot": None, "kind": "second_fastball"}
+    return select_second_fastball_type(rng)
 
 
 def pitch_count_weights(
@@ -3503,6 +3579,201 @@ def pitch_count_weights(
     return [(count, max(0, weight)) for count, weight in weights.items() if weight > 0]
 
 
+def phase2_primary_count_promotion_chance(age: int | None) -> float:
+    if age is None:
+        return 0.0
+    if age <= 22:
+        return 0.12
+    if age <= 26:
+        return 0.08 + (age - 23) * 0.01
+    if age <= 30:
+        return 0.28 + (age - 27) * 0.03
+    if age <= 34:
+        return 0.20 + (age - 31) * 0.02
+    return 0.28
+
+
+def phase2_adjust_primary_pitch_count(rng: random.Random, count: int, age: int | None) -> int:
+    if not PHASE2_PITCH_COUNT_ENABLED or count != 2:
+        return count
+    return 3 if rng.random() < phase2_primary_count_promotion_chance(age) else count
+
+
+def phase2_four_pitch_retention_chance(age: int | None) -> float:
+    if age is None:
+        return 0.10
+    if age <= 22:
+        return 0.04
+    if age <= 26:
+        return 0.07
+    if age <= 30:
+        return 0.12
+    if age <= 34:
+        return 0.18
+    return 0.20
+
+
+def phase2_limit_final_pitch_count(
+    rng: random.Random, balls: list[dict[str, Any]], age: int | None
+) -> list[dict[str, Any]]:
+    if not PHASE2_PITCH_COUNT_ENABLED:
+        return balls
+    primary = primary_breaking_balls(balls)
+    second = [ball for ball in balls if ball.get("kind") == "breaking" and ball.get("is_second_pitch")]
+    fastballs = [ball for ball in balls if ball.get("kind") == "second_fastball"]
+
+    # 実在では同時保有がほぼない。年齢が高いほど第二ストレートを残しやすくする。
+    if second and fastballs:
+        keep_fastball_chance = max(0.35, min(0.75, 0.45 + ((age or 26) - 26) * 0.025))
+        if rng.random() < keep_fastball_chance:
+            balls = [ball for ball in balls if ball not in second]
+        else:
+            balls = [ball for ball in balls if ball not in fastballs]
+
+    primary_count = len(primary_breaking_balls(balls))
+    display_count = sum(1 for ball in balls if ball.get("kind") in {"breaking", "second_fastball"})
+    if primary_count >= 4:
+        return [ball for ball in balls if not ball.get("is_second_pitch") and ball.get("kind") != "second_fastball"]
+    if primary_count == 3 and display_count >= 4:
+        if rng.random() >= phase2_four_pitch_retention_chance(age):
+            return [ball for ball in balls if not ball.get("is_second_pitch") and ball.get("kind") != "second_fastball"]
+    return balls
+
+
+def interpolate_age_chance(age: int | None, anchors: list[tuple[int, float]]) -> float:
+    if age is None:
+        return 0.0
+    if age <= anchors[0][0]:
+        return anchors[0][1]
+    for (low_age, low_value), (high_age, high_value) in zip(anchors, anchors[1:], strict=False):
+        if age <= high_age:
+            span = high_age - low_age
+            ratio = (age - low_age) / span if span else 0.0
+            return low_value + (high_value - low_value) * ratio
+    return anchors[-1][1]
+
+
+def phase4_composition_chances(age: int | None, role: str) -> tuple[float, float]:
+    second_breaking = interpolate_age_chance(
+        age,
+        [(18, 0.0), (21, 0.0), (23, 0.05), (26, 0.14), (30, 0.14), (34, 0.08), (40, 0.03)],
+    )
+    second_fastball = interpolate_age_chance(
+        age,
+        [(18, 0.0), (22, 0.0), (24, 0.01), (26, 0.03), (30, 0.20), (34, 0.22), (36, 0.14), (40, 0.08)],
+    )
+    breaking_role_multiplier = {"先発": 0.85, "中継ぎ": 1.15, "抑え": 1.20}.get(role, 1.0)
+    fastball_role_multiplier = {"先発": 0.95, "中継ぎ": 1.05, "抑え": 1.10}.get(role, 1.0)
+    return second_breaking * breaking_role_multiplier, second_fastball * fastball_role_multiplier
+
+
+def choose_repertoire_composition(
+    rng: random.Random,
+    balls: list[dict[str, Any]],
+    age: int | None,
+    role: str,
+    category: str,
+    weakness_profile: str,
+) -> str:
+    if not PHASE4_SECONDARY_SLOTS_ENABLED or category != "架空球団用":
+        return "primary_only"
+    if weakness_profile == "球種不足":
+        return "primary_only"
+    display = [ball for ball in balls if ball.get("kind") in {"breaking", "second_fastball"}]
+    primary = primary_breaking_balls(balls)
+    if len(display) != 3 or len(primary) != 3:
+        return "primary_only"
+    if any(ball.get("is_second_pitch") or ball.get("kind") == "second_fastball" for ball in balls):
+        return "primary_only"
+    second_breaking, second_fastball = phase4_composition_chances(age, role)
+    value = rng.random()
+    if value < second_breaking:
+        return "second_breaking"
+    if value < second_breaking + second_fastball:
+        return "second_fastball"
+    return "primary_only"
+
+
+def select_second_fastball_type(rng: random.Random) -> dict[str, Any]:
+    name = weighted_choice(rng, [("ツーシームファスト", 43), ("ムービングファスト", 3), ("超スローボール", 1)])
+    return {"name": name, "direction_code": None, "direction": "ストレート系第二種", "movement": 0, "level": 0, "is_second_pitch": False, "slot": None, "kind": "second_fastball"}
+
+
+def apply_phase4_repertoire_composition(
+    rng: random.Random,
+    balls: list[dict[str, Any]],
+    player_type: str,
+    category: str,
+    aptitudes: dict[str, str],
+    batting_throwing: str,
+    *,
+    age: int | None,
+    role: str,
+    archetype: str,
+    weakness_profile: str,
+) -> list[dict[str, Any]]:
+    composition_rng = random.Random()
+    composition_rng.setstate(rng.getstate())
+    composition = choose_repertoire_composition(
+        composition_rng, balls, age, role, category, weakness_profile
+    )
+    if composition == "primary_only":
+        return balls
+
+    original_total = primary_total_movement(balls)
+    direction_codes = [
+        code for code in DIRECTION_NAMES
+        if any(
+            ball["direction_code"] == code
+            and ball["name"] in allowed_pitch_names_for_generation(code, batting_throwing)
+            for ball in BREAKING_BALL_MASTER
+        )
+    ]
+    primary_codes = weighted_direction_sample(
+        composition_rng, direction_codes, 2, role, batting_throwing
+    )
+    replacement: list[dict[str, Any]] = []
+    for direction_code in primary_codes:
+        name = weighted_breaking_names(
+            composition_rng, direction_code, player_type, category, batting_throwing
+        )
+        movement = weighted_choice(
+            composition_rng,
+            movement_weights(
+                player_type, category, aptitudes, 2,
+                archetype=archetype, weakness_profile=weakness_profile,
+            ),
+        )
+        replacement.append(make_breaking_ball(name, movement, False, 1))
+    normalize_primary_movements(composition_rng, replacement, original_total)
+
+    if composition == "second_fastball":
+        replacement.append(select_second_fastball_type(composition_rng))
+        return replacement
+
+    candidates = []
+    for ball in replacement:
+        names = allowed_pitch_names_for_generation(
+            str(ball["direction_code"]), batting_throwing
+        ) - {ball["name"]}
+        if any(BREAKING_BY_NAME[name].get("second_pitch_allowed", False) for name in names):
+            candidates.append(ball)
+    if not candidates:
+        return balls
+    base = weighted_choice(
+        composition_rng,
+        [(ball, SECOND_PITCH_DIRECTION_WEIGHTS.get(str(ball["direction_code"]), 1)) for ball in candidates],
+    )
+    direction_code = str(base["direction_code"])
+    second_name = weighted_breaking_names(
+        composition_rng, direction_code, player_type, category, batting_throwing,
+        second_pitch=True, exclude={base["name"]},
+    )
+    second_movement = select_second_pitch_movement(composition_rng, base, second_name)
+    replacement.append(make_breaking_ball(second_name, second_movement, True, 2))
+    return replacement
+
+
 def movement_weights(player_type: str, category: str, aptitudes: dict[str, str], count: int, *, archetype: str = "", weakness_profile: str = "") -> list[tuple[int, int]]:
     archetype = archetype or legacy_archetype_from_player_type("投手", player_type)
     weights = {1: 12, 2: 36, 3: 34, 4: 15, 5: 3, 6: 0}
@@ -3523,18 +3794,62 @@ def movement_weights(player_type: str, category: str, aptitudes: dict[str, str],
     return [(level, max(1, weight)) for level, weight in weights.items()]
 
 
-def weighted_direction_sample(rng: random.Random, direction_codes: list[str], count: int, role: str = "") -> list[str]:
+def direction_set_weights(
+    count: int,
+    batting_throwing: str,
+    role: str = "",
+) -> list[tuple[tuple[str, ...], int]]:
+    hand = "左投" if str(batting_throwing).startswith("左投") else "右投"
+    source = DIRECTION_SET_WEIGHTS_BY_HAND.get(hand, {}).get(count, {})
+    items = []
+    for direction_set, base_weight in source.items():
+        weight = float(base_weight)
+        if role == "抑え" and "2" in direction_set:
+            # 既存の抑え方向2補正（24→15相当）をセット抽選でも維持する。
+            weight *= 0.625
+        items.append((direction_set, max(1, round(weight * 8))))
+    return items
+
+
+def legacy_weighted_direction_sample(
+    rng: random.Random,
+    direction_codes: list[str],
+    count: int,
+    role: str = "",
+) -> list[str]:
     remaining = list(direction_codes)
     selected: list[str] = []
     weights = dict(DIRECTION_SELECTION_WEIGHTS)
     if role == "抑え":
-        # 抑えは実在でカーブ方向の保有率が低い。球種数は維持し、方向選択だけを局所補正する。
         weights["2"] = 15
     for _ in range(min(count, len(remaining))):
         code = weighted_choice(rng, [(code, weights.get(code, 1)) for code in remaining])
         selected.append(code)
         remaining.remove(code)
     return selected
+
+
+def weighted_direction_sample(
+    rng: random.Random,
+    direction_codes: list[str],
+    count: int,
+    role: str = "",
+    batting_throwing: str = "右投",
+) -> list[str]:
+    available = set(direction_codes)
+    if PHASE3_DIRECTION_SETS_ENABLED and count in {2, 3}:
+        choices = [
+            (direction_set, weight)
+            for direction_set, weight in direction_set_weights(count, batting_throwing, role)
+            if set(direction_set).issubset(available)
+        ]
+        if choices:
+            selected = list(weighted_choice(rng, choices))
+            # 旧非復元抽選と同じ乱数消費数にし、後続の球種数・能力生成への波及を抑える。
+            for _ in range(count - 1):
+                rng.random()
+            return selected
+    return legacy_weighted_direction_sample(rng, direction_codes, count, role)
 
 
 def target_total_movement(rng: random.Random, category: str, age: int | None, role: str, player_class: str, archetype: str, development_stage: str, acquisition_role: str, weakness_profile: str, count: int) -> int:
@@ -3583,28 +3898,168 @@ def target_total_movement(rng: random.Random, category: str, age: int | None, ro
     return max(count, target)
 
 
+def movement_partitions(total: int, count: int, maximum: int = 6) -> list[tuple[int, ...]]:
+    """正の整数を降順に並べた、順序を無視するmovement分割を返す。"""
+    if count <= 0 or total < count:
+        return []
+
+    def build(remaining: int, slots: int, upper: int) -> list[tuple[int, ...]]:
+        if slots == 0:
+            return [()] if remaining == 0 else []
+        minimum_remaining = slots - 1
+        largest = min(upper, maximum, remaining - minimum_remaining)
+        rows: list[tuple[int, ...]] = []
+        for value in range(largest, 0, -1):
+            if remaining - value < minimum_remaining:
+                continue
+            for tail in build(remaining - value, slots - 1, value):
+                rows.append((value, *tail))
+        return rows
+
+    return build(total, count, maximum)
+
+
+def movement_pattern_style(values: tuple[int, ...]) -> str:
+    if not values:
+        return "balanced"
+    if max(values) - min(values) <= 1:
+        return "balanced"
+    total = sum(values)
+    if max(values) >= 5 or max(values) / total >= 0.60:
+        return "finisher"
+    return "primary_pitch"
+
+
+def movement_preference_weight(name: str, value: int) -> int:
+    weights = MOVEMENT_PREFERENCE_WEIGHTS.get(name, MOVEMENT_GLOBAL_WEIGHTS)
+    return max(1, int(weights.get(value, 1)))
+
+
+def movement_assignment_candidates(
+    balls: list[dict[str, Any]], partition: tuple[int, ...]
+) -> list[tuple[tuple[int, ...], int]]:
+    candidates: list[tuple[tuple[int, ...], int]] = []
+    for assignment in sorted(set(itertools.permutations(partition)), reverse=True):
+        weight = 1
+        valid = True
+        for ball, value in zip(balls, assignment, strict=True):
+            master = BREAKING_BY_NAME[ball["name"]]
+            minimum = int(master.get("min_movement", 1))
+            maximum = int(master.get("max_movement", 6))
+            if not minimum <= value <= maximum:
+                valid = False
+                break
+            weight *= movement_preference_weight(ball["name"], value)
+        if valid:
+            candidates.append((assignment, weight))
+    return candidates
+
+
+def select_primary_movement_assignment(
+    rng: random.Random, balls: list[dict[str, Any]], target: int
+) -> tuple[int, ...]:
+    partitions = movement_partitions(target, len(balls))
+    by_style: dict[str, list[tuple[tuple[int, ...], list[tuple[tuple[int, ...], int]], int]]] = {
+        "balanced": [], "primary_pitch": [], "finisher": [],
+    }
+    for partition in partitions:
+        assignments = movement_assignment_candidates(balls, partition)
+        if assignments:
+            by_style[movement_pattern_style(partition)].append(
+                (partition, assignments, sum(weight for _, weight in assignments))
+            )
+
+    available_styles = [style for style, candidates in by_style.items() if candidates]
+    if available_styles:
+        style_weights = MOVEMENT_STYLE_WEIGHTS_BY_TOTAL.get(
+            min(10, target), {"balanced": 35, "primary_pitch": 40, "finisher": 25}
+        )
+        style = weighted_choice(rng, [(name, style_weights[name]) for name in available_styles])
+        _partition, assignments, _ = weighted_choice(
+            rng, [(candidate, candidate[2]) for candidate in by_style[style]]
+        )
+        return weighted_choice(rng, assignments)
+
+    # 稀なhard bounds非充足時は範囲内の最近傍総量を使う。無制限clampはしない。
+    ranges = [
+        range(
+            int(BREAKING_BY_NAME[ball["name"]].get("min_movement", 1)),
+            int(BREAKING_BY_NAME[ball["name"]].get("max_movement", 6)) + 1,
+        )
+        for ball in balls
+    ]
+    feasible = list(itertools.product(*ranges))
+    nearest_distance = min(abs(sum(values) - target) for values in feasible)
+    nearest = [values for values in feasible if abs(sum(values) - target) == nearest_distance]
+    return weighted_choice(
+        rng,
+        [
+            (values, math.prod(movement_preference_weight(ball["name"], value) for ball, value in zip(balls, values, strict=True)))
+            for values in nearest
+        ],
+    )
+
+
+def consume_legacy_primary_normalization_rng(
+    rng: random.Random, balls: list[dict[str, Any]], target: int
+) -> int:
+    """Phase 1対象外の後続抽選率を維持するため、旧処理と同じ乱数だけ消費する。"""
+    values = []
+    for ball in balls:
+        _minimum, maximum = LEGACY_MOVEMENT_BOUNDS[ball["name"]]
+        values.append(max(1, min(maximum, target // len(balls))))
+    attempts = 0
+    while sum(values) < target and attempts < 40:
+        index = rng.randrange(len(balls))
+        _minimum, maximum = LEGACY_MOVEMENT_BOUNDS[balls[index]["name"]]
+        if values[index] < maximum:
+            values[index] += 1
+        attempts += 1
+    while sum(values) > target and attempts < 80:
+        index = rng.randrange(len(balls))
+        minimum, _maximum = LEGACY_MOVEMENT_BOUNDS[balls[index]["name"]]
+        if values[index] > minimum:
+            values[index] -= 1
+        attempts += 1
+    return sum(values)
+
+
 def normalize_primary_movements(rng: random.Random, balls: list[dict[str, Any]], target: int) -> None:
     primary = [ball for ball in balls if ball.get("kind") == "breaking" and not ball.get("is_second_pitch")]
     if not primary:
         return
     target = max(len(primary), target)
-    for ball in primary:
-        ball["movement"] = ball["level"] = max(1, min(int(BREAKING_BY_NAME[ball["name"]].get("max_movement", 5)), target // len(primary)))
-    attempts = 0
-    while sum(pitch_movement(ball) for ball in primary) < target and attempts < 40:
-        ball = rng.choice(primary)
-        max_mv = int(BREAKING_BY_NAME[ball["name"]].get("max_movement", 5))
-        if ball["movement"] < max_mv:
-            ball["movement"] += 1
-            ball["level"] = ball["movement"]
-        attempts += 1
-    while sum(pitch_movement(ball) for ball in primary) > target and attempts < 80:
-        ball = rng.choice(primary)
-        min_mv = int(BREAKING_BY_NAME[ball["name"]].get("min_movement", 1))
-        if ball["movement"] > min_mv:
-            ball["movement"] -= 1
-            ball["level"] = ball["movement"]
-        attempts += 1
+    movement_rng = random.Random()
+    movement_rng.setstate(rng.getstate())
+    effective_target = consume_legacy_primary_normalization_rng(rng, primary, target)
+    assignment = select_primary_movement_assignment(movement_rng, primary, effective_target)
+    for ball, value in zip(primary, assignment, strict=True):
+        ball["movement"] = ball["level"] = value
+
+
+def select_second_pitch_movement(rng: random.Random, first_ball: dict[str, Any], second_name: str) -> int:
+    master = BREAKING_BY_NAME[second_name]
+    minimum = int(master.get("min_movement", 1))
+    maximum = min(
+        4,
+        pitch_movement(first_ball),
+        int(master.get("max_movement", 4)),
+    )
+    maximum = max(minimum, maximum)
+    choices = []
+    for value in range(minimum, maximum + 1):
+        weight = SECOND_PITCH_MOVEMENT_WEIGHTS.get(value, 1)
+        weight *= movement_preference_weight(second_name, value)
+        if value == pitch_movement(first_ball):
+            weight = max(1, round(weight * 0.7))
+        choices.append((value, weight))
+    movement_rng = random.Random()
+    movement_rng.setstate(rng.getstate())
+    value = int(weighted_choice(movement_rng, choices))
+    # 旧処理のrandom判定＋weighted_choiceと同じ2回分を消費し、後続の発生率を固定する。
+    rng.random()
+    weighted_choice(rng, [(1, 38), (2, 38), (3, 19), (4, 5)])
+    return value
 
 
 def generate_breaking_balls(
@@ -3636,8 +4091,11 @@ def generate_breaking_balls(
             count = 3
     if weakness_profile == "球種不足":
         count = min(count, 2)
+    else:
+        count = phase2_adjust_primary_pitch_count(rng, count, age)
     direction_codes = [code for code in DIRECTION_NAMES if any(ball["direction_code"] == code and ball["name"] in allowed_pitch_names_for_generation(code, batting_throwing) for ball in BREAKING_BALL_MASTER)]
-    primary_codes = weighted_direction_sample(rng, direction_codes, count, role)
+    direction_start_state = rng.getstate()
+    primary_codes = weighted_direction_sample(rng, direction_codes, count, role, batting_throwing)
     balls: list[dict[str, Any]] = []
     for direction_code in primary_codes:
         name = weighted_breaking_names(rng, direction_code, player_type, category, batting_throwing)
@@ -3645,6 +4103,31 @@ def generate_breaking_balls(
         balls.append(make_breaking_ball(name, movement, False, 1))
     target = target_total_movement(rng, category, age, role, player_class, archetype, development_stage, acquisition_role, weakness_profile, count)
     normalize_primary_movements(rng, balls, target)
+    if PHASE3_DIRECTION_SETS_ENABLED and count in {2, 3}:
+        # 方向変更が第二球種・第二ストレート・総球種数の抽選列を変えないよう、
+        # Phase 2方式で第一球種を生成した場合の乱数状態へ戻して後続処理を開始する。
+        legacy_rng = random.Random()
+        legacy_rng.setstate(direction_start_state)
+        legacy_codes = legacy_weighted_direction_sample(legacy_rng, direction_codes, count, role)
+        legacy_balls: list[dict[str, Any]] = []
+        for direction_code in legacy_codes:
+            legacy_name = weighted_breaking_names(
+                legacy_rng, direction_code, player_type, category, batting_throwing
+            )
+            legacy_movement = weighted_choice(
+                legacy_rng,
+                movement_weights(
+                    player_type, category, aptitudes, count,
+                    archetype=archetype, weakness_profile=weakness_profile,
+                ),
+            )
+            legacy_balls.append(make_breaking_ball(legacy_name, legacy_movement, False, 1))
+        legacy_target = target_total_movement(
+            legacy_rng, category, age, role, player_class, archetype,
+            development_stage, acquisition_role, weakness_profile, count,
+        )
+        normalize_primary_movements(legacy_rng, legacy_balls, legacy_target)
+        rng.setstate(legacy_rng.getstate())
     chance = second_pitch_chance(player_type, category, aptitudes, age=age, player_class=player_class, archetype=archetype, development_stage=development_stage, acquisition_role=acquisition_role)
     if category == "助っ人外国人用" and len(balls) == 3:
         chance = min(chance, 0.07)
@@ -3665,9 +4148,9 @@ def generate_breaking_balls(
             base = weighted_choice(rng, [(ball, SECOND_PITCH_DIRECTION_WEIGHTS.get(str(ball["direction_code"]), 1)) for ball in candidates])
             direction_code = str(base["direction_code"])
             second_name = weighted_breaking_names(rng, direction_code, player_type, category, batting_throwing, second_pitch=True, exclude={base["name"]})
-            second_movement = min(base["movement"] + (1 if rng.random() < 0.08 else 0), weighted_choice(rng, [(1, 38), (2, 38), (3, 19), (4, 5)]))
+            second_movement = select_second_pitch_movement(rng, base, second_name)
             balls.append(make_breaking_ball(second_name, second_movement, True, 2))
-    second_fastball = generate_second_fastball(rng, player_type, category, aptitudes)
+    second_fastball = generate_second_fastball(rng, player_type, category, aptitudes, age)
     if second_fastball and category == "架空球団用" and len(primary_breaking_balls(balls)) >= 3:
         has_second_breaking = any(ball.get("kind") == "breaking" and ball.get("is_second_pitch") for ball in balls)
         if role in {"中継ぎ", "抑え"} and (has_second_breaking or rng.random() < 0.90):
@@ -3678,7 +4161,11 @@ def generate_breaking_balls(
             second_fastball = None
     if second_fastball:
         balls.append(second_fastball)
-    return balls
+    balls = phase2_limit_final_pitch_count(rng, balls, age)
+    return apply_phase4_repertoire_composition(
+        rng, balls, player_type, category, aptitudes, batting_throwing,
+        age=age, role=role, archetype=archetype, weakness_profile=weakness_profile,
+    )
 
 
 def primary_breaking_balls(breaking_balls: list[dict[str, Any]]) -> list[dict[str, Any]]:

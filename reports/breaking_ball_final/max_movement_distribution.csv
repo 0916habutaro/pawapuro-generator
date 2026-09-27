@@ -1,0 +1,4 @@
+﻿dataset,sample,average_max_movement,max_1_rate_pct,max_2_rate_pct,max_3_rate_pct,max_4_rate_pct,max_5_rate_pct,max_6_plus_rate_pct
+実在,402,3.58209,0.0,8.706,44.527,31.841,9.701,5.224
+Phase 4前,30000,3.5062,0.017,13.553,38.64,34.263,10.637,2.89
+Phase 4後,30000,3.56487,0.017,11.753,36.467,38.213,10.59,2.96

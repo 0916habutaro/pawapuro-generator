@@ -1,0 +1,46 @@
+﻿dataset,final_pitch_count,composition,count,sample,rate_pct
+実在,2,primary_only,71,78,91.026
+実在,2,second_breaking,7,78,8.974
+実在,2,second_fastball,0,78,0.0
+実在,2,both,0,78,0.0
+実在,2,other,0,78,0.0
+実在,3,primary_only,207,318,65.094
+実在,3,second_breaking,66,318,20.755
+実在,3,second_fastball,45,318,14.151
+実在,3,both,0,318,0.0
+実在,3,other,0,318,0.0
+実在,4,primary_only,4,6,66.667
+実在,4,second_breaking,0,6,0.0
+実在,4,second_fastball,2,6,33.333
+実在,4,both,0,6,0.0
+実在,4,other,0,6,0.0
+Phase 4前,2,primary_only,6646,6646,100.0
+Phase 4前,2,second_breaking,0,6646,0.0
+Phase 4前,2,second_fastball,0,6646,0.0
+Phase 4前,2,both,0,6646,0.0
+Phase 4前,2,other,0,6646,0.0
+Phase 4前,3,primary_only,18015,22888,78.709
+Phase 4前,3,second_breaking,3185,22888,13.916
+Phase 4前,3,second_fastball,1688,22888,7.375
+Phase 4前,3,both,0,22888,0.0
+Phase 4前,3,other,0,22888,0.0
+Phase 4前,4,primary_only,286,466,61.373
+Phase 4前,4,second_breaking,55,466,11.803
+Phase 4前,4,second_fastball,125,466,26.824
+Phase 4前,4,both,0,466,0.0
+Phase 4前,4,other,0,466,0.0
+Phase 4後,2,primary_only,6646,6646,100.0
+Phase 4後,2,second_breaking,0,6646,0.0
+Phase 4後,2,second_fastball,0,6646,0.0
+Phase 4後,2,both,0,6646,0.0
+Phase 4後,2,other,0,6646,0.0
+Phase 4後,3,primary_only,14497,22888,63.339
+Phase 4後,3,second_breaking,4998,22888,21.837
+Phase 4後,3,second_fastball,3393,22888,14.824
+Phase 4後,3,both,0,22888,0.0
+Phase 4後,3,other,0,22888,0.0
+Phase 4後,4,primary_only,286,466,61.373
+Phase 4後,4,second_breaking,55,466,11.803
+Phase 4後,4,second_fastball,125,466,26.824
+Phase 4後,4,both,0,466,0.0
+Phase 4後,4,other,0,466,0.0

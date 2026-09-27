@@ -1,0 +1,16 @@
+﻿dataset,composition,count,sample,rate_pct
+実在,primary_only,282,402,70.149
+実在,second_breaking,73,402,18.159
+実在,second_fastball,47,402,11.692
+実在,both,0,402,0.0
+実在,other,0,402,0.0
+Phase 4前,primary_only,24947,30000,83.157
+Phase 4前,second_breaking,3240,30000,10.8
+Phase 4前,second_fastball,1813,30000,6.043
+Phase 4前,both,0,30000,0.0
+Phase 4前,other,0,30000,0.0
+Phase 4後,primary_only,21429,30000,71.43
+Phase 4後,second_breaking,5053,30000,16.843
+Phase 4後,second_fastball,3518,30000,11.727
+Phase 4後,both,0,30000,0.0
+Phase 4後,other,0,30000,0.0

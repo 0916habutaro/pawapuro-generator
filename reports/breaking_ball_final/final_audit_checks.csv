@@ -1,0 +1,9 @@
+﻿check,count,passed
+invalid repertoire,0,True
+invalid direction,0,True
+movement hard bounds違反,0,True
+禁止されている左投球種,0,True
+第二球種に同方向primaryなし,0,True
+第二球種＋第二ストレート同時保有,0,True
+球種数上限違反,0,True
+seed再現失敗,0,True
