@@ -372,7 +372,7 @@ class UiLayoutHelpersTest(unittest.TestCase):
                     self.assertTrue(first["development_stage"])
                 else:
                     self.assertEqual(first["development_stage"], "")
-                if category == "助っ人外国人用":
+                if first.get("roster_origin") == "foreign_import":
                     self.assertTrue(first["acquisition_role"])
                     self.assertTrue(first["weakness_profile"])
                 else:

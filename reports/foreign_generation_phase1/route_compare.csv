@@ -1,0 +1,17 @@
+﻿守備,区分,target_pct,generated_pct,diff_pp
+投手,cuba_domestic,5.5,5.82,0.32
+投手,korea_pro,3.9,4.0,0.1
+投手,latin_development,4.7,4.54,-0.16
+投手,north_america_amateur_direct,2.4,2.64,0.24
+投手,north_america_pro,79.5,79.16,-0.34
+投手,other_foreign_pro,0.8,0.86,0.06
+投手,taiwan_amateur_direct,2.4,2.16,-0.24
+投手,taiwan_pro,0.8,0.82,0.02
+野手,cuba_domestic,8.2,7.8,-0.4
+野手,korea_pro,1.2,1.28,0.08
+野手,latin_development,3.5,3.64,0.14
+野手,north_america_amateur_direct,0.0,0.34,0.34
+野手,north_america_pro,82.4,82.24,-0.16
+野手,other_foreign_pro,3.5,3.34,-0.16
+野手,taiwan_amateur_direct,0.0,0.16,0.16
+野手,taiwan_pro,1.2,1.2,0.0
