@@ -262,6 +262,56 @@ PITCHER_ACQUISITION_ROLE_WEIGHTS = {
 }
 FIELDER_WEAKNESS_PROFILES = ["低ミート", "低走力", "低守備", "低捕球", "送球不安", "明確な弱点なし"]
 PITCHER_WEAKNESS_PROFILES = ["低制球", "球種不足", "スタミナ不足", "球速不足", "変化量不足", "安定性不安", "明確な弱点なし"]
+FOREIGN_PLAYER_CLASS_TENURE_MULTIPLIERS = {
+    "1": {"大物実績者": 0.85, "主力期待級": 1.00, "レギュラー競争級": 1.15, "保険・バックアップ級": 1.20, "育成素材型": 1.20, "再生候補": 1.15},
+    "2-3": {"大物実績者": 1.10, "主力期待級": 1.25, "レギュラー競争級": 1.10, "保険・バックアップ級": 0.70, "育成素材型": 0.55, "再生候補": 0.75},
+    "4+": {"大物実績者": 1.60, "主力期待級": 1.70, "レギュラー競争級": 1.10, "保険・バックアップ級": 0.25, "育成素材型": 0.12, "再生候補": 0.35},
+}
+FOREIGN_PLAYER_CLASS_ROUTE_MULTIPLIERS = {
+    "north_america_pro": {"大物実績者": 1.05, "主力期待級": 1.04},
+    "cuba_domestic": {"主力期待級": 1.08, "レギュラー競争級": 1.05},
+    "development_direct": {"レギュラー競争級": 1.08, "育成素材型": 1.18},
+    "asian_pro": {"大物実績者": 1.08, "主力期待級": 1.08},
+}
+FOREIGN_WEAKNESS_TENURE_MULTIPLIERS = {
+    "投手": {
+        "1": {},
+        "2-3": {"低制球": 0.72, "球種不足": 0.88, "変化量不足": 0.88, "安定性不安": 0.80, "明確な弱点なし": 1.30},
+        "4+": {"低制球": 0.22, "球種不足": 0.55, "変化量不足": 0.60, "安定性不安": 0.40, "明確な弱点なし": 2.20},
+    },
+    "野手": {
+        "1": {},
+        "2-3": {"低ミート": 0.75, "低守備": 0.82, "低捕球": 0.82, "明確な弱点なし": 1.30},
+        "4+": {"低ミート": 0.30, "低走力": 1.05, "低守備": 0.50, "低捕球": 0.50, "送球不安": 0.75, "明確な弱点なし": 2.20},
+    },
+}
+FOREIGN_ARCHETYPE_TENURE_MULTIPLIERS = {
+    "投手": {
+        "1": {}, "2-3": {"総合": 1.06, "制球": 1.12, "速球": 0.96},
+        "4+": {"総合": 1.15, "制球": 1.30, "速球": 0.90},
+    },
+    "野手": {
+        "1": {}, "2-3": {"バランス": 1.06, "巧打": 1.08, "俊足": 0.90},
+        "4+": {"バランス": 1.18, "巧打": 1.25, "長打": 1.08, "俊足": 0.58},
+    },
+}
+FOREIGN_ARCHETYPE_ROUTE_MULTIPLIERS = {
+    "north_america_pro": {"投手": {"速球": 1.04}, "野手": {"長打": 1.04}},
+    "cuba_domestic": {"投手": {"速球": 1.04}, "野手": {"長打": 1.10, "強肩": 1.06}},
+    "development_direct": {"投手": {"速球": 1.06}, "野手": {"俊足": 1.08, "強肩": 1.05}},
+    "asian_pro": {"投手": {"総合": 1.06, "制球": 1.08}, "野手": {"バランス": 1.06, "巧打": 1.08}},
+}
+FOREIGN_ACQUISITION_TENURE_MULTIPLIERS = {
+    "1": {"保険要員": 1.12, "若手育成": 1.12, "再生候補": 1.12},
+    "2-3": {"先発候補": 1.06, "勝ちパターン候補": 1.08, "主砲候補": 1.08, "中軸候補": 1.08, "保険要員": 0.82, "若手育成": 0.78, "再生候補": 0.82},
+    "4+": {"先発候補": 1.12, "勝ちパターン候補": 1.16, "クローザー候補": 1.10, "主砲候補": 1.15, "中軸候補": 1.15, "保険要員": 0.45, "若手育成": 0.30, "再生候補": 0.40},
+}
+FOREIGN_ACQUISITION_ROUTE_MULTIPLIERS = {
+    "north_america_pro": {"先発候補": 1.03, "勝ちパターン候補": 1.03, "主砲候補": 1.04, "中軸候補": 1.03},
+    "cuba_domestic": {"主砲候補": 1.08, "中軸候補": 1.06},
+    "development_direct": {"若手育成": 1.12, "保険要員": 1.05},
+    "asian_pro": {"先発候補": 1.06, "中軸候補": 1.05, "内野守備補強": 1.05},
+}
 RANK_COLORS = {"S": "#ff5da2", "A": "#ff5a5a", "B": "#ff9f43", "C": "#ffd166", "D": "#6ee7b7", "E": "#60a5fa", "F": "#a78bfa", "G": "#cbd5e1"}
 SEED_MAX = 10_000_000_000
 SPECIAL_ROLE_FALLBACKS = {
@@ -802,7 +852,23 @@ def choose_growth_type(*, category: str, age: int, player_class: str | None, dev
     return weighted_choice(rng, list(weights.items()))
 
 
-def choose_player_class(rng: random.Random, category: str, age: int) -> str:
+def foreign_tenure_band(npb_years: int) -> str:
+    return "1" if npb_years <= 1 else "2-3" if npb_years <= 3 else "4+"
+
+
+def foreign_route_group(route: str) -> str:
+    if route in {"latin_development", "north_america_amateur_direct", "taiwan_amateur_direct"}:
+        return "development_direct"
+    if route in {"korea_pro", "taiwan_pro"}:
+        return "asian_pro"
+    return route if route in {"north_america_pro", "cuba_domestic"} else "other"
+
+
+def multiply_weight_items(items: list[tuple[str, int | float]], multipliers: dict[str, float]) -> list[tuple[str, int]]:
+    return [(label, max(1, round(weight * multipliers.get(label, 1.0)))) for label, weight in items]
+
+
+def choose_player_class(rng: random.Random, category: str, age: int, npb_years: int = 0, foreign_route: str = "") -> str:
     items = list(PLAYER_CLASS_WEIGHTS.get(category, []))
     adjusted: list[tuple[str, int]] = []
     for label, weight in items:
@@ -832,6 +898,9 @@ def choose_player_class(rng: random.Random, category: str, age: int) -> str:
             if age >= 32 and label == "主力期待級":
                 weight = max(1, round(weight * 0.5))
         adjusted.append((label, weight))
+    if category == "助っ人外国人用" and npb_years:
+        adjusted = multiply_weight_items(adjusted, FOREIGN_PLAYER_CLASS_TENURE_MULTIPLIERS[foreign_tenure_band(npb_years)])
+        adjusted = multiply_weight_items(adjusted, FOREIGN_PLAYER_CLASS_ROUTE_MULTIPLIERS.get(foreign_route_group(foreign_route), {}))
     return weighted_choice(rng, positive_weight_items(adjusted))
 
 
@@ -859,8 +928,12 @@ def choose_development_stage(rng: random.Random, category: str, age: int, player
     return weighted_choice(rng, positive_weight_items(items))
 
 
-def choose_archetype(rng: random.Random, role: str, category: str, age: int | None = None, player_class: str = "") -> str:
+def choose_archetype(rng: random.Random, role: str, category: str, age: int | None = None, player_class: str = "", npb_years: int = 0, foreign_route: str = "") -> str:
     weights = list(FOREIGN_ARCHETYPE_WEIGHTS[role] if category == "助っ人外国人用" else ARCHETYPE_WEIGHTS[role])
+    if category == "助っ人外国人用" and npb_years:
+        weights = multiply_weight_items(weights, FOREIGN_ARCHETYPE_TENURE_MULTIPLIERS[role][foreign_tenure_band(npb_years)])
+        route_multipliers = FOREIGN_ARCHETYPE_ROUTE_MULTIPLIERS.get(foreign_route_group(foreign_route), {}).get(role, {})
+        weights = multiply_weight_items(weights, route_multipliers)
     if category == "架空球団用" and role == "投手" and age is not None and age >= 35:
         veteran_multipliers = {"総合": 1.0, "制球": 1.50, "速球": 0.45, "変化球": 1.50, "スタミナ": 1.10}
         weights = [(label, max(1, round(weight * veteran_multipliers[label]))) for label, weight in weights]
@@ -885,7 +958,7 @@ def pitcher_acquisition_candidates(aptitudes: dict[str, str], batting_throwing: 
     return sorted(candidates, key=list(PITCHER_ACQUISITION_ROLE_WEIGHTS).index)
 
 
-def choose_acquisition_role(rng: random.Random, category: str, role: str, player_class: str, position: str, aptitudes: dict[str, str] | None = None, batting_throwing: str = "") -> str:
+def choose_acquisition_role(rng: random.Random, category: str, role: str, player_class: str, position: str, aptitudes: dict[str, str] | None = None, batting_throwing: str = "", npb_years: int = 0, foreign_route: str = "") -> str:
     if category != "助っ人外国人用":
         return ""
     if role == "野手":
@@ -895,6 +968,9 @@ def choose_acquisition_role(rng: random.Random, category: str, role: str, player
         items = [(label, 20) for label in candidates]
         if player_class == "保険・バックアップ級":
             items = [(label, weight * 2 if label == "保険要員" else weight) for label, weight in items]
+        if npb_years:
+            items = multiply_weight_items(items, FOREIGN_ACQUISITION_TENURE_MULTIPLIERS[foreign_tenure_band(npb_years)])
+            items = multiply_weight_items(items, FOREIGN_ACQUISITION_ROUTE_MULTIPLIERS.get(foreign_route_group(foreign_route), {}))
         return weighted_choice(rng, positive_weight_items(items))
     candidates = pitcher_acquisition_candidates(aptitudes or {}, batting_throwing)
     if player_class == "育成素材型" and "若手育成" not in candidates:
@@ -902,6 +978,9 @@ def choose_acquisition_role(rng: random.Random, category: str, role: str, player
     items = [(label, PITCHER_ACQUISITION_ROLE_WEIGHTS.get(label, 10)) for label in candidates]
     if player_class == "再生候補":
         items = [(label, weight * 2 if label == "再生候補" else weight) for label, weight in items]
+    if npb_years:
+        items = multiply_weight_items(items, FOREIGN_ACQUISITION_TENURE_MULTIPLIERS[foreign_tenure_band(npb_years)])
+        items = multiply_weight_items(items, FOREIGN_ACQUISITION_ROUTE_MULTIPLIERS.get(foreign_route_group(foreign_route), {}))
     return weighted_choice(rng, positive_weight_items(items))
 
 
@@ -912,7 +991,7 @@ def choose_position_style(rng: random.Random, role: str, position: str, archetyp
     return weighted_choice(rng, weights) if weights else ""
 
 
-def choose_weakness_profile(rng: random.Random, category: str, role: str, player_class: str) -> str:
+def choose_weakness_profile(rng: random.Random, category: str, role: str, player_class: str, npb_years: int = 0) -> str:
     if category != "助っ人外国人用":
         return ""
     profiles = PITCHER_WEAKNESS_PROFILES if role == "投手" else FIELDER_WEAKNESS_PROFILES
@@ -924,6 +1003,8 @@ def choose_weakness_profile(rng: random.Random, category: str, role: str, player
         items = [(label, 5 if label == "明確な弱点なし" else 19) for label in profiles]
     if player_class in {"育成素材型", "再生候補"}:
         items = [(label, weight) for label, weight in items if label != "明確な弱点なし"]
+    if npb_years:
+        items = multiply_weight_items(items, FOREIGN_WEAKNESS_TENURE_MULTIPLIERS[role][foreign_tenure_band(npb_years)])
     return weighted_choice(rng, positive_weight_items(items))
 
 
@@ -5438,7 +5519,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     if category == "助っ人外国人用":
         foreign_context = generate_foreign_context(seed, role)
         age = int(foreign_context["age"])
-        player_class = choose_player_class(make_sub_rng(seed, f"foreign_player_class_v1:{role}"), "助っ人外国人用", age)
+        player_class = choose_player_class(make_sub_rng(seed, f"foreign_player_class_v2:{role}"), "助っ人外国人用", age, int(foreign_context["npb_years"]), str(foreign_context["foreign_route"]))
         career_history = foreign_career_history(foreign_context)
         roster_context = {key: foreign_context[key] for key in ("roster_origin", "foreign_route", "npb_years", "npb_first_entry_year", "npb_stint_start_year", "is_returnee")}
         nationality = str(foreign_context["nationality"])
@@ -5461,7 +5542,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         if roster_origin == "foreign_import":
             foreign_context = generate_foreign_context(seed, role)
             age = int(foreign_context["age"])
-            player_class = choose_player_class(make_sub_rng(seed, f"foreign_player_class_v1:{role}"), "助っ人外国人用", age)
+            player_class = choose_player_class(make_sub_rng(seed, f"foreign_player_class_v2:{role}"), "助っ人外国人用", age, int(foreign_context["npb_years"]), str(foreign_context["foreign_route"]))
             career_history = foreign_career_history(foreign_context)
             roster_context = {key: foreign_context[key] for key in ("roster_origin", "foreign_route", "npb_years", "npb_first_entry_year", "npb_stint_start_year", "is_returnee")}
             nationality = str(foreign_context["nationality"])
@@ -5480,17 +5561,19 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         position_weights = FOREIGN_FIELDER_POSITION_WEIGHTS if model_category == "助っ人外国人用" else [("捕手", 12), ("一塁手", 14), ("二塁手", 14), ("三塁手", 14), ("遊撃手", 16), ("外野手", 30)]
         position = weighted_choice(rng, position_weights)
     batting_throwing = generate_batting_throwing(rng, role, position)
-    acquisition_role = choose_acquisition_role(rng, model_category, role, player_class, position, pitcher_aptitudes, batting_throwing)
-    archetype = choose_archetype(rng, role, model_category, age=age, player_class=player_class)
+    foreign_npby = int(roster_context.get("npb_years", 0)) if roster_context.get("roster_origin") == "foreign_import" else 0
+    foreign_route = str(roster_context.get("foreign_route", ""))
+    acquisition_role = choose_acquisition_role(rng, model_category, role, player_class, position, pitcher_aptitudes, batting_throwing, foreign_npby, foreign_route)
+    archetype = choose_archetype(rng, role, model_category, age=age, player_class=player_class, npb_years=foreign_npby, foreign_route=foreign_route)
     if role == "投手" and position == "抑え" and archetype == "スタミナ":
         for _ in range(4):
-            archetype = choose_archetype(rng, role, model_category, age=age, player_class=player_class)
+            archetype = choose_archetype(rng, role, model_category, age=age, player_class=player_class, npb_years=foreign_npby, foreign_route=foreign_route)
             if archetype != "スタミナ":
                 break
         if archetype == "スタミナ":
             archetype = "総合"
     position_style = choose_position_style(rng, role, position, archetype)
-    weakness_profile = choose_weakness_profile(rng, model_category, role, player_class)
+    weakness_profile = choose_weakness_profile(rng, model_category, role, player_class, foreign_npby)
     growth_type = choose_growth_type(
         category=model_category, age=age, player_class=player_class, development_stage=development_stage,
         acquisition_role=acquisition_role, rng=create_growth_rng(seed, role, model_category),
