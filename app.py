@@ -730,6 +730,20 @@ FICTIONAL_ENTRY_AGE_WEIGHTS = {
 }
 NPB_CURRENT_YEAR = 2026
 FICTIONAL_FOREIGN_DOMESTIC_ROUTE_RATE = 0.04
+FOREIGN_RETURNEE_RATE = 0.035
+# 2025決定版の12球団スナップショットで観測した外国人補強の投手数・野手数。
+# 個別選手生成の出現率とは分離し、ロスター層でのみ使用する。
+FOREIGN_TEAM_IMPORT_COMPOSITION_WEIGHTS = [
+    ((6, 1), 1),
+    ((2, 2), 1),
+    ((4, 3), 2),
+    ((3, 2), 2),
+    ((4, 4), 1),
+    ((3, 3), 2),
+    ((4, 1), 1),
+    ((2, 3), 1),
+    ((4, 2), 1),
+]
 FOREIGN_ROUTES = {
     "north_america_pro",
     "cuba_domestic",
@@ -1357,7 +1371,7 @@ def generate_foreign_context(seed: int, role: str, current_year: int = NPB_CURRE
     npb_years = choose_foreign_tenure(rng, role, age, route)
     stint_start = current_year - npb_years + 1
     returnee_eligible = age >= 28 and route not in {"taiwan_amateur_direct", "north_america_amateur_direct"}
-    is_returnee = bool(returnee_eligible and rng.random() < 0.035)
+    is_returnee = bool(returnee_eligible and rng.random() < FOREIGN_RETURNEE_RATE)
     first_entry = stint_start
     if is_returnee:
         first_entry = max(current_year - age + 18, stint_start - rng.randint(2, 6))
@@ -5746,6 +5760,44 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         **({"_baseline_abilities": baseline_abilities} if include_physique_baseline else {}),
         **pitcher_aptitudes,
     }
+
+
+def choose_foreign_team_composition(seed: int) -> dict[str, int]:
+    """Choose the foreign-import role mix for one fictional NPB team."""
+    rng = make_sub_rng(seed, "foreign_phase3c_roster_composition_v1")
+    pitcher_count, fielder_count = weighted_choice(rng, FOREIGN_TEAM_IMPORT_COMPOSITION_WEIGHTS)
+    return {"投手": int(pitcher_count), "野手": int(fielder_count)}
+
+
+def foreign_import_role_counts(players: list[dict[str, Any]]) -> dict[str, int]:
+    """Count foreign imports by role without treating all foreign nationals as imports."""
+    counts = {"投手": 0, "野手": 0}
+    for player in players:
+        role = str(player.get("role", ""))
+        if player.get("roster_origin") == "foreign_import" and role in counts:
+            counts[role] += 1
+    return counts
+
+
+def generate_foreign_import_roster(seed: int, master: MasterData | None = None) -> list[dict[str, Any]]:
+    """Generate only the foreign-import portion of one fictional NPB team roster."""
+    master = master or load_master_data()
+    composition = choose_foreign_team_composition(seed)
+    seed_rng = make_sub_rng(seed, "foreign_phase3c_roster_players_v1")
+    used_names: set[str] = set()
+    players: list[dict[str, Any]] = []
+    for role in ("投手", "野手"):
+        for _ in range(composition[role]):
+            player = generate_player(
+                role,
+                "助っ人外国人用",
+                master,
+                seed=seed_rng.randrange(SEED_MAX),
+                used_names=used_names,
+            )
+            used_names.add(str(player["name"]))
+            players.append(player)
+    return players
 
 
 def save_players(players: list[dict[str, Any]]) -> int:
