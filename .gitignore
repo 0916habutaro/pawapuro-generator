@@ -64,3 +64,6 @@ reports/foreign_generation_phase3b/*
 !reports/foreign_generation_phase3c/
 reports/foreign_generation_phase3c/*
 !reports/foreign_generation_phase3c/summary.md
+!reports/foreign_generation_phase3d/
+reports/foreign_generation_phase3d/*
+!reports/foreign_generation_phase3d/summary.md

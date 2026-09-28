@@ -744,6 +744,32 @@ FOREIGN_TEAM_IMPORT_COMPOSITION_WEIGHTS = [
     ((2, 3), 1),
     ((4, 2), 1),
 ]
+# 2026実在12球団の静的ロスターで観測した投手数・野手数の組。
+# 支配下・育成の区分は元データにないため、全掲載選手のスナップショットとして扱う。
+TEAM_ROSTER_COMPOSITION_WEIGHTS = [
+    ((37, 28), 1),
+    ((32, 34), 2),
+    ((33, 34), 1),
+    ((35, 31), 2),
+    ((31, 36), 1),
+    ((34, 32), 2),
+    ((35, 34), 1),
+    ((32, 31), 1),
+    ((32, 32), 1),
+]
+# 2024→2025の同球団残留32人 / 2024外国人73人。
+# role別・tenure別の差は補正に使えるほど安定していないため、単一率のみを使う。
+FOREIGN_TEAM_RETENTION_RATE = 32 / 73
+TEAM_ROSTER_DOMESTIC_MAX_ATTEMPTS = 1000
+# 2026実在12球団で1人以上いたpositionの観測最小値。
+# 実在最小が0だった三塁手には保証を設けない。
+TEAM_ROSTER_POSITION_MINIMUMS = {
+    "捕手": 6,
+    "一塁手": 1,
+    "二塁手": 1,
+    "遊撃手": 3,
+    "外野手": 9,
+}
 FOREIGN_ROUTES = {
     "north_america_pro",
     "cuba_domestic",
@@ -5779,25 +5805,170 @@ def foreign_import_role_counts(players: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
-def generate_foreign_import_roster(seed: int, master: MasterData | None = None) -> list[dict[str, Any]]:
+def generate_foreign_import_roster(
+    seed: int,
+    master: MasterData | None = None,
+    used_names: set[str] | None = None,
+) -> list[dict[str, Any]]:
     """Generate only the foreign-import portion of one fictional NPB team roster."""
     master = master or load_master_data()
     composition = choose_foreign_team_composition(seed)
     seed_rng = make_sub_rng(seed, "foreign_phase3c_roster_players_v1")
-    used_names: set[str] = set()
+    used_names = used_names if used_names is not None else set()
     players: list[dict[str, Any]] = []
     for role in ("投手", "野手"):
         for _ in range(composition[role]):
-            player = generate_player(
-                role,
-                "助っ人外国人用",
-                master,
-                seed=seed_rng.randrange(SEED_MAX),
-                used_names=used_names,
-            )
+            for _attempt in range(TEAM_ROSTER_DOMESTIC_MAX_ATTEMPTS):
+                player = generate_player(
+                    role,
+                    "助っ人外国人用",
+                    master,
+                    seed=seed_rng.randrange(SEED_MAX),
+                    used_names=set(used_names),
+                )
+                if str(player["name"]) not in used_names:
+                    break
+            else:
+                raise RuntimeError(f"名前が重複しない外国人{role}を生成できませんでした。")
             used_names.add(str(player["name"]))
             players.append(player)
     return players
+
+
+def choose_team_roster_composition(seed: int) -> dict[str, int]:
+    """Choose the total role mix for one fictional NPB team."""
+    rng = make_sub_rng(seed, "team_roster_composition_v1")
+    pitcher_count, fielder_count = weighted_choice(rng, TEAM_ROSTER_COMPOSITION_WEIGHTS)
+    return {"投手": int(pitcher_count), "野手": int(fielder_count)}
+
+
+def generate_team_roster(seed: int, master: MasterData | None = None) -> list[dict[str, Any]]:
+    """Generate one complete static team roster above the individual player layer."""
+    master = master or load_master_data()
+    team_composition = choose_team_roster_composition(seed)
+    foreign_composition = choose_foreign_team_composition(seed)
+    domestic_seed_rng = make_sub_rng(seed, "team_roster_domestic_players_v1")
+    used_names: set[str] = set()
+    players: list[dict[str, Any]] = []
+    foreign_players = generate_foreign_import_roster(seed, master, used_names=used_names)
+    position_counts = {
+        position: sum(1 for player in foreign_players if player.get("position") == position)
+        for position in TEAM_ROSTER_POSITION_MINIMUMS
+    }
+
+    for role in ("投手", "野手"):
+        domestic_slots = team_composition[role] - foreign_composition[role]
+        if domestic_slots < 0:
+            raise ValueError(f"外国人{role}数が球団の{role}枠を超えています。")
+        for _ in range(domestic_slots):
+            for _attempt in range(TEAM_ROSTER_DOMESTIC_MAX_ATTEMPTS):
+                player = generate_player(
+                    role,
+                    "架空球団用",
+                    master,
+                    seed=domestic_seed_rng.randrange(SEED_MAX),
+                    used_names=set(used_names),
+                )
+                valid_origin_and_name = (
+                    player.get("roster_origin") == "domestic"
+                    and str(player["name"]) not in used_names
+                )
+                if not valid_origin_and_name:
+                    continue
+                if role == "野手":
+                    remaining_slots = domestic_slots - sum(1 for item in players if item["role"] == "野手") - 1
+                    projected = dict(position_counts)
+                    if player.get("position") in projected:
+                        projected[str(player["position"])] += 1
+                    required_slots = sum(
+                        max(0, minimum - projected[position])
+                        for position, minimum in TEAM_ROSTER_POSITION_MINIMUMS.items()
+                    )
+                    if required_slots > remaining_slots:
+                        continue
+                if valid_origin_and_name:
+                    break
+            else:
+                raise RuntimeError(f"国内枠の{role}を生成できませんでした。")
+            used_names.add(str(player["name"]))
+            players.append(player)
+            if role == "野手" and player.get("position") in position_counts:
+                position_counts[str(player["position"])] += 1
+
+    players.extend(foreign_players)
+    for roster_index, player in enumerate(players, start=1):
+        player["team_seed"] = seed
+        player["roster_index"] = roster_index
+        player["roster_group"] = str(player["roster_origin"])
+        player["roster_year"] = NPB_CURRENT_YEAR
+    return players
+
+
+def advance_foreign_import_roster_year(
+    players: list[dict[str, Any]],
+    seed: int,
+    master: MasterData | None = None,
+    used_names: set[str] | None = None,
+    from_year: int = NPB_CURRENT_YEAR,
+) -> list[dict[str, Any]]:
+    """Advance one team's foreign-import roster by one contract year.
+
+    The next-year composition is a recruitment floor. Retained players are not
+    released merely because their count exceeds the newly sampled target.
+    """
+    if any(player.get("roster_origin") != "foreign_import" for player in players):
+        raise ValueError("年度遷移にはforeign_import選手だけを渡してください。")
+
+    master = master or load_master_data()
+    next_year = int(from_year) + 1
+    retention_rng = make_sub_rng(seed, "foreign_phase3d_retention_v1")
+    next_players: list[dict[str, Any]] = []
+    shared_names = used_names if used_names is not None else set()
+
+    for previous in players:
+        if retention_rng.random() >= FOREIGN_TEAM_RETENTION_RATE:
+            continue
+        retained = copy.deepcopy(previous)
+        retained["age"] = int(previous.get("age", 0)) + 1
+        retained["npb_years"] = int(previous.get("npb_years", 0)) + 1
+        retained["pro_years"] = int(previous.get("pro_years", previous.get("npb_years", 0))) + 1
+        retained["roster_group"] = "foreign_import"
+        retained["roster_year"] = next_year
+        retained["transition_status"] = "retained"
+        shared_names.add(str(retained["name"]))
+        next_players.append(retained)
+
+    target = choose_foreign_team_composition(seed)
+    retained_counts = foreign_import_role_counts(next_players)
+    newcomer_rng = make_sub_rng(seed, "foreign_phase3d_new_players_v1")
+    generated_year_shift = next_year - NPB_CURRENT_YEAR
+    for role in ("投手", "野手"):
+        for _ in range(max(0, target[role] - retained_counts[role])):
+            for _attempt in range(TEAM_ROSTER_DOMESTIC_MAX_ATTEMPTS):
+                newcomer = generate_player(
+                    role,
+                    "助っ人外国人用",
+                    master,
+                    seed=newcomer_rng.randrange(SEED_MAX),
+                    used_names=set(shared_names),
+                )
+                if str(newcomer["name"]) not in shared_names:
+                    break
+            else:
+                raise RuntimeError(f"名前が重複しない新規外国人{role}を生成できませんでした。")
+            if generated_year_shift:
+                for key in ("npb_first_entry_year", "npb_stint_start_year"):
+                    if int(newcomer.get(key, 0)):
+                        newcomer[key] = int(newcomer[key]) + generated_year_shift
+            newcomer["roster_group"] = "foreign_import"
+            newcomer["roster_year"] = next_year
+            newcomer["transition_status"] = "new_joiner"
+            shared_names.add(str(newcomer["name"]))
+            next_players.append(newcomer)
+
+    for roster_index, player in enumerate(next_players, start=1):
+        player["roster_index"] = roster_index
+    return next_players
 
 
 def save_players(players: list[dict[str, Any]]) -> int:
