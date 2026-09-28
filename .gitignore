@@ -49,3 +49,6 @@ data/raw/powerpro_2026_2027/*/
 !data/raw/powerpro_2026_2027/*.zip
 !data/raw/powerpro_2026_2027/README.md
 reports/*
+!reports/foreign_generation_phase1/
+!reports/foreign_generation_phase1/*.csv
+!reports/foreign_generation_phase1/summary.md
