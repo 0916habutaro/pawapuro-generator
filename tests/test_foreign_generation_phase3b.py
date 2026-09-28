@@ -1,17 +1,27 @@
-from pathlib import Path
 import random
 
 import app
+import pandas as pd
 from scripts import validate_foreign_generation_phase3b as phase3b
 
 
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def test_phase3b_real_scope_is_212_and_missing_special_pitch_details():
-    _frame, coverage = phase3b.load_real_scope(
-        ROOT / "local_data" / "pawapuro_foreign_2022_2024_2025_complete_v6.xlsx"
+def test_phase3b_real_scope_is_212_and_missing_special_pitch_details(tmp_path):
+    workbook = tmp_path / "foreign_scope.xlsx"
+    rows = [
+        {"pitch_speed": 150, "include_foreign_analysis": True}
+        for _ in range(127)
+    ]
+    rows.extend(
+        {"pitch_speed": None, "include_foreign_analysis": True}
+        for _ in range(85)
     )
+    pd.DataFrame(rows).to_excel(
+        workbook,
+        sheet_name=phase3b.REAL_SHEET,
+        index=False,
+    )
+
+    _frame, coverage = phase3b.load_real_scope(workbook)
 
     assert coverage["対象player-season"] == 212
     assert coverage["投手"] == 127
