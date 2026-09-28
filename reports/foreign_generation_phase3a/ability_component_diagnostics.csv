@@ -1,0 +1,5 @@
+﻿守備,component,Phase2診断,Phase3A対応
+野手,player_class,大物+10、主力+5等を6能力すべてへ一律加算。500人診断の平均は1年目+1.15、2-3年目+1.73、4年以上+3.58/能力。,classごとの能力別modifierへ変更し、打力・肩を残して守備・捕球の無差別boostを除去。
+野手,archetype / position / acquisition_role / weakness / physique,役割別の強弱は既に能力別。主要残差はclass一律加算後にも全tenureで同方向に残存。,既存構造とweightを維持。二重加算の新設・route別補正なし。
+投手,base ability,球速-6.91、制球+3.86、スタミナ-1.04。制球のtenure増加方向自体は正しい。,外国人共通初期値を球速145→155、制球48→44、スタミナ48→49へ変更。160以上の非速球型監査を157～159へ補正し、外国人classの球速減点を能力別に緩和。tenure multiplierは維持。
+共通,physique,既存baseline生成が体格効果なしの能力を同seedで保持しており、効果は小幅・上限制。,体格補正ロジックと分布は変更なし。

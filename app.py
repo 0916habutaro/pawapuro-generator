@@ -2890,18 +2890,26 @@ def apply_fielder_player_class_mods(values: dict[str, int], category: str, playe
             "ベテラン型": {"ミート": -3, "パワー": 1, "走力": -7, "肩力": 0, "守備力": -3, "捕球": -2},
         }
         add_mod(values, class_mods.get(player_class, {}))
-    else:
+    elif category == "ドラフト候補用":
         class_mods = {
-            "ドラフト候補用": {
-                "超上位候補": 7, "上位候補": 3, "中位候補": -2, "下位候補": -7, "育成候補": -11,
-            },
-            "助っ人外国人用": {
-                "大物実績者": 10, "主力期待級": 5, "レギュラー競争級": 0, "保険・バックアップ級": -8, "育成素材型": -7, "再生候補": -4,
-            },
+            "超上位候補": 7, "上位候補": 3, "中位候補": -2, "下位候補": -7, "育成候補": -11,
         }
-        mod = class_mods.get(category, {}).get(player_class, 0)
+        mod = class_mods.get(player_class, 0)
         for key in values:
             values[key] += mod
+    elif category == "助っ人外国人用":
+        # 外国人野手は打力中心の評価であり、選手格を守備・捕球へ同量加算しない。
+        # 低い格ほど走力を残しやすくし、長期在籍で強い格が増えても既存の
+        # survivor selectionを壊さず能力配分だけが変わるようにする。
+        class_mods = {
+            "大物実績者": {"ミート": 7, "パワー": 15, "走力": 7, "肩力": 19, "守備力": 0, "捕球": -1},
+            "主力期待級": {"ミート": -1, "パワー": 10, "走力": 5, "肩力": 13, "守備力": -5, "捕球": -6},
+            "レギュラー競争級": {"ミート": -8, "パワー": 5, "走力": 5, "肩力": 7, "守備力": -10, "捕球": -11},
+            "保険・バックアップ級": {"ミート": -16, "パワー": -3, "走力": -2, "肩力": 0, "守備力": -16, "捕球": -17},
+            "育成素材型": {"ミート": -15, "パワー": -2, "走力": 0, "肩力": 2, "守備力": -16, "捕球": -17},
+            "再生候補": {"ミート": -12, "パワー": 1, "走力": -1, "肩力": 3, "守備力": -13, "捕球": -14},
+        }
+        add_mod(values, class_mods.get(player_class, {}))
     if player_class in {"若手素材型", "育成候補", "育成素材型"}:
         for key in TECHNICAL_FIELDER_KEYS:
             values[key] -= 3
@@ -3741,12 +3749,12 @@ def apply_pitcher_player_class_mods(values: dict[str, int], category: str, playe
             "育成候補": {"球速": -1, "コントロール": -10, "スタミナ": -7},
         },
         "助っ人外国人用": {
-            "大物実績者": {"球速": 3, "コントロール": 8, "スタミナ": 5},
-            "主力期待級": {"球速": 2, "コントロール": 4, "スタミナ": 2},
-            "レギュラー競争級": {"球速": 1, "コントロール": -1, "スタミナ": -1},
-            "保険・バックアップ級": {"球速": -2, "コントロール": -7, "スタミナ": -5},
-            "育成素材型": {"球速": 1, "コントロール": -10, "スタミナ": -8},
-            "再生候補": {"球速": -4, "コントロール": 0, "スタミナ": -4},
+            "大物実績者": {"球速": 4, "コントロール": 8, "スタミナ": 5},
+            "主力期待級": {"球速": 3, "コントロール": 4, "スタミナ": 2},
+            "レギュラー競争級": {"球速": 4, "コントロール": -1, "スタミナ": -1},
+            "保険・バックアップ級": {"球速": 1, "コントロール": -7, "スタミナ": -5},
+            "育成素材型": {"球速": 4, "コントロール": -10, "スタミナ": -8},
+            "再生候補": {"球速": -1, "コントロール": 0, "スタミナ": -4},
         },
     }
     add_mod(values, mods.get(category, {}).get(player_class, {}))
@@ -3872,7 +3880,10 @@ def finalize_pitcher_values(
         values["コントロール"] = cap_value(rng, values["コントロール"], 79)
         values["スタミナ"] = cap_value(rng, values["スタミナ"], 79)
     if values["球速"] >= 160 and not pitcher_fastball_allowed(category, age, player_class, archetype, position_style, weakness_profile):
-        values["球速"] = cap_value(rng, values["球速"], rng.randint(154, 159) if archetype == "速球" and player_class not in {"二軍級", "ベテラン型"} else rng.randint(149, 154))
+        if category == "助っ人外国人用":
+            values["球速"] = rng.randint(157, 159)
+        else:
+            values["球速"] = cap_value(rng, values["球速"], rng.randint(154, 159) if archetype == "速球" and player_class not in {"二軍級", "ベテラン型"} else rng.randint(149, 154))
     if category == "助っ人外国人用" and values["球速"] >= 160 and rng.random() < 0.35:
         values["球速"] = rng.randint(156, 159)
     if category == "架空球団用" and values["球速"] >= 160 and rng.random() < 0.45:
@@ -3957,6 +3968,12 @@ def apply_fictional_pitcher_age_speed_shape(
             values["球速"] -= rng.randint(1, 3)
 
 
+def pitcher_base_values(category: str) -> dict[str, int]:
+    if category == "助っ人外国人用":
+        return {"球速": 155, "コントロール": 44, "スタミナ": 49}
+    return {"球速": 145, "コントロール": 48, "スタミナ": 48}
+
+
 def generate_pitcher_abilities(
     rng: random.Random,
     age: int,
@@ -3978,7 +3995,7 @@ def generate_pitcher_abilities(
     player_class = player_class or "一軍控え級"
     role = primary_pitcher_role(aptitudes)
     position_style = position_style or PITCHER_POSITION_STYLE_BY_ROLE.get(role, {}).get(archetype, "")
-    values = {"球速": 145, "コントロール": 48, "スタミナ": 48}
+    values = pitcher_base_values(category)
     add_mod(values, pitcher_age_mods(age, archetype, player_class))
     apply_pitcher_player_class_mods(values, category, player_class)
     if category == "架空球団用":
