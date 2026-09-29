@@ -913,7 +913,7 @@ def choose_player_class(rng: random.Random, category: str, age: int, npb_years: 
     adjusted: list[tuple[str, int]] = []
     for label, weight in items:
         if category == "架空球団用":
-            if 18 <= age <= 22 and label == "ベテラン型":
+            if 18 <= age <= 24 and label == "ベテラン型":
                 continue
             if 30 <= age and label == "若手素材型":
                 continue
@@ -3382,6 +3382,8 @@ def apply_fictional_fielder_realism_audit(
         apply_second_adjustment_fielder_distribution_guards(
             rng, values, position, player_class, position_style, weakness_profile
         )
+    # 総合値capの縮小後も、ポジション別の最低ラインを最終値で保証する。
+    enforce_fielder_position_constraints(rng, values, position, position_style)
 
 
 def apply_fictional_position_profile_guards(
@@ -4189,7 +4191,17 @@ def is_pitch_allowed_for_generation(direction_code: str, pitch_name: str, battin
     return pitch_name in allowed_pitch_names_for_generation(direction_code, batting_throwing)
 
 
-def weighted_breaking_names(rng: random.Random, direction_code: str, player_type: str, category: str, batting_throwing: str, *, second_pitch: bool = False, exclude: set[str] | None = None) -> str:
+def weighted_breaking_names(
+    rng: random.Random,
+    direction_code: str,
+    player_type: str,
+    category: str,
+    batting_throwing: str,
+    *,
+    second_pitch: bool = False,
+    exclude: set[str] | None = None,
+    max_min_movement: int | None = None,
+) -> str:
     choices = []
     allowed = allowed_pitch_names_for_generation(direction_code, batting_throwing)
     exclude = exclude or set()
@@ -4199,7 +4211,9 @@ def weighted_breaking_names(rng: random.Random, direction_code: str, player_type
         weight_key = "second_pitch_weight" if second_pitch else "base_weight"
         weight = int(ball.get(weight_key, 0) or 0)
         if second_pitch and not ball.get("second_pitch_allowed", False):
-            weight = 0
+            continue
+        if max_min_movement is not None and int(ball.get("min_movement", 1)) > max_min_movement:
+            continue
         bias = ball.get("pitcher_type_bias", {})
         weight += int(bias.get(player_type, 0) or 0) + int(bias.get(category, 0) or 0)
         if weight > 0:
@@ -4519,7 +4533,11 @@ def apply_phase4_repertoire_composition(
         names = allowed_pitch_names_for_generation(
             str(ball["direction_code"]), batting_throwing
         ) - {ball["name"]}
-        if any(BREAKING_BY_NAME[name].get("second_pitch_allowed", False) for name in names):
+        if any(
+            BREAKING_BY_NAME[name].get("second_pitch_allowed", False)
+            and int(BREAKING_BY_NAME[name].get("min_movement", 1)) <= pitch_movement(ball)
+            for name in names
+        ):
             candidates.append(ball)
     if not candidates:
         return balls
@@ -4531,6 +4549,7 @@ def apply_phase4_repertoire_composition(
     second_name = weighted_breaking_names(
         composition_rng, direction_code, player_type, category, batting_throwing,
         second_pitch=True, exclude={base["name"]},
+        max_min_movement=pitch_movement(base),
     )
     second_movement = select_second_pitch_movement(composition_rng, base, second_name)
     replacement.append(make_breaking_ball(second_name, second_movement, True, 2))
@@ -4905,12 +4924,20 @@ def generate_breaking_balls(
         candidates = []
         for ball in balls:
             names = allowed_pitch_names_for_generation(str(ball["direction_code"]), batting_throwing) - {ball["name"]}
-            if any(BREAKING_BY_NAME[name].get("second_pitch_allowed", False) for name in names):
+            if any(
+                BREAKING_BY_NAME[name].get("second_pitch_allowed", False)
+                and int(BREAKING_BY_NAME[name].get("min_movement", 1)) <= pitch_movement(ball)
+                for name in names
+            ):
                 candidates.append(ball)
         if candidates:
             base = weighted_choice(rng, [(ball, SECOND_PITCH_DIRECTION_WEIGHTS.get(str(ball["direction_code"]), 1)) for ball in candidates])
             direction_code = str(base["direction_code"])
-            second_name = weighted_breaking_names(rng, direction_code, player_type, category, batting_throwing, second_pitch=True, exclude={base["name"]})
+            second_name = weighted_breaking_names(
+                rng, direction_code, player_type, category, batting_throwing,
+                second_pitch=True, exclude={base["name"]},
+                max_min_movement=pitch_movement(base),
+            )
             second_movement = select_second_pitch_movement(rng, base, second_name)
             balls.append(make_breaking_ball(second_name, second_movement, True, 2))
     second_fastball = generate_second_fastball(rng, player_type, category, aptitudes, age)
@@ -4961,6 +4988,30 @@ def remove_extra_primary_pitches(breaking_balls: list[dict[str, Any]], maximum_c
 
 def set_pitcher_speed(abilities: dict[str, Any], speed: int) -> None:
     abilities["球速"] = f"{clamp(speed, 125, 165)} km/h"
+
+
+def enforce_second_pitch_movement_order(breaking_balls: list[dict[str, Any]]) -> None:
+    """Keep each second pitch at or below its same-direction primary pitch."""
+    primary_by_direction = {
+        str(ball.get("direction_code", "")): ball
+        for ball in primary_breaking_balls(breaking_balls)
+    }
+    audited: list[dict[str, Any]] = []
+    for ball in breaking_balls:
+        if ball.get("kind") != "breaking" or not ball.get("is_second_pitch"):
+            audited.append(ball)
+            continue
+        primary = primary_by_direction.get(str(ball.get("direction_code", "")))
+        if primary is None:
+            continue
+        maximum = pitch_movement(primary)
+        minimum = int(BREAKING_BY_NAME[str(ball["name"])].get("min_movement", 1))
+        if minimum > maximum:
+            continue
+        if pitch_movement(ball) > maximum:
+            ball["movement"] = ball["level"] = maximum
+        audited.append(ball)
+    breaking_balls[:] = audited
 
 
 def shape_second_adjustment_middle_reliever_stamina(
@@ -5044,6 +5095,7 @@ def audit_generated_player(
     set_pitcher_speed(abilities, speed)
     abilities["コントロール"] = ability(control)
     abilities["スタミナ"] = ability(stamina)
+    enforce_second_pitch_movement_order(breaking_balls)
     return abilities, breaking_balls
 
 FOREIGN_NATIONS = ["アメリカ", "ドミニカ共和国", "ベネズエラ", "キューバ", "メキシコ", "韓国", "台湾"]
