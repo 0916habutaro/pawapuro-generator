@@ -7,6 +7,7 @@ import random
 import re
 import sqlite3
 import math
+import unicodedata
 from functools import lru_cache
 from html import escape
 from dataclasses import dataclass
@@ -340,47 +341,45 @@ USAGE_SPECIAL_NAMES = {
 }
 PITCHER_USAGE_ORDER = ["フル出場", "調子次第", "速球中心", "変化球中心", "投球位置左", "投球位置右", "テンポ○", "人気者"]
 FIELDER_USAGE_ORDER = ["フル出場", "調子次第", "ミート多用", "強振多用", "積極打法", "慎重打法", "積極盗塁", "慎重盗塁", "積極走塁", "積極守備", "チームプレイ○", "チームプレイ×", "人気者"]
+# 変化球チャート（実機の能力画面準拠）。寸法はすべてセル間隔 u を基準にした比率で持つ。
+# 右投げ基準で定義し、左投げは描画時に x → PITCH_CHART_WIDTH - x で左右反転する。
+# ただしフォーク方向の2列（1球種目が左、2球種目が右）とストレート表示は左投げでも反転しない。
+# 球種名は略さず正式名で表示する（実機準拠）。
+PITCH_CHART_WIDTH = 280
+PITCH_CHART_HEIGHT = 210
+PITCH_CHART_UNIT = 10.0           # 実機のチャート幅 ≈ 28u に合わせる
+PITCH_CHART_CENTER = (140.0, 72.0)
+_DIAG = math.sqrt(0.5)
+# axis: 中心から先端へ向かう単位ベクトル / lane_side: 2球種時に1球種目の列を置く側（上・中心寄り）
 PITCH_GAUGE_GEOMETRY = {
-    "1": {"origin": (169, 66), "angle": 0, "paired_lane_offset": (0, 9)},
-    "2": {"origin": (158, 83), "angle": 45, "paired_lane_offset": (6.364, -6.364)},
-    "3": {"origin": (140, 89), "angle": 90, "paired_lane_offset": (9, 0)},
-    "4": {"origin": (122, 83), "angle": 135, "paired_lane_offset": (-6.364, -6.364)},
-    "5": {"origin": (111, 66), "angle": 180, "paired_lane_offset": (0, 9)},
+    "1": {"kind": "side", "axis": (1.0, 0.0), "lane_side": (0.0, -1.0)},
+    "2": {"kind": "diagonal", "axis": (_DIAG, _DIAG), "lane_side": (_DIAG, -_DIAG)},
+    "3": {"kind": "down", "axis": (0.0, 1.0), "lane_side": (-1.0, 0.0)},
+    "4": {"kind": "diagonal", "axis": (-_DIAG, _DIAG), "lane_side": (-_DIAG, -_DIAG)},
+    "5": {"kind": "side", "axis": (-1.0, 0.0), "lane_side": (0.0, -1.0)},
 }
-PITCH_CHART_LABEL_GEOMETRY = {
-    "1": ((255, 96, "end"), (255, 116, "end")),
-    "2": ((242, 160, "end"), (242, 180, "end")),
-    "3": ((134, 200, "end"), (146, 200, "start")),
-    "4": ((38, 160, "start"), (38, 180, "start")),
-    "5": ((25, 96, "start"), (25, 116, "start")),
-}
-PITCH_GAUGE_SEGMENT_LENGTH = 12
-PITCH_GAUGE_SEGMENT_THICKNESS = 9
-PITCH_GAUGE_SEGMENT_GAP = 1
-PITCH_GAUGE_STEP = PITCH_GAUGE_SEGMENT_LENGTH + PITCH_GAUGE_SEGMENT_GAP
 PITCH_GAUGE_SEGMENT_COUNT = 7
-PITCH_GAUGE_INACTIVE = ("#35b5ef", "#128bc7", "#87d8fa")
-PITCH_GAUGE_ACTIVE = ("#ff8b25", "#dd5f12", "#ffd06a")
-PAIRED_SEGMENT_WIDTH = 10
-PAIRED_SEGMENT_HEIGHT = 7
-PAIRED_SEGMENT_GAP = 1
-PAIRED_STEP = PAIRED_SEGMENT_WIDTH + PAIRED_SEGMENT_GAP
-PAIRED_SEGMENT_COUNT = 7
-PAIRED_LANE_GAP = 2
-PAIRED_ARROW_POINTS = "-5,-3.5 1.5,-3.5 6,0 1.5,3.5 -5,3.5"
-PITCH_DISPLAY_NAMES = {
-    "ツーシームファスト": "ツーシーム",
-    "ムービングファスト": "ムービング",
-    "超スローボール": "超スロー",
-    "シンキングツーシーム": "Sツーシーム",
-    "シンキングファスト": "Sファスト",
-    "ドロップカーブ": "Dカーブ",
-    "ナックルカーブ": "Nカーブ",
-    "パワーカーブ": "Pカーブ",
-    "サークルチェンジ": "Cチェンジ",
-    "シンキングスプリット": "Sスプリット",
-    "ファストチェンジ": "Fチェンジ",
-}
+PITCH_BAR_LENGTH = 7.5            # バー全長（u）
+PITCH_BAR_START = 1.05 + 0.75     # ボール外周半径 + 隙間（u）
+PITCH_CELL_PITCH = 1.0            # セル間隔（u）
+PITCH_CELL_LENGTH = 0.75          # セル内寸（u）
+PITCH_CELL_DIVIDER = 0.25         # 仕切り（u）
+PITCH_SINGLE_THICKNESS = 1.375    # 単体バー太さ（u）
+PITCH_SINGLE_BORDER = 0.25
+PITCH_PAIRED_THICKNESS = 1.8      # 2列バーのフレーム全体の太さ（u）
+PITCH_PAIRED_BORDER = 0.2
+PITCH_FRAME_COLOR = "#008FF5"
+PITCH_CELL_EMPTY_START = "#0A96FF"
+PITCH_CELL_EMPTY_END = "#42B5FF"
+PITCH_CELL_ACTIVE_COLORS = ("#FF7E00", "#FFC800", "#FFDA00", "#FFA700", "#FF5C00", "#FF1D00", "#FF3100")
+PITCH_STRAIGHT_FILL = "#FF7E00"
+PITCH_LABEL_COLOR = "#2177C0"
+PITCH_LABEL_FONT_SIZE = 1.2       # u
+PITCH_LABEL_MAX_WIDTH = 11.0      # u（これを超える球種名は横方向に圧縮）
+PITCH_SIDE_LABEL_CENTER = 7.2     # 横方向ラベルの中心（ボール中心からの距離, u）
+PITCH_DIAGONAL_LABEL_CENTER = 7.4 # 斜め方向ラベルの中心（ボール中心からの横距離, u）
+PITCH_DOWN_LABEL_OFFSET = 1.2     # フォーク方向2球種のラベル端（ボール中心からの横距離, u）
+PITCH_CHART_BACKGROUND = "#EDF5F6"
 TAB_LABELS = ["投手能力", "野手能力", "守備・起用", "プロフィール"]
 TAB_COLORS = {"投手能力": "#d7193f", "野手能力": "#0876c9", "守備・起用": "#d49a00", "プロフィール": "#087d23"}
 NAMEPLATE_COLOR_STYLES = {
@@ -7132,8 +7131,22 @@ def render_special_grid_html(p: dict[str, Any], master: MasterData, mode: str = 
     return '<div class="pp-special-grid">' + "".join(cells) + "</div>"
 
 def pitch_display_name(name: Any) -> str:
-    text = str(name or "")
-    return PITCH_DISPLAY_NAMES.get(text, text if len(text) <= 8 else text[:7] + "…")
+    return str(name or "")
+
+
+def pitch_label_text(name: Any) -> str:
+    # 英数字は全角にして字間を空ける（例：SFF → ＳＦＦ）。長い名前は省略せず描画時に横圧縮する。
+    return "".join(
+        chr(ord(ch) + 0xFEE0) if ch.isascii() and ch.isalnum() else ch
+        for ch in pitch_display_name(name)
+    )
+
+
+def estimate_pitch_label_width(text: str, font_size: float) -> float:
+    return sum(
+        font_size if unicodedata.east_asian_width(ch) in {"W", "F", "A"} else font_size * 0.55
+        for ch in text
+    )
 
 
 def normalize_pitch_movement(ball: dict[str, Any]) -> int:
@@ -7174,195 +7187,449 @@ def build_pitch_chart_lanes(
                 direction_code=code,
                 lane_index=lane_index,
                 pitch_name=name,
-                display_name=pitch_display_name(name),
+                display_name=pitch_label_text(name),
                 movement=normalize_pitch_movement(ball),
                 is_left=is_left,
             ))
     return lanes
 
 
-def pitch_gauge_segment_positions(
-    direction_code: str, lane_index: int, is_left: bool, paired: bool = False,
-) -> list[tuple[float, float, float]]:
+PitchPoint = tuple[float, float]
+
+
+@dataclass(frozen=True)
+class PitchBarShape:
+    direction_code: str
+    lane_index: int
+    paired: bool
+    movement: int
+    frame: tuple[PitchPoint, ...]
+    cells: tuple[tuple[PitchPoint, ...], ...]
+
+
+@dataclass(frozen=True)
+class PitchChartLabel:
+    kind: str  # "pitch" / "straight" / "second"
+    text: str
+    x: float
+    y: float  # ベースライン
+    anchor: str
+    width: float
+    natural_width: float
+    direction_code: str = ""
+    lane_index: int = 0
+
+    @property
+    def compressed(self) -> bool:
+        return self.width < self.natural_width - 0.01
+
+    def rect(self) -> tuple[float, float, float, float]:
+        return pitch_label_rect(self.x, self.y, self.anchor, self.width)
+
+
+@dataclass(frozen=True)
+class PitchChartLayout:
+    is_left: bool
+    bars: tuple[PitchBarShape, ...]
+    straight_frame: tuple[PitchPoint, ...]
+    straight_fills: tuple[tuple[PitchPoint, ...], ...]
+    labels: tuple[PitchChartLabel, ...]
+
+
+def _pitch_font_metrics() -> tuple[float, float, float]:
+    font_size = PITCH_LABEL_FONT_SIZE * PITCH_CHART_UNIT
+    return font_size, font_size * 0.88, font_size * 0.12
+
+
+def pitch_label_rect(x: float, baseline: float, anchor: str, width: float) -> tuple[float, float, float, float]:
+    _font_size, ascent, descent = _pitch_font_metrics()
+    left = x - width if anchor == "end" else x - width / 2 if anchor == "middle" else x
+    return left, baseline - ascent, left + width, baseline + descent
+
+
+def _mirror_pitch_points(points: tuple[PitchPoint, ...]) -> tuple[PitchPoint, ...]:
+    return tuple((PITCH_CHART_WIDTH - x, y) for x, y in points)
+
+
+def _mix_hex(start: str, end: str, t: float) -> str:
+    a = [int(start[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(end[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02X}" for x, y in zip(a, b))
+
+
+def pitch_cell_color(index: int, active: bool) -> str:
+    if active:
+        return PITCH_CELL_ACTIVE_COLORS[index]
+    return _mix_hex(PITCH_CELL_EMPTY_START, PITCH_CELL_EMPTY_END, index / (PITCH_GAUGE_SEGMENT_COUNT - 1))
+
+
+def pitch_bar_shape(
+    direction_code: str, lane_index: int = 0, paired: bool = False, movement: int = 0, flip_side: bool = False,
+) -> PitchBarShape:
+    """右投げ基準の座標でバー1列（フレーム＋7セル）を作る。2列時は列ごとに呼ぶ。
+    flip_side は2列の並び順を入れ替える（左投げのフォーク方向を、反転後も1球種目が左になるようにする）。"""
+    u = PITCH_CHART_UNIT
     geometry = PITCH_GAUGE_GEOMETRY[direction_code]
-    origin_x, origin_y = geometry["origin"]
-    offset_x, offset_y = geometry["paired_lane_offset"]
-    angle = float(geometry["angle"])
+    ax, ay = geometry["axis"]
+    nx, ny = geometry["lane_side"]
+    if flip_side:
+        nx, ny = -nx, -ny
+    cx, cy = PITCH_CHART_CENTER
     if paired:
-        pair_factor = -0.5 if lane_index <= 0 else 0.5
-        origin_x += offset_x * pair_factor
-        origin_y += offset_y * pair_factor
-    step = PAIRED_STEP if paired else PITCH_GAUGE_STEP
-    radians = math.radians(angle)
-    positions = [
-        (origin_x + math.cos(radians) * step * index,
-         origin_y + math.sin(radians) * step * index,
-         angle)
-        for index in range(PAIRED_SEGMENT_COUNT if paired else PITCH_GAUGE_SEGMENT_COUNT)
-    ]
-    if is_left and direction_code != "3":
-        return [(280 - x, y, (180 - segment_angle) % 360) for x, y, segment_angle in positions]
-    return positions
-
-
-def pitch_gauge_label_geometry(
-    direction_code: str, lane_index: int, is_left: bool, direction_three_split: bool = False,
-) -> tuple[float, float, str]:
-    if direction_code == "3" and lane_index <= 0 and not direction_three_split:
-        return 140, 200, "middle"
-    x, y, anchor = PITCH_CHART_LABEL_GEOMETRY[direction_code][0 if lane_index <= 0 else 1]
-    if is_left and direction_code != "3":
-        return 280 - x, y, {"start": "end", "end": "start"}.get(anchor, anchor)
-    return x, y, anchor
-
-
-def pitch_gauge_colors(active: bool) -> tuple[str, str, str]:
-    return PITCH_GAUGE_ACTIVE if active else PITCH_GAUGE_INACTIVE
-
-
-def render_pitch_gauge_segment_svg(
-    x: float, y: float, angle: float, active: bool, direction_code: str, lane_index: int, segment_index: int,
-) -> str:
-    fill, stroke, highlight = pitch_gauge_colors(active)
-    return (
-        f'<g class="pitch-gauge-segment" data-direction="{direction_code}" data-lane="{lane_index}" '
-        f'data-index="{segment_index}" data-active="{str(active).lower()}" transform="translate({x:.1f} {y:.1f}) rotate({angle:.1f})">'
-        f'<rect x="{-PITCH_GAUGE_SEGMENT_LENGTH / 2:.1f}" y="{-PITCH_GAUGE_SEGMENT_THICKNESS / 2:.1f}" '
-        f'width="{PITCH_GAUGE_SEGMENT_LENGTH}" height="{PITCH_GAUGE_SEGMENT_THICKNESS}" rx="1" fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
-        f'<line x1="{-PITCH_GAUGE_SEGMENT_LENGTH / 2 + 1:.1f}" y1="{-PITCH_GAUGE_SEGMENT_THICKNESS / 2 + 1.5:.1f}" '
-        f'x2="{PITCH_GAUGE_SEGMENT_LENGTH / 2 - 1:.1f}" y2="{-PITCH_GAUGE_SEGMENT_THICKNESS / 2 + 1.5:.1f}" stroke="{highlight}" stroke-width="1"/></g>'
-    )
-
-
-def render_paired_pitch_gauge_segment_svg(
-    x: float, y: float, angle: float, active: bool, direction_code: str, lane_index: int, segment_index: int,
-) -> str:
-    fill, stroke, highlight = pitch_gauge_colors(active)
-    return (
-        f'<g class="paired-pitch-segment" data-direction="{direction_code}" data-lane="{lane_index}" '
-        f'data-index="{segment_index}" data-active="{str(active).lower()}" transform="translate({x:.1f} {y:.1f}) rotate({angle:.1f})">'
-        f'<rect x="{-PAIRED_SEGMENT_WIDTH / 2:.1f}" y="{-PAIRED_SEGMENT_HEIGHT / 2:.1f}" '
-        f'width="{PAIRED_SEGMENT_WIDTH}" height="{PAIRED_SEGMENT_HEIGHT}" rx="1" fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
-        f'<line x1="{-PAIRED_SEGMENT_WIDTH / 2 + 1:.1f}" y1="{-PAIRED_SEGMENT_HEIGHT / 2 + 1.5:.1f}" '
-        f'x2="{PAIRED_SEGMENT_WIDTH / 2 - 1:.1f}" y2="{-PAIRED_SEGMENT_HEIGHT / 2 + 1.5:.1f}" stroke="{highlight}" stroke-width="1"/></g>'
-    )
-
-
-def render_paired_pitch_gauge_tip_svg(
-    x: float, y: float, angle: float, active: bool, direction_code: str, lane_index: int,
-) -> str:
-    fill, stroke, highlight = pitch_gauge_colors(active)
-    return (
-        f'<g class="paired-pitch-tip" data-direction="{direction_code}" data-lane="{lane_index}" data-index="6" '
-        f'data-active="{str(active).lower()}" transform="translate({x:.1f} {y:.1f}) rotate({angle:.1f})">'
-        f'<polygon points="{PAIRED_ARROW_POINTS}" fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
-        f'<line x1="-3.5" y1="-2" x2="1" y2="-2" stroke="{highlight}" stroke-width="1"/></g>'
-    )
-
-
-def render_pitch_gauge_tip_svg(
-    x: float, y: float, angle: float, active: bool, direction_code: str, lane_index: int,
-) -> str:
-    fill, stroke, highlight = pitch_gauge_colors(active)
-    return (
-        f'<g class="pitch-gauge-tip" data-direction="{direction_code}" data-lane="{lane_index}" data-index="6" '
-        f'data-active="{str(active).lower()}" transform="translate({x:.1f} {y:.1f}) rotate({angle:.1f})">'
-        f'<polygon points="-6,-4.5 2,-4.5 7,0 2,4.5 -6,4.5" fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
-        f'<line x1="-4.5" y1="-3" x2="1.5" y2="-3" stroke="{highlight}" stroke-width="1"/></g>'
-    )
-
-
-def render_pitch_direction_gauge_svg(
-    direction_code: str, movement: int, is_left: bool, lane_index: int = 0, paired: bool = False,
-) -> list[str]:
-    movement = min(7, max(0, movement))
-    positions = pitch_gauge_segment_positions(direction_code, lane_index, is_left, paired)
-    if paired:
-        lines = [
-            render_paired_pitch_gauge_segment_svg(x, y, angle, index < movement, direction_code, lane_index, index)
-            for index, (x, y, angle) in enumerate(positions[:6])
-        ]
-        x, y, angle = positions[6]
-        lines.append(render_paired_pitch_gauge_tip_svg(x, y, angle, movement == 7, direction_code, lane_index))
-        return lines
-    lines = [
-        render_pitch_gauge_segment_svg(x, y, angle, index < movement, direction_code, lane_index, index)
-        for index, (x, y, angle) in enumerate(positions[:6])
-    ]
-    x, y, angle = positions[6]
-    lines.append(render_pitch_gauge_tip_svg(x, y, angle, movement == 7, direction_code, lane_index))
-    return lines
-
-
-def render_straight_markers_svg(second_fastballs: list[dict[str, Any]]) -> list[str]:
-    lines = ['<g class="pitch-straight-area">']
-    if second_fastballs:
-        pitches = [("ストレート", "straight", 133, 132, "end"),
-                   (pitch_display_name(second_fastballs[0].get("name")), "second", 147, 148, "start")]
+        border = PITCH_PAIRED_BORDER * u
+        # 2列は中央の仕切りを共有するので、列フレーム2本を仕切り1本分重ねる
+        half = (PITCH_PAIRED_THICKNESS * u + border) / 4
+        cross_center = PITCH_PAIRED_THICKNESS * u / 2 - half
+        if lane_index >= 1:
+            cross_center = -cross_center
     else:
-        pitches = [("ストレート", "straight", 140, 140, "middle")]
-    for name, kind, marker_x, label_x, anchor in pitches:
-        lines.append(
-            f'<text class="straight-label" data-kind="{kind}" x="{label_x}" y="40" '
-            f'text-anchor="{anchor}" fill="#126bb0" font-size="12" font-weight="900">{e(name)}</text>'
+        border = PITCH_SINGLE_BORDER * u
+        half = PITCH_SINGLE_THICKNESS * u / 2
+        cross_center = 0.0
+    start = PITCH_BAR_START * u
+    if paired and lane_index >= 1 and geometry["kind"] == "diagonal":
+        start += PITCH_CELL_PITCH * u  # 斜め2列は外側の列が1セル先端寄り
+
+    def point(along: float, cross: float) -> PitchPoint:
+        a = start + along
+        c = cross_center + cross
+        return (round(cx + ax * a + nx * c, 2), round(cy + ay * a + ny * c, 2))
+
+    length = PITCH_BAR_LENGTH * u
+    frame = tuple(point(a, c) for a, c in (
+        (0, -half), (length - half, -half), (length, 0), (length - half, half), (0, half),
+    ))
+    inner = half - border
+    cells = []
+    for index in range(PITCH_GAUGE_SEGMENT_COUNT):
+        a0 = PITCH_CELL_DIVIDER * u + index * PITCH_CELL_PITCH * u
+        if index < PITCH_GAUGE_SEGMENT_COUNT - 1:
+            a1 = a0 + PITCH_CELL_LENGTH * u
+            local = ((a0, -inner), (a1, -inner), (a1, inner), (a0, inner))
+        else:
+            # 最外セルは矢じりの中に収まる五角形
+            apex = length - border * math.sqrt(2)
+            flat = apex - inner
+            local = ((a0, -inner), (flat, -inner), (apex, 0), (flat, inner), (a0, inner))
+        cells.append(tuple(point(a, c) for a, c in local))
+    return PitchBarShape(direction_code, lane_index, paired, movement, frame, tuple(cells))
+
+
+def _pitch_straight_shapes(count: int) -> tuple[tuple[PitchPoint, ...], tuple[tuple[PitchPoint, ...], ...]]:
+    u = PITCH_CHART_UNIT
+    cx, cy = PITCH_CHART_CENTER
+    bottom = cy - 1.05 * u - 0.25 * u
+    top = bottom - 1.55 * u
+    if count <= 1:
+        half = 0.625 * u
+        frame = ((cx, top), (cx + half, top + half), (cx + half, bottom), (cx - half, bottom), (cx - half, top + half))
+        inset = 0.18 * u
+        fill_half = half - inset
+        apex = top + 0.25 * u
+        fills = (((cx, apex), (cx + fill_half, apex + fill_half), (cx + fill_half, bottom - inset),
+                  (cx - fill_half, bottom - inset), (cx - fill_half, apex + fill_half)),)
+    else:
+        # ストレート系2球種：五角形2つを横に連結した形
+        half = 0.9 * u
+        peak = 0.45 * u
+        frame = ((cx - half, bottom), (cx - half, top + peak), (cx - peak, top), (cx, top + peak),
+                 (cx + peak, top), (cx + half, top + peak), (cx + half, bottom))
+        fill_half = 0.33 * u
+        apex = top + 0.2 * u
+        fills = tuple(
+            ((px, apex), (px + fill_half, apex + fill_half), (px + fill_half, bottom - 0.15 * u),
+             (px - fill_half, bottom - 0.15 * u), (px - fill_half, apex + fill_half))
+            for px in (cx - peak, cx + peak)
         )
-        lines.append(
-            f'<g class="straight-marker" data-kind="{kind}" data-center-x="{marker_x}" data-center-y="49">'
-            f'<polygon points="{marker_x - 4},52 {marker_x},46 {marker_x + 4},52" fill="#ff8b25" stroke="#dd5f12" stroke-width="1"/>'
-            f'<line x1="{marker_x - 2.5}" y1="50.5" x2="{marker_x + 2.5}" y2="50.5" stroke="#ffd06a" stroke-width="1"/></g>'
-        )
-    lines.append("</g>")
-    return lines
+    return tuple((round(x, 2), round(y, 2)) for x, y in frame), tuple(
+        tuple((round(x, 2), round(y, 2)) for x, y in fill) for fill in fills
+    )
+
+
+def _convex_polygons_overlap(first: tuple[PitchPoint, ...], second: tuple[PitchPoint, ...]) -> bool:
+    # 分離軸判定（凸多角形同士）
+    for polygon in (first, second):
+        count = len(polygon)
+        for index in range(count):
+            x1, y1 = polygon[index]
+            x2, y2 = polygon[(index + 1) % count]
+            nx, ny = y1 - y2, x2 - x1
+            if nx == 0 and ny == 0:
+                continue
+            p1 = [nx * x + ny * y for x, y in first]
+            p2 = [nx * x + ny * y for x, y in second]
+            if max(p1) <= min(p2) or max(p2) <= min(p1):
+                return False
+    return True
+
+
+def _rect_polygon(rect: tuple[float, float, float, float], pad: float = 0.0) -> tuple[PitchPoint, ...]:
+    x0, y0, x1, y1 = rect
+    return ((x0 - pad, y0 - pad), (x1 + pad, y0 - pad), (x1 + pad, y1 + pad), (x0 - pad, y1 + pad))
+
+
+def _fit_pitch_label_width(
+    x: float, baseline: float, anchor: str, target: float, obstacles: list[tuple[PitchPoint, ...]],
+) -> float:
+    margin = 6.0
+    _font_size, ascent, descent = _pitch_font_metrics()
+    if baseline - ascent < margin or baseline + descent > PITCH_CHART_HEIGHT - margin:
+        return 0.0
+    right_room = PITCH_CHART_WIDTH - margin - x
+    left_room = x - margin
+    bound = left_room if anchor == "end" else right_room if anchor == "start" else 2 * min(left_room, right_room)
+    upper = min(target, bound)
+    if upper <= 0:
+        return 0.0
+
+    def fits(width: float) -> bool:
+        polygon = _rect_polygon(pitch_label_rect(x, baseline, anchor, width), 1.5)
+        return not any(_convex_polygons_overlap(polygon, obstacle) for obstacle in obstacles)
+
+    if fits(upper):
+        return upper
+    if not fits(0.0):
+        return 0.0
+    lower = 0.0
+    for _ in range(18):
+        middle = (lower + upper) / 2
+        if fits(middle):
+            lower = middle
+        else:
+            upper = middle
+    return lower
+
+
+def _pitch_label_candidates(bar: PitchBarShape) -> list[tuple[float, float, str, float]]:
+    """ラベル候補を優先順に返す（右投げ基準）。(x, ベースライン, text-anchor, 最大幅)"""
+    u = PITCH_CHART_UNIT
+    pad = 0.25 * u
+    font_size, ascent, descent = _pitch_font_metrics()
+    line = font_size * 1.1
+    max_width = PITCH_LABEL_MAX_WIDTH * u
+    geometry = PITCH_GAUGE_GEOMETRY[bar.direction_code]
+    kind = geometry["kind"]
+    outward = 1 if geometry["axis"][0] > 0 else -1
+    xs = [x for x, _y in bar.frame]
+    ys = [y for _x, y in bar.frame]
+    cx = PITCH_CHART_CENTER[0]
+    below = max(ys) + pad + ascent
+    if kind == "side":
+        # 横方向：1球種目はバーの上、2球種目はバーの下。バー外寄りの位置に中央揃え。
+        # 混んでいるときは内側へずらし、それでも無理なら1段外へ逃がす
+        center_x = cx + outward * PITCH_SIDE_LABEL_CENTER * u
+        if bar.lane_index == 0:
+            rows = [min(ys) - pad - descent, min(ys) - pad - descent - line]
+        else:
+            rows = [below, below + line]
+        return [
+            (center_x - outward * shift * u, row, "middle", max_width)
+            for row in rows for shift in (0, 1, 2, 3)
+        ]
+    if kind == "down":
+        if not bar.paired:
+            return [(cx, below, "middle", max_width)]
+        # 2球種：先端の左下／右下（列の位置に合わせる）
+        lane_x = sum(xs) / len(xs)
+        if lane_x < cx:
+            return [(cx - PITCH_DOWN_LABEL_OFFSET * u, below, "end", max_width)]
+        return [(cx + PITCH_DOWN_LABEL_OFFSET * u, below, "start", max_width)]
+    # 斜め方向：先端の下に中央揃え。フォーク側と重なるときは外側へずらす
+    center_x = cx + outward * PITCH_DIAGONAL_LABEL_CENTER * u
+    below_candidates = [
+        (center_x + outward * shift * u, row, "middle", max_width)
+        for row in (below, below + line) for shift in (0, 1, 2, 3, 4)
+    ]
+    if not (bar.paired and bar.lane_index == 0):
+        return below_candidates
+    # 2球種時の1球種目：バーの外側・中ほど。混んでいる場合は先端側へずらす
+    ax, ay = geometry["axis"]
+    nx, ny = geometry["lane_side"]
+    frame_start_x = (bar.frame[0][0] + bar.frame[4][0]) / 2
+    frame_start_y = (bar.frame[0][1] + bar.frame[4][1]) / 2
+    half = math.dist(bar.frame[0], bar.frame[4]) / 2
+    side_anchor = "start" if outward > 0 else "end"
+    candidates = []
+    # 先端の下は2球種目の場所なので使わない
+    for along in (3.75, 4.75, 5.75, 2.75):
+        mx = frame_start_x + ax * along * u + nx * (half + pad)
+        my = frame_start_y + ay * along * u + ny * (half + pad)
+        candidates.append((mx, my - descent, side_anchor, max_width))
+    return candidates
+
+
+def _place_pitch_label(
+    lane: PitchChartLane, bar: PitchBarShape, obstacles: list[tuple[PitchPoint, ...]],
+) -> PitchChartLabel:
+    font_size, _ascent, _descent = _pitch_font_metrics()
+    natural = estimate_pitch_label_width(lane.display_name, font_size)
+    best: tuple[float, tuple[float, float, str, float], float] | None = None
+    for candidate in _pitch_label_candidates(bar):
+        x, baseline, anchor, max_width = candidate
+        target = min(natural, max_width)
+        if anchor == "middle":
+            # 中央揃えのラベルは、はみ出す分だけ内側へ寄せる（見切れ防止）
+            margin = 6.0
+            x = min(max(x, margin + target / 2), PITCH_CHART_WIDTH - margin - target / 2)
+            candidate = (x, baseline, anchor, max_width)
+        width = _fit_pitch_label_width(x, baseline, anchor, target, obstacles)
+        # 優先位置で9割以上収まるなら、そこで少し圧縮して使う
+        if width >= target * 0.9 - 0.01:
+            best = (1.0, candidate, width)
+            break
+        ratio = width / target if target else 0.0
+        if best is None or ratio > best[0]:
+            best = (ratio, candidate, width)
+    assert best is not None
+    _ratio, (x, baseline, anchor, _max_width), width = best
+    return PitchChartLabel(
+        "pitch", lane.display_name, round(x, 2), round(baseline, 2), anchor, round(width, 2), round(natural, 2),
+        lane.direction_code, lane.lane_index,
+    )
+
+
+def _straight_labels(second_fastballs: list[dict[str, Any]], straight_top: float) -> list[PitchChartLabel]:
+    u = PITCH_CHART_UNIT
+    font_size, _ascent, descent = _pitch_font_metrics()
+    cx = PITCH_CHART_CENTER[0]
+    baseline = round(straight_top - 0.25 * u - descent, 2)
+    first = "ストレート"
+    if not second_fastballs:
+        width = estimate_pitch_label_width(first, font_size)
+        return [PitchChartLabel("straight", first, cx, baseline, "middle", width, width)]
+    second = pitch_label_text(second_fastballs[0].get("name"))
+    labels = []
+    # 実機：「ストレート」は五角形の左上、2球種目は右上
+    for kind, text, x, anchor in (("straight", first, cx - 1.5 * u, "end"), ("second", second, cx + 0.9 * u, "start")):
+        natural = estimate_pitch_label_width(text, font_size)
+        width = min(natural, PITCH_LABEL_MAX_WIDTH * u)
+        labels.append(PitchChartLabel(kind, text, round(x, 2), baseline, anchor, round(width, 2), round(natural, 2)))
+    return labels
+
+
+def _mirror_pitch_label(label: PitchChartLabel) -> PitchChartLabel:
+    anchor = {"start": "end", "end": "start"}.get(label.anchor, label.anchor)
+    return PitchChartLabel(
+        label.kind, label.text, round(PITCH_CHART_WIDTH - label.x, 2), label.y, anchor,
+        label.width, label.natural_width, label.direction_code, label.lane_index,
+    )
+
+
+def layout_pitch_chart(balls: list[dict[str, Any]] | None, batting_throwing: str = "") -> PitchChartLayout:
+    is_left = str(batting_throwing).startswith("左投")
+    balls = balls or []
+    second_fastballs = [ball for ball in balls if ball.get("kind") == "second_fastball"]
+    lanes = build_pitch_chart_lanes(balls, is_left)
+    paired_directions = {lane.direction_code for lane in lanes if lane.lane_index == 1}
+    lane_by_key = {(lane.direction_code, lane.lane_index): lane for lane in lanes}
+
+    bars: list[PitchBarShape] = []
+    for code in PITCH_GAUGE_GEOMETRY:
+        paired = code in paired_directions
+        for lane_index in ((0, 1) if paired else (0,)):
+            lane = lane_by_key.get((code, lane_index))
+            # フォーク方向の2列は左投げでも1球種目が左（反転後に左へ来るよう、判定座標では右に置く）
+            flip_side = is_left and PITCH_GAUGE_GEOMETRY[code]["kind"] == "down"
+            bars.append(pitch_bar_shape(code, lane_index, paired, lane.movement if lane else 0, flip_side))
+    bar_by_key = {(bar.direction_code, bar.lane_index): bar for bar in bars}
+
+    straight_frame, straight_fills = _pitch_straight_shapes(2 if second_fastballs else 1)
+    straight_labels = _straight_labels(second_fastballs, min(y for _x, y in straight_frame))
+
+    # 衝突判定は右投げ基準の座標で行う。ストレート表示は反転しないので、左投げでは判定用に反転させておく
+    u = PITCH_CHART_UNIT
+    cx, cy = PITCH_CHART_CENTER
+    radius = 1.05 * u / math.cos(math.pi / 8)
+    obstacles: list[tuple[PitchPoint, ...]] = [bar.frame for bar in bars]
+    obstacles.append(tuple(
+        (cx + radius * math.cos(math.pi / 8 + i * math.pi / 4), cy + radius * math.sin(math.pi / 8 + i * math.pi / 4))
+        for i in range(8)
+    ))
+    obstacles.append(straight_frame)
+    for label in straight_labels:
+        obstacle_label = _mirror_pitch_label(label) if is_left else label
+        obstacles.append(_rect_polygon(obstacle_label.rect()))
+
+    pitch_labels: list[PitchChartLabel] = []
+    # 横 → 下 → 斜め の順に置く（斜めは候補位置が多いので後回し）
+    for code in ("1", "5", "3", "2", "4"):
+        for lane_index in (0, 1):
+            lane = lane_by_key.get((code, lane_index))
+            if lane is None:
+                continue
+            label = _place_pitch_label(lane, bar_by_key[(code, lane_index)], obstacles)
+            pitch_labels.append(label)
+            obstacles.append(_rect_polygon(label.rect()))
+
+    if is_left:
+        bars = [
+            PitchBarShape(bar.direction_code, bar.lane_index, bar.paired, bar.movement,
+                          _mirror_pitch_points(bar.frame), tuple(_mirror_pitch_points(cell) for cell in bar.cells))
+            for bar in bars
+        ]
+        pitch_labels = [_mirror_pitch_label(label) for label in pitch_labels]
+    return PitchChartLayout(is_left, tuple(bars), straight_frame, straight_fills, tuple(straight_labels + pitch_labels))
+
+
+def _svg_points(points: tuple[PitchPoint, ...]) -> str:
+    return " ".join(f"{x:.2f},{y:.2f}" for x, y in points)
+
+
+def render_pitch_label_svg(label: PitchChartLabel) -> str:
+    font_size, _ascent, _descent = _pitch_font_metrics()
+    if label.kind == "pitch":
+        attrs = f'class="pitch-label" data-direction="{label.direction_code}" data-lane="{label.lane_index}"'
+    else:
+        attrs = f'class="straight-label" data-kind="{label.kind}"'
+    squeeze = f' textLength="{label.width:.2f}" lengthAdjust="spacingAndGlyphs"' if label.compressed else ""
+    return (
+        f'<text {attrs} x="{label.x:.2f}" y="{label.y:.2f}" text-anchor="{label.anchor}" '
+        f'fill="{PITCH_LABEL_COLOR}" font-size="{font_size:.1f}" font-weight="400"{squeeze}>{e(label.text)}</text>'
+    )
 
 
 def render_pitch_chart_svg(balls: list[dict[str, Any]] | None, batting_throwing: str = "") -> str:
-    is_left = str(batting_throwing).startswith("左投")
-    second_fastballs: list[dict[str, Any]] = []
-    for ball in balls or []:
-        if ball.get("kind") == "second_fastball":
-            second_fastballs.append(ball)
-    lanes = build_pitch_chart_lanes(balls or [], is_left)
-
+    layout = layout_pitch_chart(balls, batting_throwing)
+    u = PITCH_CHART_UNIT
+    cx, cy = PITCH_CHART_CENTER
     lines = [
-        '<svg viewBox="0 0 280 210" width="100%" height="100%" role="img" aria-label="変化球方向図">',
-        '<rect x="5" y="5" width="270" height="200" rx="7" fill="#f7fcff" stroke="#cce8ff" stroke-width="3"/>',
+        f'<svg viewBox="0 0 {PITCH_CHART_WIDTH} {PITCH_CHART_HEIGHT}" width="100%" height="100%" role="img" aria-label="変化球方向図">',
+        f'<rect x="5" y="5" width="270" height="200" rx="7" fill="{PITCH_CHART_BACKGROUND}" stroke="#ffffff" stroke-width="3"/>',
+        f'<g class="pitch-straight-area" data-count="{len(layout.straight_fills)}">',
+        f'<polygon class="straight-marker-frame" points="{_svg_points(layout.straight_frame)}" fill="{PITCH_FRAME_COLOR}"/>',
     ]
-    lines.extend(render_straight_markers_svg(second_fastballs))
-    primary_lanes = {lane.direction_code: lane for lane in lanes if lane.lane_index == 0}
-    secondary_lanes = [lane for lane in lanes if lane.lane_index == 1]
-    paired_directions = {lane.direction_code for lane in secondary_lanes}
-    gauge_lines: list[str] = []
-    for direction_code in PITCH_GAUGE_GEOMETRY:
-        primary = primary_lanes.get(direction_code)
-        gauge_lines.extend(render_pitch_direction_gauge_svg(
-            direction_code, primary.movement if primary else 0, is_left, 0,
-            direction_code in paired_directions,
-        ))
-    for lane in secondary_lanes:
-        gauge_lines.extend(render_pitch_direction_gauge_svg(
-            lane.direction_code, lane.movement, is_left, 1, True,
-        ))
-    lines.extend(gauge_lines)
+    for index, fill in enumerate(layout.straight_fills):
+        lines.append(f'<polygon class="straight-marker" data-index="{index}" points="{_svg_points(fill)}" fill="{PITCH_STRAIGHT_FILL}"/>')
+    lines.append("</g>")
+    # フレームを先に全部描き、その上にセルを並べる（2列バーが1つのフレームに見えるように）
+    for bar in layout.bars:
+        lines.append(
+            f'<polygon class="pitch-lane-frame" data-direction="{bar.direction_code}" data-lane="{bar.lane_index}" '
+            f'data-paired="{str(bar.paired).lower()}" points="{_svg_points(bar.frame)}" fill="{PITCH_FRAME_COLOR}"/>'
+        )
+    for bar in layout.bars:
+        for index, cell in enumerate(bar.cells):
+            active = index < bar.movement
+            lines.append(
+                f'<polygon class="pitch-cell" data-direction="{bar.direction_code}" data-lane="{bar.lane_index}" '
+                f'data-index="{index}" data-active="{str(active).lower()}" points="{_svg_points(cell)}" '
+                f'fill="{pitch_cell_color(index, active)}"/>'
+            )
+    ring = 0.25 * u
+    radius = 1.05 * u - ring / 2
     lines.extend([
         '<g class="pitch-center-ball">',
-        '<circle cx="140" cy="66" r="12" fill="#ffffff" stroke="#1597d4" stroke-width="3"/>',
-        '<path d="M135 57 C131 61 131 71 135 75" fill="none" stroke="#e64d4d" stroke-width="1.5"/>',
-        '<path d="M145 57 C149 61 149 71 145 75" fill="none" stroke="#e64d4d" stroke-width="1.5"/>',
+        f'<circle cx="{cx:g}" cy="{cy:g}" r="{radius:.2f}" fill="#ffffff" stroke="{PITCH_FRAME_COLOR}" stroke-width="{ring:.2f}"/>',
+        *(
+            f'<path d="M{cx + side * 0.35 * u:.2f} {cy - 0.62 * u:.2f} C{cx + side * 0.66 * u:.2f} {cy - 0.3 * u:.2f} '
+            f'{cx + side * 0.66 * u:.2f} {cy + 0.3 * u:.2f} {cx + side * 0.35 * u:.2f} {cy + 0.62 * u:.2f}" '
+            f'fill="none" stroke="#e64d4d" stroke-width="{0.11 * u:.2f}"/>'
+            for side in (-1, 1)
+        ),
         '</g>',
     ])
-
-    label_lines: list[str] = []
-    for lane in lanes:
-        name_x, name_y, anchor = pitch_gauge_label_geometry(
-            lane.direction_code, lane.lane_index, is_left,
-            lane.direction_code in paired_directions,
-        )
-        label_lines.append(
-            f'<text class="pitch-label" data-direction="{lane.direction_code}" data-lane="{lane.lane_index}" '
-            f'x="{name_x}" y="{name_y}" text-anchor="{anchor}" fill="#126bb0" '
-            f'font-size="12" font-weight="900">{e(lane.display_name)}</text>'
-        )
-    return "".join(lines + label_lines) + "</svg>"
+    lines.extend(render_pitch_label_svg(label) for label in layout.labels)
+    return "".join(lines) + "</svg>"
 
 
 def compact_pitcher_aptitude_text(player: dict[str, Any]) -> str:
