@@ -6637,6 +6637,7 @@ def render_success_message(text: str) -> None:
 def inject_powerpro_ui_css() -> None:
     st.markdown("""
     <style>
+    @import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;800;900&family=Barlow+Condensed:wght@700;800&display=swap");
     .stApp {background: radial-gradient(circle at 18% 22%, rgba(255,255,255,.48) 0 8%, transparent 9%), linear-gradient(135deg,#dff8f5 0%,#98ded8 42%,#087d91 100%);}
     .stApp:before {content:""; position:fixed; inset:0; pointer-events:none; background: repeating-linear-gradient(135deg,rgba(255,255,255,.16) 0 2px,transparent 2px 34px); opacity:.5;}
     .block-container {max-width:1680px; padding-top:3.5rem; padding-bottom:2rem;}
@@ -6765,6 +6766,166 @@ def inject_powerpro_ui_css() -> None:
     div[class*="st-key-latest_tab_fielder"] button[kind="primary"], div[class*="st-key-history_tab_fielder"] button[kind="primary"] {background:#0876c9!important; border-color:#0876c9!important;}
     div[class*="st-key-latest_tab_usage"] button[kind="primary"], div[class*="st-key-history_tab_usage"] button[kind="primary"] {background:#d49a00!important; border-color:#d49a00!important;}
     div[class*="st-key-latest_tab_profile"] button[kind="primary"], div[class*="st-key-history_tab_profile"] button[kind="primary"] {background:#087d23!important; border-color:#087d23!important;}
+    /* ===== ゲーム画面寄せ（見た目のみの上書き。上の既存ルールより後に置くことで優先されます） ===== */
+    .stApp {background: radial-gradient(circle at 12% 18%, rgba(255,255,255,.55) 0 7%, transparent 8%), radial-gradient(circle at 88% 70%, rgba(255,255,255,.35) 0 10%, transparent 11%), linear-gradient(150deg,#effdff 0%,#b5f3e6 38%,#5fd6e3 72%,#1fa6d6 100%);}
+    .stApp:before {background: repeating-linear-gradient(135deg,rgba(255,255,255,.22) 0 3px,transparent 3px 46px), radial-gradient(rgba(255,255,255,.55) 1.2px, transparent 1.6px) 0 0/22px 22px; opacity:.55;}
+    div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {font-family:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans CJK JP",sans-serif; background:#f4fbfd; border-width:5px; box-shadow:0 8px 0 rgba(0,70,120,.16), inset 0 0 0 4px #ffffff;}
+    div[class*="st-key-latest_detail_shell"] .pp-value, div[class*="st-key-history_detail_shell"] .pp-value, .pp-number-box, .pp-defense-num {font-family:"Barlow Condensed","Roboto Condensed","Arial Narrow","M PLUS Rounded 1c","Noto Sans CJK JP",sans-serif;}
+    /* ラベル：白いピル型 */
+    .pp-label {background:linear-gradient(180deg,#ffffff 0%,#f1f5f8 100%); border:2px solid #d4dde4; border-radius:12px; box-shadow:0 2px 0 #c6d1da; color:#2a6aa9; font-weight:800; letter-spacing:.18em; margin:0 6px; padding:3px 6px;}
+    /* 基礎能力行 */
+    .pp-trajectory-value {color:#163b6e;}
+    /* ランク文字のグラデーション（S〜G）：ゲーム画面の文字色を上・中・下で採色した値 */
+    .gr-S,.gr-A,.gr-B,.gr-C,.gr-D,.gr-E,.gr-F,.gr-G {-webkit-background-clip:text; background-clip:text; color:transparent!important;}
+    .gr-S {background-image:linear-gradient(180deg,#ffb3d2 0%,#ff7cb1 42%,#ff5c9f 100%);}
+    .gr-A {background-image:linear-gradient(180deg,#f9a8ef 0%,#f157de 40%,#e414c9 100%);}
+    .gr-B {background-image:linear-gradient(180deg,#ffa3b6 0%,#f5587b 40%,#e81236 100%);}
+    .gr-C {background-image:linear-gradient(180deg,#f9c870 0%,#f19e1d 40%,#e67b16 100%);}
+    .gr-D {background-image:linear-gradient(180deg,#ecec5a 0%,#cfc81a 40%,#b9a40a 100%);}
+    .gr-E {background-image:linear-gradient(180deg,#95ea66 0%,#5ad814 40%,#30bb08 100%);}
+    .gr-F {background-image:linear-gradient(180deg,#78d4ff 0%,#2eb0ff 40%,#1a90f5 100%);}
+    .gr-G {background-image:linear-gradient(180deg,#d2d2d2 0%,#a0a0a0 40%,#818181 100%);}
+    /* ヘッダー：名前プレート・背番号・顔・成績欄 */
+    .pp-header {min-height:132px; gap:8px;}
+    .pp-header-main {grid-template-rows:80px 44px; gap:6px;}
+    .pp-name {font-size:34px; font-weight:900; color:#161616; letter-spacing:.18em; padding:0 10px 0 calc(10px + .18em); border-width:3px; box-shadow:inset 0 2px 0 rgba(255,255,255,.55), 0 2px 0 rgba(0,0,0,.18);}
+    .pp-number-box {font-size:42px; font-weight:800; color:#163b6e; background:linear-gradient(180deg,#ffffff,#eef6fb); border-color:#d4e4ee;}
+    .pp-category-mark {font-size:20px; color:#163b6e; border-color:#d4e4ee;}
+    .pp-posline {display:flex; align-items:center; font-size:20px; color:#1b5f9e; background:linear-gradient(180deg,#ffffff,#f3f8fb); border-color:#dbe7ee; letter-spacing:.04em;}
+    .pp-face {width:132px; min-width:132px; height:132px; min-height:132px; background:linear-gradient(180deg,#ffffff,#f1f8fc); border:3px solid #d4e4ee;}
+    .pp-face svg {width:112px; height:112px;}
+    .pp-info {grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); grid-template-rows:1fr 1fr; gap:6px;}
+    .pp-info .pp-chip:first-child {grid-column:1 / -1;}
+    .pp-chip {display:flex; align-items:center; gap:10px; background:linear-gradient(180deg,#ffffff,#f3f8fb); border-color:#dbe7ee; color:#163b6e; font-size:24px; font-weight:900; padding:4px 8px;}
+    .pp-chip.pp-chip-wide {font-size:19px; letter-spacing:-.02em;}
+    .pp-chip .pp-mini-label {flex:0 0 auto; display:inline-block; margin:0; opacity:1; font-size:16px; font-weight:800; color:#2a6aa9; letter-spacing:.2em; background:linear-gradient(180deg,#ffffff 0%,#eef3f7 100%); border:2px solid #d4dde4; border-radius:11px; box-shadow:0 2px 0 #c6d1da; padding:3px 10px;}
+    /* 特殊能力グリッド */
+    .pp-special-grid {gap:4px;}
+    .pp-special.red {background:linear-gradient(180deg,#fff2f2 0%,#ffc2c2 55%,#ff9a9a 100%); border-color:#ef6c72; color:#c8141f;}
+    .pp-special.green {background:linear-gradient(180deg,#f0fff2 0%,#c6f1cf 55%,#98e0a9 100%); border-color:#47b867; color:#0b6d2f;}
+    .pp-special.gold {background:linear-gradient(180deg,#fffbe0 0%,#ffe680 55%,#ffcd3a 100%); border-color:#d9a514; color:#7a5200;}
+    /* 標準〜低めのランク（C〜E）は、ゲームと同じく薄く表示 */
+    .pp-special-ranked.rank-cde {background:linear-gradient(180deg,#f5fcff 0%,#dcf1f8 100%); border-color:#c4e2ec; color:#6fa9c4;}
+    .pp-special.empty {height:50px; background:linear-gradient(180deg,#f3fbfe 0%,#e6f6fb 100%); border-color:#d3ebf2;}
+    .pp-usage-cell {min-height:50px; font-size:20px;}
+    .pp-usage-label {background:linear-gradient(180deg,#ffffff 0%,#f1f5f8 100%); border-color:#d4dde4; color:#2a6aa9; box-shadow:0 2px 0 #c6d1da;}
+    .pp-usage-empty {background:linear-gradient(180deg,#f3fbfe 0%,#e6f6fb 100%); border-color:#d3ebf2;}
+    /* 守備・起用：守備力の枠（ラベル＋投捕一二三遊外の2列） */
+    .pp-defense-compact {background:#ffffff; border:2px solid #dfe9ef; gap:0; border-radius:8px;}
+    .pp-defense-label {display:flex; align-items:center; background:#ffffff; min-height:50px; border-bottom:1px solid #e3edf2;}
+    .pp-defense-label .pp-label {flex:1; margin:0 8px;}
+    .pp-defense-pos {grid-template-columns:34px 40px minmax(0,1fr); background:#ffffff; border-bottom:1px solid #e3edf2; min-height:50px; font-size:22px; color:#b9cbd6;}
+    .pp-defense-pos:nth-child(even) {border-left:1px solid #e3edf2;}
+    .pp-defense-pos.main {background:#e6f5ff; color:#163b6e;}
+    .pp-defense-rank {font-size:30px; font-weight:900; filter:drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff) drop-shadow(0 1px 1px rgba(0,40,80,.35));}
+    .pp-defense-num {font-size:28px; font-weight:800; color:#163b6e;}
+    .pp-defense-empty {color:#c3d3dc;}
+    /* タブ：非選択もタブごとの暗い色にする */
+    div[class*="st-key-latest_tab_"] button[kind="secondary"], div[class*="st-key-history_tab_"] button[kind="secondary"] {font-size:20px;}
+    div[class*="st-key-latest_tab_"] button, div[class*="st-key-history_tab_"] button {font-size:20px; letter-spacing:.06em;}
+    div[class*="st-key-latest_tab_pitcher"] button[kind="secondary"], div[class*="st-key-history_tab_pitcher"] button[kind="secondary"] {background:#6f1024!important; border-color:#560b1b!important;}
+    div[class*="st-key-latest_tab_fielder"] button[kind="secondary"], div[class*="st-key-history_tab_fielder"] button[kind="secondary"] {background:#0b3a78!important; border-color:#082c5c!important;}
+    div[class*="st-key-latest_tab_usage"] button[kind="secondary"], div[class*="st-key-history_tab_usage"] button[kind="secondary"] {background:#6b4a06!important; border-color:#553a03!important;}
+    div[class*="st-key-latest_tab_profile"] button[kind="secondary"], div[class*="st-key-history_tab_profile"] button[kind="secondary"] {background:#0c4d1c!important; border-color:#083a14!important;}
+    div[class*="st-key-latest_tab_"] button[kind="secondary"] *, div[class*="st-key-history_tab_"] button[kind="secondary"] * {color:rgba(255,255,255,.6)!important;}
+    /* プロフィール表：ラベル折り返し防止、全幅項目は必ず行頭から、文字サイズを他の欄に合わせる */
+    .pp-profile-table {border-color:#dfe9ef; border-radius:8px;}
+    @media (min-width: 981px) {.pp-profile-table {grid-template-columns:130px minmax(0,1fr) 130px minmax(0,1fr);}}
+    .pp-profile-label {white-space:nowrap; font-size:16px; letter-spacing:.02em; color:#2a6aa9; min-height:48px;}
+    .pp-profile-label:has(+ .pp-profile-span-3) {grid-column-start:1;}
+    .pp-profile-value {font-size:20px; color:#163b6e; min-height:48px;}
+    .pp-generation-info summary {color:#1b5f9e; font-weight:800; cursor:pointer; margin-top:8px;}
+    /* 基礎能力行：ランクと数値を枠の縦中央にそろえる */
+    .pp-ability-row {height:50px; min-height:50px; grid-template-columns:minmax(110px,40%) 58px 1fr; background:linear-gradient(180deg,#ffffff 0%,#f6fafc 100%); border:2px solid #dfe9ef; border-radius:8px; margin:4px 0;}
+    .pp-ability-row > div {align-self:stretch; display:flex; align-items:center; min-height:0;}
+    .pp-ability-row > .pp-label {align-self:center; display:block;}
+    .pp-rank {justify-content:center; font-size:34px; line-height:1; font-weight:900; width:52px; -webkit-text-stroke:0; text-shadow:none; filter:drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff) drop-shadow(0 2px 1px rgba(0,40,80,.35));}
+    .pp-value {justify-content:flex-end; font-size:36px; line-height:1; font-weight:800; color:#163b6e; letter-spacing:.01em; font-variant-numeric:tabular-nums;}
+    /* 特殊能力：セル幅÷文字数で文字を大きく表示（ゲームと同じくセルいっぱいに文字が並ぶ） */
+    .pp-special {container-type:inline-size; height:50px; padding:0 4px; font-weight:800; color:#1276bd; border-radius:6px; background:linear-gradient(180deg,#f2feff 0%,#bff1f7 55%,#8fe0ec 100%);}
+    .pp-special .pp-special-name, .pp-special.long .pp-special-name, .pp-special.xlong .pp-special-name {display:block; width:100%; text-align:center; white-space:nowrap; overflow:visible; line-height:1; letter-spacing:0; text-indent:0; padding:0; font-size:min(30px, calc((100cqw - 4px) / var(--n, 4)));}
+    .pp-special.sp2 .pp-special-name {letter-spacing:.9em; text-indent:.9em;}
+    .pp-special.sp3 .pp-special-name {letter-spacing:.45em; text-indent:.45em;}
+    .pp-special-ranked {grid-template-columns:minmax(0,1fr) 32px; padding:0 2px 0 4px;}
+    .pp-special-ranked .pp-special-name, .pp-special-ranked.long .pp-special-name, .pp-special-ranked.xlong .pp-special-name {align-self:center; font-size:min(30px, calc((100cqw - 40px) / var(--n, 4)));}
+    /* ランク文字：C〜Eは白フチ付きの縁取り文字、A・Bは青、F・Gは赤の四角に白文字 */
+    .pp-special-rank-badge {width:32px; height:40px; margin:0; align-self:center; font-size:34px; line-height:1; font-weight:900; border-radius:5px; background:transparent; text-shadow:none;}
+    .pp-special-ranked.rank-cde .pp-special-rank-badge {background:transparent; color:#8cc3db; filter:drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff) drop-shadow(0 0 1px #5d9dbb);}
+    .pp-special-ranked.rank-ab .pp-special-rank-badge {background:linear-gradient(180deg,#2f8fe0 0%,#1057b0 100%); color:#fff; font-size:26px; height:38px; width:30px;}
+    .pp-special-ranked.rank-fg .pp-special-rank-badge {background:linear-gradient(180deg,#ff5a60 0%,#c8161f 100%); color:#fff; font-size:26px; height:38px; width:30px;}
+    /* タブ文字・折りたたみ見出し・起用適性行 */
+    div[class*="st-key-latest_tab_"] button p, div[class*="st-key-history_tab_"] button p {font-size:22px!important; font-weight:900!important; letter-spacing:.08em;}
+    .stApp [data-testid="stExpander"] summary, .stApp [data-testid="stExpander"] summary * {color:#073f68!important;}
+    .pp-pitcher-usage-row {min-height:50px;}
+    .pp-pitcher-usage-values {font-size:24px; color:#163b6e;}
+    /* フォント統一：Streamlitのmarkdown既定フォント（Source Sans）に上書きされないよう、詳細パネル内は!importantで指定 */
+    div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {--pp-font:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans CJK JP",sans-serif; --pp-num-font:"Barlow Condensed","Roboto Condensed","Arial Narrow","M PLUS Rounded 1c","Noto Sans CJK JP",sans-serif;}
+    div[class*="st-key-latest_detail_shell"] :is(div,span,p,summary,button,text), div[class*="st-key-history_detail_shell"] :is(div,span,p,summary,button,text) {font-family:var(--pp-font)!important;}
+    div[class*="st-key-latest_detail_shell"] :is(.pp-value,.pp-value *,.pp-number-box,.pp-defense-num,.pp-chip), div[class*="st-key-history_detail_shell"] :is(.pp-value,.pp-value *,.pp-number-box,.pp-defense-num,.pp-chip) {font-family:var(--pp-num-font)!important;}
+    div[class*="st-key-latest_detail_shell"] .pp-chip .pp-mini-label, div[class*="st-key-history_detail_shell"] .pp-chip .pp-mini-label {font-family:var(--pp-font)!important;}
+    /* ===== 実画面（M PLUS Rounded 1c）での表示バランス調整 ===== */
+    /* 基礎能力行：ラベル・ランク・数値をゲームと同じ比率で大きく（ランクは行の中央寄り、数値は右端から少し内側） */
+    .pp-ability-row {height:54px; min-height:54px; grid-template-columns:minmax(0,43%) minmax(0,17%) 1fr;}
+    .pp-ability-row .pp-label {font-size:21px; letter-spacing:.2em; padding:4px 4px 4px calc(4px + .2em); margin:0 8px;}
+    .pp-rank {width:auto; font-size:44px;}
+    .pp-value {font-size:46px; padding-right:14%;}
+    .pp-speed-row {grid-template-columns:minmax(0,43%) 0 1fr;}
+    .pp-speed-row .pp-value {justify-content:flex-start; align-items:baseline; padding:0 0 0 6%; gap:6px; line-height:54px;}
+    .pp-speed-row .pp-unit {font-size:24px;}
+    .pp-trajectory-icon svg {width:60px; height:38px;}
+    /* ヘッダー：守備位置・適性をラベルピル＋大きな値に */
+    .pp-posline {gap:14px; padding:4px 8px; overflow:visible;}
+    .pp-posline .pp-mini-label {flex:0 0 auto; display:inline-block; margin:0; opacity:1; font-size:16px; font-weight:800; color:#2a6aa9; letter-spacing:.2em; background:linear-gradient(180deg,#ffffff 0%,#eef3f7 100%); border:2px solid #d4dde4; border-radius:11px; box-shadow:0 2px 0 #c6d1da; padding:3px 10px;}
+    .pp-pos-values {display:inline-flex; align-items:baseline; gap:10px; color:#1b5f9e; font-weight:900;}
+    .pp-pos-item.main, .pp-pos-item.lv3 {font-size:30px;}
+    .pp-pos-item.lv2 {font-size:24px;}
+    .pp-pos-item.sub, .pp-pos-item.lv1 {font-size:20px;}
+    .pp-chip {font-size:30px;}
+    .pp-chip.pp-chip-wide {font-size:24px;}
+    /* 特殊能力：文字をさらに大きく（上限36px）、薄い表示は水色＋縁取り */
+    .pp-special .pp-special-name, .pp-special.long .pp-special-name, .pp-special.xlong .pp-special-name {font-size:min(36px, calc((100cqw - 4px) / var(--n, 4)));}
+    .pp-special-ranked .pp-special-name, .pp-special-ranked.long .pp-special-name, .pp-special-ranked.xlong .pp-special-name {font-size:min(36px, calc((100cqw - 44px) / var(--n, 4)));}
+    .pp-special, .pp-special.empty {height:54px;}
+    .pp-special-ranked.rank-cde {color:#7dbde2;}
+    .pp-special-ranked.rank-cde .pp-special-name {filter:drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff) drop-shadow(0 -1px 0 #fff);}
+    .pp-special-rank-badge {font-size:38px;}
+    .pp-special-ranked.rank-cde .pp-special-rank-badge {color:#a9d8f0; filter:drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff) drop-shadow(1px 0 0 #2f6f98) drop-shadow(-1px 0 0 #2f6f98) drop-shadow(0 1px 0 #2f6f98) drop-shadow(0 -1px 0 #2f6f98);}
+    .pp-special-ranked.rank-ab .pp-special-rank-badge, .pp-special-ranked.rank-fg .pp-special-rank-badge {font-size:30px; height:42px;}
+    /* 守備・起用：守備力の枠と起用欄も同じ文字サイズ感に */
+    .pp-defense-label, .pp-defense-pos {min-height:56px;}
+    .pp-defense-pos {font-size:26px;}
+    .pp-defense-rank {font-size:38px; line-height:1;}
+    .pp-defense-num {font-size:36px; line-height:1;}
+    .pp-usage-cell {min-height:54px; font-size:24px;}
+    /* 守れないポジションは位置の文字も薄く（ゲームと同じ）、守れるポジションだけ濃く */
+    .pp-defense-pos .pp-defense-short {color:#c3d3dc;}
+    .pp-defense-pos:has(.pp-defense-rank) .pp-defense-short {color:#163b6e;}
+    /* 変化球の図：ゲームと同じく左列の幅いっぱいに表示 */
+    .pp-chart-wrap {width:100%; height:auto; min-height:0; max-height:none; aspect-ratio:280 / 210; margin-top:6px;}
+    .pp-chart-wrap svg {display:block; width:100%; height:100%;}
+    /* ===== ランク付き特殊能力：右側の帯（上下につながる）＋白抜きのランク文字 ===== */
+    .pp-special-ranked {--strip:#a8dcf2; background:var(--strip); border:0; border-radius:6px; padding:3px 0 3px 3px; grid-template-columns:minmax(0,1fr) 34px; box-shadow:none; color:#86c9ec;}
+    .pp-special-ranked.rank-ab {--strip:#14a0cf;}
+    .pp-special-ranked.rank-fg {--strip:#e4575e;}
+    .pp-special-ranked .pp-special-name, .pp-special-ranked.long .pp-special-name, .pp-special-ranked.xlong .pp-special-name {height:100%; line-height:48px; border-radius:5px; background:linear-gradient(180deg,#f5fcff 0%,#e3f5fc 48%,#d3eef9 52%,#e6f6fc 100%); box-shadow:inset 0 0 0 1px rgba(255,255,255,.9); filter:none; font-size:min(36px, calc((100cqw - 44px) / var(--n, 4)));}
+    .pp-special-ranked.rank-cde .pp-special-name {color:#86c9ec; filter:none;}
+    .pp-special-ranked.rank-ab .pp-special-name {color:#0d4f9e; background:linear-gradient(180deg,#effdff 0%,#c3f2fd 48%,#a4e9fb 52%,#c9f4fd 100%);}
+    .pp-special-ranked.rank-fg .pp-special-name {color:#d0121b; background:linear-gradient(180deg,#fff4f4 0%,#ffd6d6 48%,#ffc2c2 52%,#ffd9d9 100%);}
+    .pp-special-rank-badge, .pp-special-ranked.rank-cde .pp-special-rank-badge, .pp-special-ranked.rank-ab .pp-special-rank-badge, .pp-special-ranked.rank-fg .pp-special-rank-badge {width:34px; height:100%; margin:0; border-radius:0; background:transparent; color:#ffffff; font-size:36px; line-height:1; font-weight:900; align-self:stretch; display:flex; align-items:center; justify-content:center;}
+    .pp-special-ranked.rank-cde .pp-special-rank-badge {filter:drop-shadow(1.5px 0 0 #3f7690) drop-shadow(-1.5px 0 0 #3f7690) drop-shadow(0 1.5px 0 #3f7690) drop-shadow(0 -1.5px 0 #3f7690);}
+    .pp-special-ranked.rank-ab .pp-special-rank-badge {filter:drop-shadow(1.5px 0 0 #0a3f63) drop-shadow(-1.5px 0 0 #0a3f63) drop-shadow(0 1.5px 0 #0a3f63) drop-shadow(0 -1.5px 0 #0a3f63);}
+    .pp-special-ranked.rank-fg .pp-special-rank-badge {filter:drop-shadow(1.5px 0 0 #8c0f17) drop-shadow(-1.5px 0 0 #8c0f17) drop-shadow(0 1.5px 0 #8c0f17) drop-shadow(0 -1.5px 0 #8c0f17);}
+    .pp-special.pp-special-ranked.rank-cde, .pp-special.pp-special-ranked.rank-ab, .pp-special.pp-special-ranked.rank-fg {background:var(--strip); border:0; border-color:transparent;}
+    /* 1段目と2段目の帯を、間のすき間ごと上下につなげる */
+    .pp-special-grid > .pp-special-ranked:nth-child(-n+4) {border-bottom-left-radius:0; border-bottom-right-radius:0; box-shadow:0 4px 0 0 var(--strip);}
+    .pp-special-grid > .pp-special-ranked:nth-child(n+5):nth-child(-n+8) {border-top-left-radius:0; border-top-right-radius:0;}
+    /* 弾道の矢印：ランク文字と同じ列の中央に、行の高さ内で回転 */
+    .pp-trajectory-row .pp-trajectory-icon {width:auto; justify-content:center; overflow:visible;}
+    .pp-trajectory-icon svg, .pp-trajectory-icon.trajectory-1 svg, .pp-trajectory-icon.trajectory-2 svg, .pp-trajectory-icon.trajectory-3 svg, .pp-trajectory-icon.trajectory-4 svg {width:42px; height:42px; transform-origin:50% 50%;}
+    .pp-trajectory-icon.trajectory-1 svg {transform:rotate(0deg);}
+    .pp-trajectory-icon.trajectory-2 svg {transform:rotate(-22deg);}
+    .pp-trajectory-icon.trajectory-3 svg {transform:rotate(-45deg);}
+    .pp-trajectory-icon.trajectory-4 svg {transform:rotate(-65deg);}
     </style>
     """, unsafe_allow_html=True)
 
@@ -6824,6 +6985,11 @@ def ui_rank_color(rank_text: str) -> str:
         "G": "#9aa4af",
     }.get(rank_text, "#cbd5e1")
 
+def ui_rank_class(rank_text: str) -> str:
+    # ゲーム風グラデーション文字用のクラス。色の定義はCSS側（.gr-S〜.gr-G）にあります。
+    return f"gr-{rank_text}" if rank_text in {"S", "A", "B", "C", "D", "E", "F", "G"} else ""
+
+
 def render_ability_rows(items: list[tuple[str, Any]]) -> str:
     rows = []
     for label, item in items:
@@ -6831,11 +6997,20 @@ def render_ability_rows(items: list[tuple[str, Any]]) -> str:
             rank_text = e(item.get("rank", "-"))
             value = e(item.get("value", "-"))
             color = ui_rank_color(str(item.get("rank", "")))
+            rank_cls = ui_rank_class(str(item.get("rank", "")))
         else:
             rank_text = ""
             value = e(item)
             color = "#cbd5e1"
-        rows.append(f'<div class="pp-ability-row"><div class="pp-label">{e(label)}</div><div class="pp-rank" style="color:{color}">{rank_text}</div><div class="pp-value">{value}</div></div>')
+            rank_cls = ""
+        rank_class_attr = f"pp-rank {rank_cls}".strip()
+        row_class = "pp-ability-row"
+        speed_match = re.fullmatch(r"(\d+)\s*km/h", str(item)) if not isinstance(item, dict) else None
+        if speed_match:
+            # 球速はゲームと同じく数字を大きく、km/h を小さく、ラベルのすぐ右に表示します。
+            row_class += " pp-speed-row"
+            value = f'{e(speed_match.group(1))}<span class="pp-unit">km/h</span>'
+        rows.append(f'<div class="{row_class}"><div class="pp-label">{e(label)}</div><div class="{rank_class_attr}" style="color:{color}">{rank_text}</div><div class="pp-value">{value}</div></div>')
     return "".join(rows)
 
 
@@ -6851,12 +7026,11 @@ def render_trajectory_row_html(value: Any) -> str:
         '<div class="pp-ability-row pp-trajectory-row">'
         '<div class="pp-label">弾道</div>'
         f'<div class="pp-trajectory-icon trajectory-{trajectory}">'
-        '<svg viewBox="0 0 52 32" width="52" height="32" aria-hidden="true">'
-        '<g filter="drop-shadow(0 1px 1px rgba(0,0,0,.28))">'
-        '<line x1="6" y1="25" x2="41" y2="25" stroke="#ffffff" stroke-width="10" stroke-linecap="round"/>'
-        '<polygon points="44,25 33,15 33,35" fill="#ffffff" stroke="#ffffff" stroke-linejoin="round"/>'
-        f'<line x1="6" y1="25" x2="41" y2="25" stroke="{color}" stroke-width="7" stroke-linecap="round"/>'
-        f'<polygon points="44,25 34,17 34,33" fill="{color}" stroke="{color}" stroke-linejoin="round"/>'
+        '<svg viewBox="0 0 40 40" width="40" height="40" aria-hidden="true">'
+        '<g filter="drop-shadow(0 1px 1px rgba(0,0,0,.3))">'
+        # ゲームと同じ太いブロック矢印。白フチ→色の順に重ね、回転はCSSで中心を軸に行います。
+        '<polygon points="5,14 19,14 19,6 36,20 19,34 19,26 5,26" fill="#ffffff" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/>'
+        f'<polygon points="5,14 19,14 19,6 36,20 19,34 19,26 5,26" fill="{color}" stroke="{color}" stroke-width="1" stroke-linejoin="round"/>'
         '</g>'
         '</svg></div>'
         f'<div class="pp-value pp-trajectory-value">{trajectory}</div></div>'
@@ -6904,12 +7078,16 @@ def special_cell_html(name: str | None, kind: str = "blue") -> str:
         return '<div class="pp-special empty"><span></span></div>'
     base_name, rank_text = split_special_rank(name)
     length_cls = "xlong" if len(base_name) >= 11 else "long" if len(base_name) >= 8 else ""
+    # ゲームでは文字がセル幅いっぱいに大きく表示され、2〜3文字の能力（盗塁・逆境○など）だけ字間が空きます。
+    # 文字数を --n としてCSSに渡し、セル幅÷文字数で文字サイズを決めます。
+    char_count = max(1, len(base_name))
+    spread_cls = "sp2" if char_count <= 2 else "sp3" if char_count == 3 else ""
     if rank_text:
-        classes = " ".join(part for part in ["pp-special", "pp-special-ranked", special_rank_class(rank_text), length_cls] if part)
-        return f'<div class="{classes}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span><span class="pp-special-rank-badge">{e(rank_text)}</span></div>'
+        classes = " ".join(part for part in ["pp-special", "pp-special-ranked", special_rank_class(rank_text), length_cls, spread_cls] if part)
+        return f'<div class="{classes}" title="{e(name)}"><span class="pp-special-name" style="--n:{char_count}">{e(base_name)}</span><span class="pp-special-rank-badge">{e(rank_text)}</span></div>'
     cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else "neutral" if kind == "neutral" else "mixed" if kind == "mixed" else ""
-    classes = " ".join(part for part in ["pp-special", cls, length_cls] if part)
-    return f'<div class="{classes}" title="{e(name)}"><span class="pp-special-name">{e(base_name)}</span></div>'
+    classes = " ".join(part for part in ["pp-special", cls, length_cls, spread_cls] if part)
+    return f'<div class="{classes}" title="{e(name)}"><span class="pp-special-name" style="--n:{char_count}">{e(base_name)}</span></div>'
 
 
 def collect_special_entries(p: dict[str, Any], master: MasterData, mode: str) -> list[tuple[str, str]]:
@@ -6945,7 +7123,9 @@ def render_special_grid_html(p: dict[str, Any], master: MasterData, mode: str = 
     fixed_slots = fixed_rank_slots(p, mode) if mode in ("pitcher", "fielder") else []
     display_entries = collect_special_entries(p, master, mode)
     actual_cell_count = special_grid_cell_count(base_cell_count, len(fixed_slots), len(display_entries))
-    cells: list[str] = [special_cell_html(name) for name in fixed_slots]
+    # ランク付き特殊能力の固定枠は、空き枠でも右側の帯が上下につながるよう専用の空セルにします。
+    empty_ranked = '<div class="pp-special pp-special-ranked rank-cde rank-empty"><span class="pp-special-name"></span><span class="pp-special-rank-badge"></span></div>'
+    cells: list[str] = [special_cell_html(name) if name else empty_ranked for name in fixed_slots]
     cells.extend(special_cell_html(name, kind) for name, kind in display_entries)
     while len(cells) < actual_cell_count:
         cells.append(special_cell_html(None))
@@ -7299,28 +7479,32 @@ def pitcher_defense_row_html(item: Any) -> str:
 
 def render_defense_usage_left(player: dict[str, Any]) -> str:
     f = displayed_fielder_abilities(player)
-    if player.get("role") == "投手":
-        return render_ability_rows([
-            ("走力", f.get("走力")),
-            ("肩力", f.get("肩力")),
-        ]) + pitcher_defense_row_html(f.get("守備力")) + render_ability_rows([
-            ("捕球", f.get("捕球")),
-        ]) + pitcher_usage_row_html(player)
+    is_pitcher = player.get("role") == "投手"
     sub = {i["position"]: i["aptitude"] for i in normalize_sub_positions(player.get("sub_positions"))}
-    pos_labels = [("捕", "捕手"), ("一", "一塁手"), ("二", "二塁手"), ("三", "三塁手"), ("遊", "遊撃手"), ("外", "外野手")]
+    pos_labels = [("投", "投手"), ("捕", "捕手"), ("一", "一塁手"), ("二", "二塁手"), ("三", "三塁手"), ("遊", "遊撃手"), ("外", "外野手")]
+    main_position = "投手" if is_pitcher else player.get("position")
     base_fielding = ability_numeric_value(f, "守備力")
-    cells = []
+    # ゲーム画面と同じく、守備力の枠の先頭セルにラベルを置き、投〜外の7ポジションを2列で並べます。
+    cells = ['<div class="pp-defense-label"><span class="pp-label">守備力</span></div>']
     for short, full in pos_labels:
-        mark = "◎" if player.get("position") == full else sub.get(full, "－－")
-        value = display_position_defense_value(player, full, mark, base_fielding)
-        main_cls = " main" if player.get("position") == full else ""
+        is_main = main_position == full
+        mark = "◎" if is_main else sub.get(full, "－－")
+        if is_main and isinstance(base_fielding, int | float):
+            value = max(1, min(99, int(base_fielding)))
+        else:
+            value = calculate_sub_position_fielding(base_fielding, mark) if mark != "－－" else None
+        main_cls = " main" if is_main else ""
         if isinstance(value, int):
             pos_rank = rank(value)
-            value_html = f'<span class="pp-defense-rank" style="color:{ui_rank_color(pos_rank)};">{e(pos_rank)}</span><span class="pp-defense-num">{e(mark)} {e(value)}</span>'
+            value_html = f'<span class="pp-defense-rank {ui_rank_class(pos_rank)}" style="color:{ui_rank_color(pos_rank)};">{e(pos_rank)}</span><span class="pp-defense-num">{e(mark)} {e(value)}</span>'
         else:
             value_html = '<span class="pp-defense-empty">－－</span>'
         cells.append(f'<div class="pp-defense-pos{main_cls}"><span class="pp-defense-short">{short}</span>{value_html}</div>')
-    return render_ability_rows([("走力", f.get("走力")), ("肩力", f.get("肩力"))]) + '<div class="pp-defense-compact">' + ''.join(cells) + '</div>' + render_ability_rows([("守備力", f.get("守備力")), ("捕球", f.get("捕球"))])
+    grid = '<div class="pp-defense-compact">' + ''.join(cells) + '</div>'
+    html = render_ability_rows([("走力", f.get("走力")), ("肩力", f.get("肩力"))]) + grid + render_ability_rows([("捕球", f.get("捕球"))])
+    if is_pitcher:
+        html += pitcher_usage_row_html(player)
+    return html
 
 def profile_physique_text(player: dict[str, Any], key: str, legacy_key: str, unit: str) -> str:
     value = player.get(key) if key in player else player.get(legacy_key)
@@ -7410,6 +7594,32 @@ def header_position_text(player: dict[str, Any]) -> str:
     return f"守備位置　{short_positions.get(str(player.get('position', '')), player.get('position', '－'))}"
 
 
+def header_position_html(player: dict[str, Any]) -> str:
+    # ゲームと同じく「守備位置」「適性」をラベルのピルにし、値は大きな文字で表示します。
+    # 野手：メインポジションを大きく、サブポジションを小さく並べます（例：遊 三 外）。
+    # 投手：先・中・抑を適性の高さに応じた大きさで並べ、適性なし（－）は表示しません。
+    if player.get("role") == "投手":
+        abilities = player.get("abilities", {}) if isinstance(player.get("abilities"), dict) else {}
+        values = {key: player.get(key) or abilities.get(key) for key in PITCHER_APTITUDE_KEYS}
+        if not any(values.values()):
+            pos = str(player.get("position", ""))
+            values = {"starter_aptitude": "◎" if pos == "先発" else "－", "reliever_aptitude": "◎" if pos == "中継ぎ" else "－", "closer_aptitude": "◎" if pos == "抑え" else "－"}
+        level_class = {"◎": "lv3", "○": "lv2", "△": "lv1"}
+        items = []
+        for key, label in [("starter_aptitude", "先"), ("reliever_aptitude", "中"), ("closer_aptitude", "抑")]:
+            mark = str(values.get(key) or "－")
+            if mark in level_class:
+                items.append(f'<span class="pp-pos-item {level_class[mark]}" title="{e(label + mark)}">{label}</span>')
+        value_html = "".join(items) or '<span class="pp-pos-item lv1">－</span>'
+        return f'<div class="pp-posline"><span class="pp-mini-label">適性</span><span class="pp-pos-values">{value_html}</span></div>'
+    short_positions = {"捕手": "捕", "一塁手": "一", "二塁手": "二", "三塁手": "三", "遊撃手": "遊", "外野手": "外"}
+    main = str(player.get("position", ""))
+    main_short = short_positions.get(main, main or "－")
+    subs = {item["position"] for item in normalize_sub_positions(player.get("sub_positions"))}
+    sub_html = "".join(f'<span class="pp-pos-item sub">{short}</span>' for full, short in short_positions.items() if full in subs and full != main)
+    return f'<div class="pp-posline"><span class="pp-mini-label">守備位置</span><span class="pp-pos-values"><span class="pp-pos-item main">{e(main_short)}</span>{sub_html}</span></div>'
+
+
 def normalize_selected_tab_value(player: dict[str, Any], value: Any) -> str:
     if value == "選手能力" or value not in TAB_LABELS:
         return "投手能力" if player.get("role") == "投手" else "野手能力"
@@ -7438,7 +7648,7 @@ def usage_special_categories(player: dict[str, Any], master: MasterData) -> dict
 def render_usage_categories_html(player: dict[str, Any], master: MasterData) -> str:
     cells: list[str] = []
     categories = usage_special_categories(player, master)
-    growth_html = special_cell_html(growth_type_label(player.get("growth_type")), "green")
+    growth_html = e(growth_type_label(player.get("growth_type")))
     if not categories:
         cells.extend([
             '<div class="pp-usage-cell pp-usage-label">起用法</div>',
@@ -7484,7 +7694,7 @@ def render_header_html(p: dict[str, Any]) -> str:
             <div class="pp-category-mark" title="{e(p.get('category'))}">{e(category_mark)}</div>
             <div class="pp-number-box">{player_uniform_number(p)}</div>
           </div>
-          <div class="pp-posline">{e(header_position_text(p))}</div>
+          {header_position_html(p)}
         </div>
         <div class="pp-face">{render_player_icon_svg(p)}</div>
         <div class="pp-info">
@@ -7519,8 +7729,7 @@ def render_detail_body_html(p: dict[str, Any], master: MasterData, effective_tab
         right = render_special_grid_html(p, master, mode="pitcher")
     elif effective_tab == "野手能力":
         fa = displayed_fielder_abilities(p)
-        pos = p.get("position") if p.get("role") == "野手" else "投"
-        left = render_ability_rows([("守備位置", pos)]) + render_trajectory_row_html(fa.get("弾道")) + render_ability_rows([("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
+        left = render_trajectory_row_html(fa.get("弾道")) + render_ability_rows([("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
         right = render_special_grid_html(p, master, mode="fielder")
     elif effective_tab == "守備・起用":
         left = render_defense_usage_left(p)

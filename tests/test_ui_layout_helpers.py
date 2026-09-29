@@ -134,7 +134,8 @@ class UiLayoutHelpersTest(unittest.TestCase):
         html = app.render_header_html({"role": "野手", "name": "山田", "position": "三塁手", "seed": 1, "batting_throwing": "右投右打"})
         self.assertNotIn("★", html)
         self.assertNotIn("pp-score", html)
-        self.assertIn("守備位置　三", html)
+        self.assertIn('<span class="pp-mini-label">守備位置</span>', html)
+        self.assertIn('<span class="pp-pos-item main">三</span>', html)
 
 
     def test_header_direct_children_are_three_blocks(self):
@@ -155,7 +156,20 @@ class UiLayoutHelpersTest(unittest.TestCase):
             self.assertIn(text, pitcher_html)
         for text in ["★", "pp-score", "seed", "タイプ"]:
             self.assertNotIn(text, pitcher_html)
-        self.assertIn("守備位置　三", app.render_header_html(fielder))
+        fielder_html = app.render_header_html(fielder)
+        self.assertIn('<span class="pp-mini-label">守備位置</span>', fielder_html)
+        self.assertIn('<span class="pp-pos-item main">三</span>', fielder_html)
+
+    def test_header_position_shows_sub_positions_and_sized_pitcher_aptitudes(self):
+        fielder = {"role": "野手", "name": "佐藤", "position": "遊撃手", "seed": 2, "batting_throwing": "右投右打", "sub_positions": [{"position": "外野手", "aptitude": "△"}, {"position": "三塁手", "aptitude": "○"}]}
+        html = app.header_position_html(fielder)
+        self.assertIn('<span class="pp-pos-item main">遊</span><span class="pp-pos-item sub">三</span><span class="pp-pos-item sub">外</span>', html)
+        pitcher = {"role": "投手", "name": "山田", "position": "中継ぎ", "seed": 1, "starter_aptitude": "○", "reliever_aptitude": "◎", "closer_aptitude": "－"}
+        html = app.header_position_html(pitcher)
+        self.assertIn('<span class="pp-mini-label">適性</span>', html)
+        self.assertIn('class="pp-pos-item lv2" title="先○">先</span>', html)
+        self.assertIn('class="pp-pos-item lv3" title="中◎">中</span>', html)
+        self.assertNotIn(">抑<", html)
 
     def test_header_name_has_escaped_title_and_text(self):
         name = 'A&B <Ace> "Slugger"'
@@ -537,12 +551,22 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertNotIn("pp-profile-grid", html)
         self.assertNotIn("pp-mini-card", html)
 
-    def test_defense_table_always_renders_six_positions_with_split_rank_and_value(self):
+    def test_defense_table_always_renders_seven_positions_with_split_rank_and_value(self):
         player = {"role": "野手", "position": "一塁手", "seed": 1, "abilities": {"走力": app.ability(50), "肩力": app.ability(50), "守備力": app.ability(56), "捕球": app.ability(50)}, "sub_positions": []}
         html = app.render_defense_usage_left(player)
-        self.assertEqual(html.count('class="pp-defense-pos'), 6)
-        self.assertIn('class="pp-defense-rank"', html)
+        self.assertEqual(html.count('class="pp-defense-pos'), 7)
+        self.assertIn('class="pp-defense-label"', html)
+        self.assertIn('<span class="pp-defense-short">投</span><span class="pp-defense-empty">－－</span>', html)
+        self.assertIn('class="pp-defense-rank', html)
         self.assertIn('class="pp-defense-num"', html)
+
+    def test_pitcher_defense_table_uses_pitcher_as_main_position(self):
+        player = {"role": "投手", "position": "先発", "seed": 1, "abilities": {"弾道": 1, "ミート": app.ability(20), "パワー": app.ability(20), "走力": app.ability(50), "肩力": app.ability(50), "守備力": app.ability(52), "捕球": app.ability(50)}, "sub_positions": []}
+        html = app.render_defense_usage_left(player)
+        self.assertEqual(html.count('class="pp-defense-pos'), 7)
+        self.assertIn('<div class="pp-defense-pos main"><span class="pp-defense-short">投</span>', html)
+        self.assertIn('<span class="pp-defense-num">◎ 52</span>', html)
+        self.assertIn("pp-pitcher-usage-row", html)
 
     def test_sub_position_fielding_display_uses_aptitude_rates_and_floor(self):
         self.assertEqual(app.calculate_sub_position_fielding(73, "◎"), 73)
