@@ -8272,27 +8272,33 @@ def render_player_section(history: pd.DataFrame, master: MasterData) -> None:
             player = latest_by_id[selected_player_id]
         else:
             player = player_from_history_row(history.iloc[row_position_by_id[selected_player_id]])
-        render_seed_copy(player.get("seed"))
+        render_seed_copy(player)
         render_detail_panel(player, master, DETAIL_KEY_PREFIX)
 
 
-def seed_copy_html(seed: Any) -> str:
-    seed_text = json.dumps(str(seed))
+def seed_copy_text(player: dict[str, Any]) -> str:
+    """「seedをコピー」でコピーする再現用の文字列（<投手|野手>/<カテゴリ>/<seed>）。"""
+    return f"{player.get('role', '')}{SEED_SPEC_SEPARATOR}{player.get('category', '')}{SEED_SPEC_SEPARATOR}{player.get('seed', '')}"
+
+
+def seed_copy_html(copy_text: str) -> str:
+    # スクリプト内に埋め込むため、"</script>" で閉じられないよう "<" もエスケープする
+    copy_json = json.dumps(str(copy_text)).replace("<", "\\u003c")
     return f"""
     <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;font-family:'Source Sans Pro',sans-serif;font-size:14px;color:{UI_COLORS['muted']};">
-      <span>seed: <b style="color:{UI_COLORS['text']};">{e(seed)}</b></span>
+      <span>再生成用: <b style="color:{UI_COLORS['text']};">{e(copy_text)}</b></span>
       <button id="copy" style="cursor:pointer;border:1.5px solid {UI_COLORS['primary']};background:#fff;color:{UI_COLORS['primary']};border-radius:8px;padding:4px 12px;font-size:14px;font-weight:700;">seedをコピー</button>
       <span id="msg" aria-live="polite"></span>
     </div>
     <script>
-    const seed = {seed_text};
+    const copyText = {copy_json};
     document.getElementById("copy").addEventListener("click", async () => {{
       const msg = document.getElementById("msg");
       try {{
-        await navigator.clipboard.writeText(seed);
+        await navigator.clipboard.writeText(copyText);
       }} catch (error) {{
         const area = document.createElement("textarea");
-        area.value = seed;
+        area.value = copyText;
         document.body.appendChild(area);
         area.select();
         document.execCommand("copy");
@@ -8305,10 +8311,10 @@ def seed_copy_html(seed: Any) -> str:
     """
 
 
-def render_seed_copy(seed: Any) -> None:
-    if seed in (None, ""):
+def render_seed_copy(player: dict[str, Any]) -> None:
+    if player.get("seed") in (None, ""):
         return
-    components.html(seed_copy_html(seed), height=40)
+    components.html(seed_copy_html(seed_copy_text(player)), height=40)
 
 
 def history_excel_bytes(history: pd.DataFrame) -> bytes:
@@ -8321,6 +8327,10 @@ def history_excel_bytes(history: pd.DataFrame) -> bytes:
 HISTORY_PERIOD_OPTIONS = ["すべて", "今日", "7日以内"]
 HISTORY_TABLE_HEIGHT = 420
 SEED_INPUT_KEY = "seed_input"
+ROLE_INPUT_KEY = "role_input"
+CATEGORY_INPUT_KEY = "category_input"
+PENDING_CONDITIONS_KEY = "pending_generation_conditions"
+SEED_SPEC_SEPARATOR = "/"
 SQLITE_INTEGER_MAX = 2**63 - 1
 
 
@@ -8389,15 +8399,43 @@ def render_history_section(history: pd.DataFrame) -> None:
         st.download_button(f"Excelで保存（全{len(history)}件）", data=history_excel_bytes(history), file_name="pawapuro_players.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
 
 
-def parse_seed_text(text: str) -> int | None:
-    """seed入力欄の値を整数にする。空欄は None、整数として解釈できない値は ValueError。"""
-    value = str(text or "").strip()
+class SeedSpecError(ValueError):
+    """seed入力欄の値を読み取れないときのエラー。メッセージは画面にそのまま出す。"""
+
+
+@dataclass(frozen=True)
+class SeedSpec:
+    seed: int
+    role: str | None = None
+    category: str | None = None
+
+
+def parse_seed_int(text: str) -> int:
+    try:
+        seed = int(text.strip())
+    except ValueError:
+        raise SeedSpecError(f"seed「{text.strip()}」を整数として読み取れません。0以上の整数を入力してください。") from None
+    if not 0 <= seed <= SQLITE_INTEGER_MAX:
+        raise SeedSpecError(f"seed「{text.strip()}」は範囲外です。0以上の整数を入力してください。")
+    return seed
+
+
+def parse_seed_spec(text: str) -> SeedSpec | None:
+    """seed入力欄の値を読む。空欄は None。数字だけならseedのみ、「投手/カテゴリ/seed」なら条件も返す。"""
+    value = unicodedata.normalize("NFKC", str(text or "")).strip()
     if not value:
         return None
-    seed = int(value)
-    if not 0 <= seed <= SQLITE_INTEGER_MAX:
-        raise ValueError(value)
-    return seed
+    if SEED_SPEC_SEPARATOR not in value:
+        return SeedSpec(seed=parse_seed_int(value))
+    parts = [part.strip() for part in value.split(SEED_SPEC_SEPARATOR)]
+    if len(parts) != 3 or not all(parts):
+        raise SeedSpecError(f"「{value}」は形式が合いません。「投手/助っ人外国人用/5821876419」の形式か、数字だけを入力してください。")
+    role, category, seed_text = parts
+    if role not in POSITIONS:
+        raise SeedSpecError(f"「{role}」は投手/野手の名前として見つかりません。「投手」か「野手」を指定してください。")
+    if category not in CATEGORIES:
+        raise SeedSpecError(f"カテゴリ「{category}」が見つかりません。{('、'.join(CATEGORIES))}のいずれかを指定してください。")
+    return SeedSpec(seed=parse_seed_int(seed_text), role=role, category=category)
 
 
 def generate_and_save_players(role: str, category: str, count: int, master: MasterData, seed: int | None = None) -> None:
@@ -8436,16 +8474,26 @@ def start_generation() -> None:
 
 
 def render_generation_sidebar() -> tuple[str, str, int, str]:
+    # 貼り付けた「投手/カテゴリ/seed」の条件は、ウィジェットを描く前に反映する
+    pending = st.session_state.pop(PENDING_CONDITIONS_KEY, None)
+    if pending:
+        st.session_state[ROLE_INPUT_KEY], st.session_state[CATEGORY_INPUT_KEY] = pending
     seed_text = str(st.session_state.get(SEED_INPUT_KEY, "") or "")
     seed_given = bool(seed_text.strip())
     with st.sidebar:
         st.header("生成条件")
-        role = st.radio("投手 / 野手", ["投手", "野手"], horizontal=True)
-        category = st.selectbox("カテゴリ", CATEGORIES)
+        role = st.radio("投手 / 野手", ["投手", "野手"], horizontal=True, key=ROLE_INPUT_KEY)
+        category = st.selectbox("カテゴリ", CATEGORIES, key=CATEGORY_INPUT_KEY)
         count = st.number_input("生成人数", min_value=1, max_value=1000, value=3, step=1, disabled=seed_given)
         if seed_given:
             st.caption("seed指定時は1人だけ生成します")
-        st.text_input("seed（任意）", key=SEED_INPUT_KEY, placeholder="空欄ならランダム")
+        st.text_input(
+            "seed（任意）",
+            key=SEED_INPUT_KEY,
+            placeholder="空欄ならランダム",
+            help="外国人選手は、一度に生成した中で名前の重複を避けるために名前が変わっていた場合、seedから再生成しても同じ名前にはなりません。",
+        )
+        st.caption("『seedをコピー』で得た文字列を貼ると、同じ条件で再生成します")
         st.button("生成する", type="primary", use_container_width=True, key="generate_button", disabled=bool(st.session_state.get("generating")), on_click=start_generation)
         st.caption(f"Version {APP_VERSION}")
     return role, category, int(count), seed_text
@@ -8462,12 +8510,15 @@ def generation_page() -> None:
     role, category, count, seed_text = render_generation_sidebar()
     if st.session_state.get("generating"):
         try:
-            seed = parse_seed_text(seed_text)
-        except ValueError:
-            st.session_state["seed_error"] = f"seed「{seed_text.strip()}」を整数として読み取れません。0以上の整数を入力してください。"
+            spec = parse_seed_spec(seed_text)
+        except SeedSpecError as error:
+            st.session_state["seed_error"] = str(error)
         else:
             st.session_state.pop("seed_error", None)
-            generate_and_save_players(role, category, count, master, seed)
+            if spec and spec.role and spec.category:
+                role, category = spec.role, spec.category
+                st.session_state[PENDING_CONDITIONS_KEY] = (role, category)
+            generate_and_save_players(role, category, count, master, spec.seed if spec else None)
         st.session_state["generating"] = False
         st.rerun()
     if st.session_state.get("pending_toast"):

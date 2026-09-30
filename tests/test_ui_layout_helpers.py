@@ -561,13 +561,35 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertNotIn("repeating-linear-gradient(135deg", source)
         self.assertNotIn(".stApp:before", source)
 
-    def test_parse_seed_text(self):
-        self.assertIsNone(app.parse_seed_text(""))
-        self.assertIsNone(app.parse_seed_text("   "))
-        self.assertEqual(app.parse_seed_text(" 12345 "), 12345)
-        for invalid in ["abc", "1.5", "-1", str(2**63)]:
-            with self.assertRaises(ValueError):
-                app.parse_seed_text(invalid)
+    def test_parse_seed_spec_accepts_number_and_copied_text(self):
+        self.assertIsNone(app.parse_seed_spec(""))
+        self.assertIsNone(app.parse_seed_spec("   "))
+        self.assertEqual(app.parse_seed_spec(" 12345 "), app.SeedSpec(seed=12345))
+        self.assertEqual(app.parse_seed_spec("投手/助っ人外国人用/5821876419"), app.SeedSpec(seed=5821876419, role="投手", category="助っ人外国人用"))
+        self.assertEqual(app.parse_seed_spec(" 野手／架空球団用／７ "), app.SeedSpec(seed=7, role="野手", category="架空球団用"))
+
+    def test_parse_seed_spec_rejects_invalid_input(self):
+        cases = {
+            "投手/架空球団用": "形式が合いません",
+            "投手/架空球団用/1/2": "形式が合いません",
+            "捕手/架空球団用/1": "投手/野手の名前として見つかりません",
+            "投手/海外球団用/1": "カテゴリ「海外球団用」が見つかりません",
+            "投手/架空球団用/abc": "整数として読み取れません",
+            "abc": "整数として読み取れません",
+            "-1": "範囲外",
+            str(2**63): "範囲外",
+        }
+        for text, message in cases.items():
+            with self.subTest(text=text):
+                with self.assertRaises(app.SeedSpecError) as raised:
+                    app.parse_seed_spec(text)
+                self.assertIn(message, str(raised.exception))
+
+    def test_seed_copy_text_round_trips_through_parser(self):
+        player = {"role": "投手", "category": "助っ人外国人用", "seed": 5821876419}
+        text = app.seed_copy_text(player)
+        self.assertEqual(text, "投手/助っ人外国人用/5821876419")
+        self.assertEqual(app.parse_seed_spec(text), app.SeedSpec(seed=5821876419, role="投手", category="助っ人外国人用"))
 
     def test_seed_generation_is_single_player_and_reproducible(self):
         source = Path("app.py").read_text(encoding="utf-8")
@@ -579,11 +601,12 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertIn('disabled=bool(st.session_state.get("generating"))', sidebar_source)
         self.assertIn('st.spinner("選手を生成中です...")', generation_source)
 
-    def test_seed_copy_html_escapes_seed(self):
-        html = app.seed_copy_html('1<2>"3')
+    def test_seed_copy_html_escapes_text(self):
+        html = app.seed_copy_html('投手/<架空>/"3')
         self.assertIn("seedをコピー", html)
-        self.assertIn("1&lt;2&gt;&quot;3", html)
-        self.assertIn('const seed = "1<2>\\"3";', html)
+        self.assertIn("投手/&lt;架空&gt;/&quot;3", html)
+        self.assertIn("const copyText = " + json.dumps('投手/<架空>/"3').replace("<", "\\u003c") + ";", html)
+        self.assertNotIn("/<", html.split("<script>")[1])
 
     def test_filter_history_table(self):
         history = pd.DataFrame([
