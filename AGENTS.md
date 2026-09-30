@@ -138,3 +138,11 @@ Display generated players in a Pawapuro-like ability card.
 
 Also save generated players into SQLite and allow CSV export.
 
+
+
+\## Git
+
+
+
+\- commit・push の前に現在のブランチを確認し、main には直接 push しない。
+
