@@ -20,7 +20,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-from generator.foreign_names import generate_foreign_profile
+from generator.foreign_names import generate_foreign_profile, name_group_display_nationalities
 
 APP_VERSION = "1.0.0"
 APP_NAME = "パワプロ風 架空選手生成"
@@ -8141,10 +8141,41 @@ def restricted_left_throwing_positions(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
-def name_matches_nationality(name: str, nationality: str, master: MasterData, birthplace: str | None = None) -> bool:
+def foreign_name_group(name_group_id: Any, name_group_name: Any) -> int | None:
+    """外国人名DB（generator/foreign_names.py）で作られた名前なら、その名前グループIDを返す。
+
+    name_group_id は 0 が「U.S. (Modern)」とDBの既定値の両方に使われるため、
+    name_group_name が入っているかどうかで判定する。
+    """
+    if name_group_name is None or (isinstance(name_group_name, float) and pd.isna(name_group_name)) or not str(name_group_name).strip():
+        return None
+    try:
+        return int(name_group_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def name_matches_nationality(name: str, nationality: str, master: MasterData, birthplace: str | None = None, name_group_id: Any = None, name_group_name: Any = None) -> bool:
+    group_id = foreign_name_group(name_group_id, name_group_name)
+    if group_id is not None:
+        group_nationalities = name_group_display_nationalities()
+        if group_nationalities:
+            return nationality in group_nationalities.get(group_id, frozenset())
+    # 日本人と旧データ（names.json の姓・名で作った名前）は従来どおり判定する
     if name_matches_entry(name, master.names.get(nationality)):
         return True
     return nationality == "日本" and japanese_name_matches_surname_master(name, master, birthplace)
+
+
+def player_name_matches_nationality(row: Any, master: MasterData) -> bool:
+    return name_matches_nationality(row["name"], row["nationality"], master, row.get("birthplace"), row.get("name_group_id"), row.get("name_group_name"))
+
+
+def player_name_type(row: Any, master: MasterData) -> str:
+    """名前種別。外国人名DBの名前なら名前グループ名を表示する。"""
+    if foreign_name_group(row.get("name_group_id"), row.get("name_group_name")) is not None:
+        return str(row.get("name_group_name"))
+    return classify_name_type(row["name"], master, row["nationality"], row.get("birthplace"))
 
 
 def birthplace_matches_nationality(birthplace: str, nationality: str, master: MasterData) -> bool:
@@ -8155,11 +8186,11 @@ def consistency_table(df: pd.DataFrame, master: MasterData, kind: str) -> pd.Dat
     work = df.copy()
     type_column = "名前種別" if kind == "name" else "出身地種別"
     if kind == "name":
-        work[type_column] = work.apply(lambda row: classify_name_type(row["name"], master, row["nationality"], row.get("birthplace")), axis=1)
+        work[type_column] = work.apply(lambda row: player_name_type(row, master), axis=1)
     else:
         work[type_column] = work["birthplace"].apply(lambda value: classify_birthplace_type(value, master))
     if kind == "name":
-        work["整合性"] = work.apply(lambda row: name_matches_nationality(row["name"], row["nationality"], master, row.get("birthplace")), axis=1)
+        work["整合性"] = work.apply(lambda row: player_name_matches_nationality(row, master), axis=1)
     else:
         work["整合性"] = work.apply(lambda row: birthplace_matches_nationality(row["birthplace"], row["nationality"], master), axis=1)
     return work.groupby(["nationality", type_column, "整合性"]).size().reset_index(name="人数").rename(columns={"nationality": "国籍"})
@@ -8167,7 +8198,7 @@ def consistency_table(df: pd.DataFrame, master: MasterData, kind: str) -> pd.Dat
 
 def inconsistency_count(df: pd.DataFrame, master: MasterData, kind: str) -> int:
     if kind == "name":
-        matches = df.apply(lambda row: name_matches_nationality(row["name"], row["nationality"], master, row.get("birthplace")), axis=1)
+        matches = df.apply(lambda row: player_name_matches_nationality(row, master), axis=1)
     else:
         matches = df.apply(lambda row: birthplace_matches_nationality(row["birthplace"], row["nationality"], master), axis=1)
     return int((~matches).sum())

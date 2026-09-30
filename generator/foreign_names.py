@@ -266,6 +266,24 @@ def generate_foreign_profile(
     return None
 
 
+@lru_cache(maxsize=4)
+def name_group_display_nationalities(db_path: str = str(DEFAULT_DB_PATH), config_path: str = str(DEFAULT_CONFIG_PATH)) -> dict[int, frozenset[str]]:
+    """読み取り専用：名前グループID → その名前グループで名前を作りうる表示国籍の集合。
+
+    生成時と同じ usable_group_ids / display_nationality_for の対応を使う（整合性チェック用）。
+    DBを利用できない場合は空の辞書を返す。
+    """
+    if not imported_db_ready(db_path):
+        return {}
+    config = load_config(config_path)
+    result: dict[int, set[str]] = {}
+    for actual in load_nations(db_path):
+        display = display_nationality_for(actual, config)
+        for lid, _weight in usable_group_ids(actual, db_path):
+            result.setdefault(int(lid), set()).add(display)
+    return {lid: frozenset(displays) for lid, displays in result.items()}
+
+
 def clear_caches() -> None:
     imported_db_ready.cache_clear()
     load_config.cache_clear()
@@ -274,3 +292,4 @@ def clear_caches() -> None:
     load_names_for_lid.cache_clear()
     load_nation_ethnicities.cache_clear()
     load_ethnicity.cache_clear()
+    name_group_display_nationalities.cache_clear()
