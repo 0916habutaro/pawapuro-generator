@@ -192,21 +192,27 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertIn(".pp-info {display:grid; grid-template-columns:minmax(170px, 1.3fr) minmax(130px, 1fr) minmax(100px, .72fr);", source)
         self.assertNotIn("pp-header-left", source)
 
-    def test_player_browser_uses_single_row_columns_without_state_changes(self):
+    def test_player_section_has_one_selector_and_one_card(self):
         source = Path("app.py").read_text(encoding="utf-8")
-        browser_source = source[source.index("def render_player_browser"):source.index("def main")]
-        self.assertIn("""previous_col, select_col, next_col = st.columns(
-        [0.16, 0.68, 0.16],
-        gap="small",
-    )""", browser_source)
-        self.assertIn('st.selectbox("選手一覧", player_ids, format_func=lambda player_id: label_by_id[player_id], key=selected_player_id_key, label_visibility="collapsed")', browser_source)
-        self.assertIn('selected_player_id_key = f"{key_prefix}_selected_player_id"', browser_source)
-        self.assertEqual(browser_source.count("on_click=select_relative_player"), 2)
-        self.assertIn("with previous_col:", browser_source)
-        self.assertIn("with select_col:", browser_source)
-        self.assertIn("with next_col:", browser_source)
-        self.assertIn("def relative_player_id", source)
+        section_source = source[source.index("def render_player_section"):source.index("def history_excel_bytes")]
+        self.assertIn("previous_col, select_col, count_col, next_col = st.columns(", section_source)
+        self.assertIn("key=PLAYER_SELECT_KEY", section_source)
+        self.assertEqual(section_source.count("on_click=select_relative_player"), 2)
+        self.assertEqual(section_source.count("render_detail_panel("), 1)
+        self.assertIn("{current_index + 1} / {len(player_ids)}", section_source)
+        main_source = source[source.index("def main"):]
+        self.assertNotIn("render_player_browser", source)
+        self.assertNotIn("st.expander", main_source)
         self.assertNotIn("selected_index", source)
+
+    def test_player_choice_ids_are_newest_first_and_include_latest(self):
+        history_ids = [f"db:{number}" for number in range(10, 0, -1)]
+        self.assertEqual(app.player_choice_ids(history_ids, ["db:10", "db:9"], None), history_ids)
+        self.assertEqual(app.player_choice_ids(history_ids, ["latest:1:山田:先発:0"], None)[0], "latest:1:山田:先発:0")
+
+    def test_player_choice_ids_keep_selected_player_beyond_limit_in_order(self):
+        history_ids = [f"db:{number}" for number in range(10, 0, -1)]
+        self.assertEqual(app.player_choice_ids(history_ids, [], "db:2", limit=3), ["db:10", "db:9", "db:8", "db:2"])
 
 
     def test_relative_player_id_empty_list(self):
@@ -244,16 +250,18 @@ class UiLayoutHelpersTest(unittest.TestCase):
             {"seed": 11, "name": "山田", "position": "先発", "player_type": "本格派", "age": 20, "batting_throwing": "右投右打"},
         ]
         ids = [app.player_unique_id(player, index) for index, player in enumerate(players)]
-        labels = [app.player_label(player, index) for index, player in enumerate(players)]
+        labels = [app.player_label(player) for player in players]
         self.assertEqual(len(set(ids)), 2)
         self.assertNotEqual(ids[0], ids[1])
         self.assertIn("山田", labels[0])
+        self.assertTrue(app.player_label(players[0], is_new=True).startswith("【NEW】"))
+        self.assertFalse(labels[0].startswith("1."))
 
     def test_history_db_id_has_priority_over_latest_display_id(self):
         self.assertEqual(app.player_unique_id({"id": 42, "seed": 10, "name": "山田", "position": "先発"}, 0), "db:42")
 
-    def test_latest_and_history_selected_player_keys_are_distinct(self):
-        self.assertNotEqual("latest_selected_player_id", "history_selected_player_id")
+    def test_detail_card_keeps_latest_key_prefix_for_card_css(self):
+        self.assertEqual(app.DETAIL_KEY_PREFIX, "latest")
 
 
     def test_ui_rank_color_e_is_green(self):
@@ -468,12 +476,12 @@ class UiLayoutHelpersTest(unittest.TestCase):
 
     def test_navigation_disabled_buttons_remain_legible(self):
         source = Path("app.py").read_text(encoding="utf-8")
+        css = app.app_chrome_css()
         self.assertNotIn('div[data-testid="stButton"] > button:disabled', source)
-        for key in ["latest_prev", "latest_next", "history_prev", "history_next"]:
-            self.assertIn(f'div[class*="st-key-{key}"] button:disabled', source)
-        self.assertIn("opacity:1!important", source)
-        self.assertIn("cursor:not-allowed", source)
-        self.assertIn('button:disabled * {color:#5f7484!important', source)
+        for key in ["player_prev", "player_next"]:
+            self.assertIn(f'div[class*="st-key-{key}"] button:disabled', css)
+        self.assertIn("cursor:not-allowed", css)
+        self.assertIn("border:1px dashed", css)
 
     def test_global_text_color_does_not_override_streamlit_controls(self):
         source = Path("app.py").read_text(encoding="utf-8")
@@ -485,16 +493,15 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertIn('div[class*="st-key-latest_tab_"] button *', source)
         self.assertIn('div[class*="st-key-history_tab_"] button *', source)
         self.assertIn("color:#ffffff!important", source)
-        self.assertIn('[data-testid="stSidebar"] p', source)
-        self.assertIn("color:#d8ecf7", source)
-        self.assertIn('[data-testid="stExpander"] summary *', source)
-        self.assertIn('[data-testid="stHeadingWithActionElements"] h1', source)
-        self.assertIn("color:#073f68; text-shadow:none", source)
+        css = app.app_chrome_css()
+        self.assertIn('[data-testid="stSidebar"] label', css)
+        self.assertIn("--ui-sidebar-bg:#0B2A5B;", css)
+        self.assertIn('[data-testid="stSidebar"] input {background:var(--ui-surface); color:var(--ui-text);', css)
 
     def test_page_description_uses_scoped_dark_text_and_escapes_html(self):
         source = Path("app.py").read_text(encoding="utf-8")
-        block = css_block(source, ".pp-page-description")
-        self.assertIn("color:#073f68", block)
+        block = css_block(app.app_chrome_css(), ".pp-page-description")
+        self.assertIn("color:var(--ui-text)", block)
         self.assertNotIn(".stApp p,", source)
         self.assertNotIn(".stApp label,", source)
         self.assertEqual(
@@ -504,18 +511,154 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertIn('render_page_description("投手/野手、カテゴリ、生成人数だけを選ぶと', source)
         self.assertIn('render_page_description("保存済み選手をSQLiteから読み込み', source)
 
-    def test_success_message_has_scoped_high_contrast_style_and_escapes_html(self):
+    def test_generation_message_is_toast_without_sqlite_wording(self):
         source = Path("app.py").read_text(encoding="utf-8")
-        block = css_block(source, ".pp-success-message")
-        self.assertIn("color:#075f3b", block)
-        self.assertIn("background:rgba(133,225,177,.38)", block)
-        self.assertIn("border-left:5px solid #168a54", block)
-        self.assertEqual(
-            app.success_message_html("3件 <保存> & 完了"),
-            '<div class="pp-success-message">3件 &lt;保存&gt; &amp; 完了</div>',
-        )
-        self.assertIn('render_success_message(f"{len(players)}人の選手を生成し', source)
+        self.assertIn('st.session_state["pending_toast"] = f"{len(players)}人の選手を生成しました"', source)
+        self.assertIn('st.toast(st.session_state.pop("pending_toast"), icon="✅")', source)
+        self.assertNotIn("SQLiteに", source)
+        self.assertNotIn("pp-success-message", source)
+        self.assertNotIn("同じseedを使うことで", source)
         self.assertNotIn('.stApp [data-testid="stAlert"] {color:', source)
+
+    def test_history_display_frame_uses_japanese_values_without_changing_source(self):
+        history = pd.DataFrame([
+            {"id": 3, "created_at": "2026-09-30 10:52:41", "seed": 5, "name": "山田", "category": "助っ人外国人用", "position": "先発", "player_type": "本格派", "age": 28, "batting_throwing": "右投右打", "entry_route": "海外プロ経由", "roster_origin": "foreign_import", "foreign_route": "latin_development", "is_returnee": 0},
+            {"id": 2, "created_at": "2026-09-29 08:01:00", "seed": 6, "name": "佐藤", "category": "架空球団用", "position": "捕手", "player_type": "巧打", "age": 22, "batting_throwing": "右投左打", "entry_route": "高卒", "roster_origin": "unknown_value", "foreign_route": "", "is_returnee": 1},
+        ])
+        display, columns = app.history_display_frame(history)
+        self.assertEqual(columns, ["name", "category", "position", "player_type", "age", "batting_throwing", "entry_route", "created_at"])
+        self.assertEqual(display.loc[0, "created_at"], "2026/09/30 10:52")
+        self.assertEqual(display.loc[0, "roster_origin"], "外国人補強")
+        self.assertEqual(display.loc[0, "foreign_route"], "中南米育成")
+        self.assertEqual(display.loc[1, "roster_origin"], "unknown_value")
+        self.assertEqual(display.loc[1, "is_returnee"], "はい")
+        self.assertEqual(history.loc[0, "roster_origin"], "foreign_import")
+        _display, detail_columns = app.history_display_frame(history, show_details=True)
+        self.assertIn("id", detail_columns)
+        self.assertIn("seed", detail_columns)
+        self.assertEqual(detail_columns[:8], columns)
+
+    def test_history_columns_have_japanese_labels(self):
+        for column in app.HISTORY_DEFAULT_COLUMNS:
+            self.assertTrue(any(ord(char) > 127 for char in app.HISTORY_COLUMN_LABELS[column]))
+
+    def test_page_switch_uses_top_navigation_and_sidebar_only_has_conditions(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertIn('st.navigation(pages, position="top")', source)
+        self.assertNotIn("表示する画面", source)
+        sidebar_source = source[source.index("def render_generation_sidebar"):source.index("def render_app_title")]
+        for label in ["生成条件", "投手 / 野手", "カテゴリ", "生成人数", "生成する", "Version"]:
+            self.assertIn(label, sidebar_source)
+
+    def test_app_name_is_unified(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertEqual(app.APP_NAME, "パワプロ風 架空選手生成")
+        self.assertNotIn("選手能力詳細ジェネレーター", source)
+        self.assertIn("page_title=APP_NAME", source)
+
+    def test_background_has_no_diagonal_stripes(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertNotIn("repeating-linear-gradient(135deg", source)
+        self.assertNotIn(".stApp:before", source)
+
+    def test_parse_seed_spec_accepts_number_and_copied_text(self):
+        self.assertIsNone(app.parse_seed_spec(""))
+        self.assertIsNone(app.parse_seed_spec("   "))
+        self.assertEqual(app.parse_seed_spec(" 12345 "), app.SeedSpec(seed=12345))
+        self.assertEqual(app.parse_seed_spec("投手/助っ人外国人用/5821876419"), app.SeedSpec(seed=5821876419, role="投手", category="助っ人外国人用"))
+        self.assertEqual(app.parse_seed_spec(" 野手／架空球団用／７ "), app.SeedSpec(seed=7, role="野手", category="架空球団用"))
+
+    def test_parse_seed_spec_rejects_invalid_input(self):
+        cases = {
+            "投手/架空球団用": "形式が合いません",
+            "投手/架空球団用/1/2": "形式が合いません",
+            "捕手/架空球団用/1": "投手/野手の名前として見つかりません",
+            "投手/海外球団用/1": "カテゴリ「海外球団用」が見つかりません",
+            "投手/架空球団用/abc": "整数として読み取れません",
+            "abc": "整数として読み取れません",
+            "-1": "範囲外",
+            str(2**63): "範囲外",
+        }
+        for text, message in cases.items():
+            with self.subTest(text=text):
+                with self.assertRaises(app.SeedSpecError) as raised:
+                    app.parse_seed_spec(text)
+                self.assertIn(message, str(raised.exception))
+
+    def test_seed_copy_text_round_trips_through_parser(self):
+        player = {"role": "投手", "category": "助っ人外国人用", "seed": 5821876419}
+        text = app.seed_copy_text(player)
+        self.assertEqual(text, "投手/助っ人外国人用/5821876419")
+        self.assertEqual(app.parse_seed_spec(text), app.SeedSpec(seed=5821876419, role="投手", category="助っ人外国人用"))
+
+    def test_seed_generation_is_single_player_and_reproducible(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        generation_source = source[source.index("def generate_and_save_players"):source.index("def start_generation")]
+        self.assertIn("players.append(generate_player(role, category, master, seed=seed, used_names=set()))", generation_source)
+        sidebar_source = source[source.index("def render_generation_sidebar"):source.index("def render_app_title")]
+        self.assertIn("disabled=seed_given", sidebar_source)
+        self.assertIn("seed指定時は1人だけ生成します", sidebar_source)
+        self.assertIn('disabled=bool(st.session_state.get("generating"))', sidebar_source)
+        self.assertIn('st.spinner("選手を生成中です...")', generation_source)
+
+    def test_seed_copy_html_escapes_text(self):
+        html = app.seed_copy_html('投手/<架空>/"3')
+        self.assertIn("seedをコピー", html)
+        self.assertIn("投手/&lt;架空&gt;/&quot;3", html)
+        self.assertIn("const copyText = " + json.dumps('投手/<架空>/"3').replace("<", "\\u003c") + ";", html)
+        self.assertNotIn("/<", html.split("<script>")[1])
+
+    def test_filter_history_table(self):
+        history = pd.DataFrame([
+            {"id": 3, "created_at": "2026-09-30 10:00:00", "name": "山田 太郎", "category": "架空球団用", "position": "先発"},
+            {"id": 2, "created_at": "2026-09-26 10:00:00", "name": "Tom Sutton", "category": "助っ人外国人用", "position": "捕手"},
+            {"id": 1, "created_at": "2026-08-01 10:00:00", "name": "佐藤 次郎", "category": "架空球団用", "position": "捕手"},
+        ])
+        today = "2026-09-30 18:00:00"
+        ids = lambda frame: frame["id"].tolist()
+        self.assertEqual(ids(app.filter_history_table(history, [], [], "すべて", "", today)), [3, 2, 1])
+        self.assertEqual(ids(app.filter_history_table(history, ["架空球団用"], [], "すべて", "", today)), [3, 1])
+        self.assertEqual(ids(app.filter_history_table(history, [], ["捕手"], "すべて", "", today)), [2, 1])
+        self.assertEqual(ids(app.filter_history_table(history, [], [], "今日", "", today)), [3])
+        self.assertEqual(ids(app.filter_history_table(history, [], [], "7日以内", "", today)), [3, 2])
+        self.assertEqual(ids(app.filter_history_table(history, [], [], "すべて", "tom", today)), [2])
+
+    def test_player_area_is_limited_to_pre_change_card_width(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertEqual(app.CARD_MAX_WIDTH_PX, 1460)
+        self.assertIn('div[class*="st-key-player_area"] {max-width:1460px; width:100%; margin-left:auto; margin-right:auto;}', app.app_chrome_css())
+        section_source = source[source.index("def render_player_section"):source.index("def seed_copy_html")]
+        area_source = section_source[section_source.index("with st.container(key=PLAYER_AREA_KEY):"):]
+        for part in ["render_section_heading(\"選手を選択\")", "key=\"player_prev\"", "key=PLAYER_SELECT_KEY", "pp-player-count", "key=\"player_next\"", "render_detail_panel("]:
+            self.assertIn(part, area_source)
+
+    def test_view_export_matches_table_rows_columns_and_labels(self):
+        history = pd.DataFrame([
+            {"id": 3, "created_at": "2026-09-30 10:52:41", "seed": 5, "name": "山田", "category": "助っ人外国人用", "position": "先発", "player_type": "本格派", "age": 28, "batting_throwing": "右投右打", "entry_route": "海外プロ経由", "roster_origin": "foreign_import"},
+            {"id": 2, "created_at": "2026-09-29 08:01:00", "seed": 6, "name": "佐藤", "category": "架空球団用", "position": "捕手", "player_type": "巧打", "age": 22, "batting_throwing": "右投左打", "entry_route": "高卒", "roster_origin": "domestic"},
+        ])
+        filtered = app.filter_history_table(history, ["架空球団用"], [], "すべて", "")
+        display, columns = app.history_display_frame(filtered)
+        view = app.history_view_export_frame(display, columns)
+        self.assertEqual(list(view.columns), ["名前", "カテゴリ", "起用", "タイプ", "年齢", "投打", "入団経路", "生成日時"])
+        self.assertEqual(view["名前"].tolist(), ["佐藤"])
+        self.assertEqual(view.loc[view.index[0], "生成日時"], "2026/09/29 08:01")
+        detail_display, detail_columns = app.history_display_frame(filtered, show_details=True)
+        detail_view = app.history_view_export_frame(detail_display, detail_columns)
+        self.assertIn("所属区分", detail_view.columns)
+        self.assertEqual(detail_view.loc[detail_view.index[0], "所属区分"], "国内")
+        self.assertEqual(len(set(detail_view.columns)), len(detail_view.columns))
+        csv_text = app.history_csv_bytes(view)
+        self.assertEqual(csv_text[:3], bytes([0xEF, 0xBB, 0xBF]))
+
+    def test_export_file_names_have_kind_and_timestamp(self):
+        self.assertEqual(app.export_file_name("view", "csv", "2026-09-30 11:44:59"), "players_view_20260930_1144.csv")
+        self.assertEqual(app.export_file_name("all", "xlsx", "2026-09-30 11:44:59"), "players_all_20260930_1144.xlsx")
+
+    def test_balance_growth_age_band_is_defined(self):
+        expected = {18: "18-19歳", 19: "18-19歳", 20: "20-22歳", 22: "20-22歳", 23: "23-26歳", 26: "23-26歳", 27: "27-30歳", 30: "27-30歳", 31: "31-34歳", 34: "31-34歳", 35: "35歳以上", 42: "35歳以上"}
+        for age, band in expected.items():
+            self.assertEqual(app.age_band(age), band)
 
     def test_main_defense_position_has_distinct_emphasis(self):
         source = Path("app.py").read_text(encoding="utf-8")
@@ -523,11 +666,10 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertIn("background:#dff3ff", block)
         self.assertIn("box-shadow:inset 4px 0 0 #0b8fe0", block)
 
-    def test_profile_help_matches_visible_profile_and_generation_info(self):
+    def test_help_band_is_removed_and_profile_css_order_is_kept(self):
         source = Path("app.py").read_text(encoding="utf-8")
-        expected = "氏名、年齢、投打、国籍、出身地、体格を確認します。生成条件は「生成情報」から確認できます。"
-        self.assertIn(f'"プロフィール": "{expected}"', source)
-        self.assertNotIn("年齢、国籍、出身地、体格、生成カテゴリを確認します。", source)
+        self.assertNotIn("pp-help", source)
+        self.assertNotIn("球速、制球、スタミナ、変化球と投手特殊能力を確認します。", source)
         profile_definition = source.index(".pp-profile-table {display:grid")
         responsive_definition = source.index(".pp-profile-table {grid-template-columns:88px", profile_definition)
         self.assertGreater(responsive_definition, profile_definition)

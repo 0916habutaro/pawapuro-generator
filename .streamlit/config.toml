@@ -1,0 +1,16 @@
+# 配色は app.py の UI_COLORS と同じ値にそろえる
+[theme]
+base = "light"
+primaryColor = "#E5333F"
+backgroundColor = "#F4F8FC"
+secondaryBackgroundColor = "#E6EEF7"
+textColor = "#1A2B45"
+
+[theme.sidebar]
+backgroundColor = "#0B2A5B"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#FFFFFF"
+
+[client]
+# "viewer" では「⋮」メニューが残るため、Deploy と「⋮」の両方を隠せる "minimal" にする
+toolbarMode = "minimal"

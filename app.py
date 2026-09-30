@@ -8,7 +8,7 @@ import re
 import sqlite3
 import math
 import unicodedata
-from functools import lru_cache
+from functools import lru_cache, partial
 from html import escape
 from dataclasses import dataclass
 from io import BytesIO
@@ -17,10 +17,12 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from generator.foreign_names import generate_foreign_profile
 
 APP_VERSION = "1.0.0"
+APP_NAME = "パワプロ風 架空選手生成"
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
 DB_PATH = APP_DIR / "players.sqlite3"
@@ -6023,7 +6025,7 @@ def advance_foreign_import_roster_year(
     return next_players
 
 
-def save_players(players: list[dict[str, Any]]) -> int:
+def save_players(players: list[dict[str, Any]], saved_ids: list[int] | None = None) -> int:
     init_db()
     with sqlite3.connect(DB_PATH) as conn:
         for p in players:
@@ -6035,9 +6037,11 @@ def save_players(players: list[dict[str, Any]]) -> int:
             if p.get("nationality") == "日本":
                 birthplace = normalize_japanese_prefecture_name(birthplace)
                 region = normalize_japanese_prefecture_name(region)
-            conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, roster_origin, foreign_route, entry_route, pro_entry_age, pro_years, npb_years, npb_first_entry_year, npb_stint_start_year, is_returnee, nationality, actual_nationality, nationality_code, name_group_id, name_group_name, skin_color, birthplace, region, position, player_type, player_class, growth_type, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, height_cm, weight_kg, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json, birth_month, birth_day, pitching_form_type, pitching_form_number, pitching_form_is_generic, batting_form_type, batting_form_number, batting_form_is_generic, bat_color, glove_color, wristband_left_enabled, wristband_left_color, wristband_right_enabled, wristband_right_color, draft_source_type)
+            cursor = conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, roster_origin, foreign_route, entry_route, pro_entry_age, pro_years, npb_years, npb_first_entry_year, npb_stint_start_year, is_returnee, nationality, actual_nationality, nationality_code, name_group_id, name_group_name, skin_color, birthplace, region, position, player_type, player_class, growth_type, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, height_cm, weight_kg, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json, birth_month, birth_day, pitching_form_type, pitching_form_number, pitching_form_is_generic, batting_form_type, batting_form_number, batting_form_is_generic, bat_color, glove_color, wristband_left_enabled, wristband_left_color, wristband_right_enabled, wristband_right_color, draft_source_type)
                           VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                          (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("roster_origin", ""), p.get("foreign_route", ""), p.get("entry_route", ""), p.get("pro_entry_age", 0), p.get("pro_years", 0), p.get("npb_years", p.get("pro_years", 0)), p.get("npb_first_entry_year", 0), p.get("npb_stint_start_year", 0), int(bool(p.get("is_returnee", False))), p.get("nationality", ""), p.get("actual_nationality", ""), p.get("nationality_code", ""), p.get("name_group_id", 0), p.get("name_group_name", ""), p.get("skin_color", 0), birthplace, region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), normalize_growth_type(p.get("growth_type")), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), p.get("height_cm"), p.get("weight_kg"), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False), p.get("birth_month", 0), p.get("birth_day", 0), p.get("pitching_form_type", ""), p.get("pitching_form_number", 0), p.get("pitching_form_is_generic", 1), p.get("batting_form_type", ""), p.get("batting_form_number", 0), p.get("batting_form_is_generic", 1), p.get("bat_color", ""), p.get("glove_color", ""), p.get("wristband_left_enabled", 0), p.get("wristband_left_color", ""), p.get("wristband_right_enabled", 0), p.get("wristband_right_color", ""), p.get("draft_source_type", "")))
+            if saved_ids is not None:
+                saved_ids.append(int(cursor.lastrowid))
         return len(players)
 
 
@@ -6246,6 +6250,16 @@ def career_age_band(age: Any) -> str:
     if value <= 34: return "31～34歳"
     if value <= 39: return "35～39歳"
     return "40歳以上"
+
+
+def age_band(age: int) -> str:
+    """成長タイプ分布用の年齢帯。scripts/validate_ability_balance.py の AGE_BINS / AGE_LABELS と同じ区分。"""
+    if age <= 19: return "18-19歳"
+    if age <= 22: return "20-22歳"
+    if age <= 26: return "23-26歳"
+    if age <= 30: return "27-30歳"
+    if age <= 34: return "31-34歳"
+    return "35歳以上"
 
 
 def pro_years_age_band_stats(df: pd.DataFrame) -> pd.DataFrame:
@@ -6626,23 +6640,11 @@ def render_page_description(text: str) -> None:
     st.markdown(page_description_html(text), unsafe_allow_html=True)
 
 
-def success_message_html(text: str) -> str:
-    return f'<div class="pp-success-message">{e(text)}</div>'
-
-
-def render_success_message(text: str) -> None:
-    st.markdown(success_message_html(text), unsafe_allow_html=True)
-
-
 def inject_powerpro_ui_css() -> None:
     st.markdown("""
     <style>
     @import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;800;900&family=Barlow+Condensed:wght@700;800&display=swap");
-    .stApp {background: radial-gradient(circle at 18% 22%, rgba(255,255,255,.48) 0 8%, transparent 9%), linear-gradient(135deg,#dff8f5 0%,#98ded8 42%,#087d91 100%);}
-    .stApp:before {content:""; position:fixed; inset:0; pointer-events:none; background: repeating-linear-gradient(135deg,rgba(255,255,255,.16) 0 2px,transparent 2px 34px); opacity:.5;}
     .block-container {max-width:1680px; padding-top:3.5rem; padding-bottom:2rem;}
-    div[data-testid="stVerticalBlockBorderWrapper"] {background:rgba(255,255,255,.72); border-color:#0e7fbd!important;}
-    .pp-title {background:linear-gradient(90deg,rgba(255,255,255,.92),rgba(229,249,255,.55)); border-left:9px solid #e23d4f; border-bottom:3px solid #1b7fbd; padding:12px 20px; border-radius:4px 20px 20px 4px; color:#063d77; font-weight:900; font-size:29px; margin-bottom:10px;}
     .pp-panel {background:#fff;}
     div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {max-width:1560px; margin:0 auto; background:#fff; border:4px solid var(--pp-tab-color,#0876c9); border-radius:16px; padding:8px; box-shadow:0 7px 0 rgba(0,76,130,.18), inset 0 0 0 5px #e8f8ff; font-family:"Arial Rounded MT Bold","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo",sans-serif;}
     div[class*="st-key-latest_detail_shell"] > div, div[class*="st-key-history_detail_shell"] > div {font-family:inherit;}
@@ -6684,25 +6686,8 @@ def inject_powerpro_ui_css() -> None:
     .pp-special-ranked.rank-fg .pp-special-rank-badge {background:linear-gradient(180deg,#ed5a60 0%,#c8212b 100%); color:#fff;}
     .pp-special.empty {height:42px; background:linear-gradient(180deg,#ffffff 0%,#fbfdfe 58%,#f5fafb 100%); border-color:#dcebef; color:transparent; box-shadow:none;}
     .pp-section-title {color:#075f9e; font-weight:900; font-size:17px; margin:2px 0 7px;}
-    .pp-help {position:static; background:#062247; color:#f7fbff; padding:12px 18px; font-size:17px; line-height:1.55; font-weight:800; border-top:4px solid #0b4f8c; border-radius:8px; margin:16px 0; overflow-wrap:anywhere;}
-    .pp-list-note {color:#073f68; font-weight:900; background:rgba(255,255,255,.78); border-left:5px solid #0b78bd; padding:7px 10px; border-radius:5px; margin-bottom:8px;}
-    .pp-page-description {color:#073f68; font-size:16px; line-height:1.6; font-weight:650; margin:0 0 14px;}
-    .pp-success-message {color:#075f3b; background:rgba(133,225,177,.38); border:1px solid rgba(18,143,84,.38); border-left:5px solid #168a54; border-radius:8px; padding:12px 14px; font-size:16px; line-height:1.5; font-weight:800; margin:8px 0 14px;}
-    .pp-player-row {width:100%; text-align:left; margin-bottom:4px;}
-    .stApp [data-testid="stCaptionContainer"] {font-weight:650;}
-    .stApp [data-testid="stSelectbox"] {min-width:0;}
-    .stApp [data-testid="stSidebar"] {color:#eef7ff;}
-    .stApp [data-testid="stSidebar"] p, .stApp [data-testid="stSidebar"] label, .stApp [data-testid="stSidebar"] span, .stApp [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {color:#d8ecf7;}
-    .stApp [data-testid="stSidebar"] h1, .stApp [data-testid="stSidebar"] h2, .stApp [data-testid="stSidebar"] h3 {color:#f4fbff;}
-    .stApp [data-testid="stSidebar"] [data-baseweb="select"] * {color:#f4fbff;}
-    .stApp [data-testid="stHeadingWithActionElements"] h1, .stApp [data-testid="stHeadingWithActionElements"] h2, .stApp [data-testid="stHeadingWithActionElements"] h3 {color:#073f68; text-shadow:none;}
-    .stApp [data-testid="stExpander"] summary, .stApp [data-testid="stExpander"] summary * {color:#f4fbff!important;}
-    div[data-testid="stButton"] > button {min-height:2.2rem; opacity:1!important;}
-    div[data-testid="stButton"] > button:not(:disabled), div[data-testid="stButton"] > button:not(:disabled) *, div[data-testid="stDownloadButton"] > button, div[data-testid="stDownloadButton"] > button * {color:#ffffff!important;}
+    div[data-testid="stButton"] > button {min-height:2.2rem;}
     button[kind="primary"], button[kind="primary"] * {color:#ffffff!important;}
-    div[class*="st-key-latest_prev"] button, div[class*="st-key-latest_next"] button, div[class*="st-key-history_prev"] button, div[class*="st-key-history_next"] button {min-height:38px; height:38px; white-space:nowrap;}
-    div[class*="st-key-latest_prev"] button:disabled, div[class*="st-key-latest_next"] button:disabled, div[class*="st-key-history_prev"] button:disabled, div[class*="st-key-history_next"] button:disabled {opacity:1!important; color:#5f7484!important; background:#e5edf2!important; border-color:#b7c7d2!important; cursor:not-allowed;}
-    div[class*="st-key-latest_prev"] button:disabled *, div[class*="st-key-latest_next"] button:disabled *, div[class*="st-key-history_prev"] button:disabled *, div[class*="st-key-history_next"] button:disabled * {color:#5f7484!important;}
     @media (max-width: 980px) {
       .pp-header {grid-template-columns:1fr;}
       .pp-face {width:100%;}
@@ -6712,9 +6697,7 @@ def inject_powerpro_ui_css() -> None:
       .pp-body,.pp-body-pitcher {grid-template-columns:1fr; min-height:0;}
       .pp-special-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
       .pp-usage-grid {grid-template-columns:repeat(4,minmax(0,1fr));}
-      .pp-help {font-size:15px; padding:10px 12px;}
       .pp-defense-compact {width:100%;}
-      div[class*="st-key-latest_prev"] button, div[class*="st-key-latest_next"] button, div[class*="st-key-history_prev"] button, div[class*="st-key-history_next"] button {font-size:14px; padding-left:6px; padding-right:6px;}
     }
     .pp-aptitude-line {background:#f9fdff; border:2px solid #cfe9ff; border-radius:9px; color:#0a69b0; font-weight:900; padding:5px 9px; margin-bottom:6px; white-space:nowrap; font-size:15px;}
     .pp-pitcher-usage-row,.pp-pitcher-defense-row {display:grid; grid-template-columns:40% 1fr; align-items:center; margin:4px 0; background:#fff; border:2px solid #cfe9ff; border-radius:9px; min-height:39px; overflow:hidden; box-shadow:inset 0 2px rgba(255,255,255,.8);}
@@ -6767,8 +6750,6 @@ def inject_powerpro_ui_css() -> None:
     div[class*="st-key-latest_tab_usage"] button[kind="primary"], div[class*="st-key-history_tab_usage"] button[kind="primary"] {background:#d49a00!important; border-color:#d49a00!important;}
     div[class*="st-key-latest_tab_profile"] button[kind="primary"], div[class*="st-key-history_tab_profile"] button[kind="primary"] {background:#087d23!important; border-color:#087d23!important;}
     /* ===== ゲーム画面寄せ（見た目のみの上書き。上の既存ルールより後に置くことで優先されます） ===== */
-    .stApp {background: radial-gradient(circle at 12% 18%, rgba(255,255,255,.55) 0 7%, transparent 8%), radial-gradient(circle at 88% 70%, rgba(255,255,255,.35) 0 10%, transparent 11%), linear-gradient(150deg,#effdff 0%,#b5f3e6 38%,#5fd6e3 72%,#1fa6d6 100%);}
-    .stApp:before {background: repeating-linear-gradient(135deg,rgba(255,255,255,.22) 0 3px,transparent 3px 46px), radial-gradient(rgba(255,255,255,.55) 1.2px, transparent 1.6px) 0 0/22px 22px; opacity:.55;}
     div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {font-family:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans CJK JP",sans-serif; background:#f4fbfd; border-width:5px; box-shadow:0 8px 0 rgba(0,70,120,.16), inset 0 0 0 4px #ffffff;}
     div[class*="st-key-latest_detail_shell"] .pp-value, div[class*="st-key-history_detail_shell"] .pp-value, .pp-number-box, .pp-defense-num {font-family:"Barlow Condensed","Roboto Condensed","Arial Narrow","M PLUS Rounded 1c","Noto Sans CJK JP",sans-serif;}
     /* ラベル：白いピル型 */
@@ -6853,9 +6834,8 @@ def inject_powerpro_ui_css() -> None:
     .pp-special-ranked.rank-cde .pp-special-rank-badge {background:transparent; color:#8cc3db; filter:drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff) drop-shadow(0 0 1px #5d9dbb);}
     .pp-special-ranked.rank-ab .pp-special-rank-badge {background:linear-gradient(180deg,#2f8fe0 0%,#1057b0 100%); color:#fff; font-size:26px; height:38px; width:30px;}
     .pp-special-ranked.rank-fg .pp-special-rank-badge {background:linear-gradient(180deg,#ff5a60 0%,#c8161f 100%); color:#fff; font-size:26px; height:38px; width:30px;}
-    /* タブ文字・折りたたみ見出し・起用適性行 */
+    /* タブ文字・起用適性行 */
     div[class*="st-key-latest_tab_"] button p, div[class*="st-key-history_tab_"] button p {font-size:22px!important; font-weight:900!important; letter-spacing:.08em;}
-    .stApp [data-testid="stExpander"] summary, .stApp [data-testid="stExpander"] summary * {color:#073f68!important;}
     .pp-pitcher-usage-row {min-height:50px;}
     .pp-pitcher-usage-values {font-size:24px; color:#163b6e;}
     /* フォント統一：Streamlitのmarkdown既定フォント（Source Sans）に上書きされないよう、詳細パネル内は!importantで指定 */
@@ -8035,6 +8015,154 @@ def render_detail_body_html(p: dict[str, Any], master: MasterData, effective_tab
     body_class = "pp-body pp-body-pitcher" if effective_tab == "投手能力" else "pp-body"
     return f'<div class="{body_class}"><div>{left}</div><div>{right}</div></div>'
 
+# ===== 能力カード以外の画面部品 =====
+# 配色トークン。.streamlit/config.toml のテーマと同じ値にそろえる。
+UI_COLORS = {
+    "primary": "#0B2A5B",
+    "accent": "#E5333F",
+    "accent-dark": "#A91F2A",
+    "text": "#1A2B45",
+    "muted": "#4A5B75",
+    "surface": "#FFFFFF",
+    "border": "#C9D6E8",
+    "sidebar-bg": "#0B2A5B",
+    "sidebar-text": "#FFFFFF",
+    "sidebar-muted": "#C9D6E8",
+}
+# 能力カードのCSSは st-key-latest_* を前提にしているため、キー接頭辞は "latest" のまま使う。
+DETAIL_KEY_PREFIX = "latest"
+# 改修前のコミット（main 8e7e784）を1920px幅で表示したときのカード幅の実測値
+CARD_MAX_WIDTH_PX = 1460
+PLAYER_AREA_KEY = "player_area"
+PLAYER_SELECT_KEY = "selected_player_id"
+PLAYER_OPTION_LIMIT = 300
+HISTORY_TABLE_NONCE_KEY = "history_table_nonce"
+HISTORY_TABLE_IDS_KEY = "history_table_ids"
+HISTORY_DEFAULT_COLUMNS = ["name", "category", "position", "player_type", "age", "batting_throwing", "entry_route", "created_at"]
+# 詳細列でも出さない列（日本語の派生列と重複するもの、表に向かない入れ子の値）
+HISTORY_HIDDEN_COLUMNS = {*CLASSIFICATION_COLUMNS, "growth_type", "sub_positions"}
+HISTORY_COLUMN_LABELS = {
+    "id": "ID",
+    "created_at": "生成日時",
+    "seed": "seed",
+    "role": "投手/野手",
+    "category": "カテゴリ",
+    "name": "名前",
+    "age": "年齢",
+    "roster_origin": "所属区分",
+    "foreign_route": "来日経路",
+    "entry_route": "入団経路",
+    "pro_entry_age": "入団年齢",
+    "pro_years": "プロ年数",
+    "npb_years": "NPB在籍年数",
+    "npb_first_entry_year": "NPB初入団年",
+    "npb_stint_start_year": "現所属開始年",
+    "is_returnee": "再来日",
+    "nationality": "国籍",
+    "actual_nationality": "実際の国籍",
+    "nationality_code": "国籍コード",
+    "name_group_id": "名前グループID",
+    "name_group_name": "名前グループ",
+    "skin_color": "肌の色",
+    "birthplace": "出身地",
+    "region": "地域",
+    "position": "起用",
+    "player_type": "タイプ",
+    "handedness": "利き腕",
+    "batting_throwing": "投打",
+    "height": "身長",
+    "weight": "体重",
+    "height_cm": "身長(cm)",
+    "weight_kg": "体重(kg)",
+    "abilities_json": "能力(JSON)",
+    "special_abilities_json": "特殊能力(JSON)",
+    "ranked_special_abilities_json": "ランク特殊能力(JSON)",
+    "breaking_balls_json": "変化球(JSON)",
+    "pitcher_aptitudes_json": "投手適性(JSON)",
+    "sub_positions_json": "サブポジ(JSON)",
+    "birth_month": "誕生月",
+    "birth_day": "誕生日(日)",
+    "pitching_form_type": "投球フォーム種別",
+    "pitching_form_number": "投球フォーム番号",
+    "pitching_form_is_generic": "投球フォーム汎用",
+    "batting_form_type": "打撃フォーム種別",
+    "batting_form_number": "打撃フォーム番号",
+    "batting_form_is_generic": "打撃フォーム汎用",
+    "bat_color": "バット色",
+    "glove_color": "グラブ色",
+    "wristband_left_enabled": "リストバンド(左)",
+    "wristband_left_color": "リストバンド色(左)",
+    "wristband_right_enabled": "リストバンド(右)",
+    "wristband_right_color": "リストバンド色(右)",
+    "draft_source_type": "ドラフト出身区分",
+    "starter_aptitude": "先発適性",
+    "reliever_aptitude": "中継ぎ適性",
+    "closer_aptitude": "抑え適性",
+}
+# 表示用の値の変換表（DBの値は変えない）。表に無い値は元の値をそのまま表示する。
+HISTORY_VALUE_LABELS = {
+    "roster_origin": {"domestic": "国内", "foreign_import": "外国人補強"},
+    "foreign_route": FOREIGN_ROUTE_LABELS,
+    "is_returnee": {0: "いいえ", 1: "はい"},
+    "pitching_form_is_generic": {0: "固有", 1: "汎用"},
+    "batting_form_is_generic": {0: "固有", 1: "汎用"},
+    "wristband_left_enabled": {0: "なし", 1: "あり"},
+    "wristband_right_enabled": {0: "なし", 1: "あり"},
+}
+
+
+def app_chrome_css() -> str:
+    tokens = "".join(f"--ui-{name}:{value};" for name, value in UI_COLORS.items())
+    css = """
+    <style>
+    :root {/*TOKENS*/}
+    .stApp {color:var(--ui-text); background: radial-gradient(circle at 12% 18%, rgba(255,255,255,.28) 0 7%, transparent 8%), radial-gradient(circle at 88% 70%, rgba(255,255,255,.18) 0 10%, transparent 11%), linear-gradient(150deg,#effdff 0%,#b5f3e6 38%,#5fd6e3 72%,#1fa6d6 100%);}
+    [data-testid="stHeader"] {background:rgba(244,248,252,.94); backdrop-filter:blur(6px); box-shadow:0 1px 0 var(--ui-border);}
+    @media (max-width: 1439px) {.block-container {padding-left:24px; padding-right:24px;}}
+    .pp-title {background:var(--ui-surface); border-left:8px solid var(--ui-accent); border-bottom:3px solid var(--ui-primary); padding:12px 20px; border-radius:4px 16px 16px 4px; color:var(--ui-primary); font-weight:900; font-size:28px; margin-bottom:10px; box-shadow:0 2px 8px rgba(11,42,91,.10);}
+    .pp-page-description {color:var(--ui-text); font-size:16px; line-height:1.6; font-weight:650; margin:0 0 14px;}
+    .pp-section-heading {color:var(--ui-primary); background:var(--ui-surface); border-left:5px solid var(--ui-accent); border-radius:4px; padding:7px 12px; font-size:17px; font-weight:900; margin:18px 0 10px;}
+    div[class*="st-key-player_area"] {max-width:/*CARD_MAX_WIDTH*/; width:100%; margin-left:auto; margin-right:auto;}
+    .pp-table-count {text-align:right; color:var(--ui-muted); font-size:14px; font-weight:700;}
+    .pp-player-count {display:flex; align-items:center; justify-content:center; height:40px; color:var(--ui-muted); font-size:15px; font-weight:800; white-space:nowrap; font-variant-numeric:tabular-nums;}
+    /* サイドバー：紺地に白文字。入力欄は白地に本文色 */
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] label, [data-testid="stSidebar"] label p {color:var(--ui-sidebar-text);}
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"], [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {color:var(--ui-sidebar-muted);}
+    [data-testid="stSidebar"] input {background:var(--ui-surface); color:var(--ui-text); -webkit-text-fill-color:var(--ui-text);}
+    [data-testid="stSidebar"] input:disabled {background:#DCE5F0; color:var(--ui-muted); -webkit-text-fill-color:var(--ui-muted); cursor:not-allowed;}
+    [data-testid="stSidebar"] [data-testid="stSelectbox"] div:has(> input), [data-testid="stSidebar"] [data-testid="stSelectbox"] button, [data-testid="stSidebar"] [data-testid="stSelectbox"] svg {color:var(--ui-text);}
+    [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] {height:40px;}
+    [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] input {height:100%;}
+    [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] button {background:#EEF3FA; color:var(--ui-text); height:100%; min-width:40px;}
+    [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] button svg {fill:var(--ui-text);}
+    div[class*="st-key-generate_button"] button {background:var(--ui-accent); border:2px solid #FFFFFF; min-height:46px; box-shadow:0 3px 0 var(--ui-accent-dark);}
+    div[class*="st-key-generate_button"] button p {font-size:17px; font-weight:900; letter-spacing:.08em;}
+    div[class*="st-key-generate_button"] button:hover {background:#F04A55; border-color:#FFFFFF;}
+    /* 前／次の選手 */
+    div[class*="st-key-player_prev"] button, div[class*="st-key-player_next"] button {min-height:40px; height:40px; white-space:nowrap; background:var(--ui-primary); border:1px solid var(--ui-primary); color:#FFFFFF;}
+    div[class*="st-key-player_prev"] button p, div[class*="st-key-player_next"] button p {color:#FFFFFF; font-weight:800;}
+    div[class*="st-key-player_prev"] button:hover, div[class*="st-key-player_next"] button:hover {background:#16407F; border-color:#16407F; color:#FFFFFF;}
+    div[class*="st-key-player_prev"] button:disabled, div[class*="st-key-player_next"] button:disabled {background:transparent; border:1px dashed var(--ui-border); cursor:not-allowed;}
+    div[class*="st-key-player_prev"] button:disabled p, div[class*="st-key-player_next"] button:disabled p {color:var(--ui-muted); opacity:.6; font-weight:700;}
+    /* 出力ボタン */
+    div[data-testid="stDownloadButton"] button {background:var(--ui-surface); border:1.5px solid var(--ui-primary); color:var(--ui-primary);}
+    div[data-testid="stDownloadButton"] button p {color:var(--ui-primary); font-weight:800;}
+    div[data-testid="stDownloadButton"] button:hover {background:#EEF3FA; border-color:var(--ui-primary);}
+    div[class*="st-key-export_all_"] button {border-width:1px; border-color:var(--ui-border); min-height:2rem;}
+    div[class*="st-key-export_all_"] button p {color:var(--ui-muted); font-weight:600; font-size:13px;}
+    </style>
+    """
+    return css.replace("/*TOKENS*/", tokens).replace("/*CARD_MAX_WIDTH*/", f"{CARD_MAX_WIDTH_PX}px")
+
+
+def inject_app_chrome_css() -> None:
+    st.markdown(app_chrome_css(), unsafe_allow_html=True)
+
+
+def render_section_heading(text: str) -> None:
+    st.markdown(f'<div class="pp-section-heading">{e(text)}</div>', unsafe_allow_html=True)
+
+
 def player_unique_id(player: dict[str, Any], index: int) -> str:
     db_id = player.get("id")
     if db_id not in (None, ""):
@@ -8042,8 +8170,9 @@ def player_unique_id(player: dict[str, Any], index: int) -> str:
     return f"latest:{player.get('seed', '')}:{player.get('name', '')}:{player.get('position', '')}:{index}"
 
 
-def player_label(player: dict[str, Any], index: int) -> str:
-    return f"{index + 1}. {player.get('name')}｜{player.get('position')}｜{player.get('player_type')}｜{player.get('age')}歳｜{player.get('batting_throwing')}"
+def player_label(player: dict[str, Any], is_new: bool = False) -> str:
+    prefix = "【NEW】" if is_new else ""
+    return f"{prefix}{player.get('name')}｜{player.get('position')}｜{player.get('player_type')}｜{player.get('age')}歳｜{player.get('batting_throwing')}"
 
 
 def relative_player_id(player_ids: list[str], current_id: str | None, offset: int) -> str | None:
@@ -8056,98 +8185,415 @@ def relative_player_id(player_ids: list[str], current_id: str | None, offset: in
     return player_ids[next_index]
 
 
+def player_choice_ids(history_ids: list[str], latest_ids: list[str], selected_id: str | None, limit: int = PLAYER_OPTION_LIMIT) -> list[str]:
+    """選択欄の並び（生成日時の新しい順）。保存できなかった今回分を先頭に置き、上限外でも選択中の選手は残す。"""
+    history_id_set = set(history_ids)
+    unsaved = [player_id for player_id in latest_ids if player_id not in history_id_set]
+    included = set(history_ids[:limit])
+    if selected_id in history_id_set:
+        included.add(selected_id)
+    return unsaved + [player_id for player_id in history_ids if player_id in included]
+
+
+def reset_history_table_selection() -> None:
+    # 表の行選択は外から書き換えられないため、キーを変えて選択を解除する
+    st.session_state[HISTORY_TABLE_NONCE_KEY] = st.session_state.get(HISTORY_TABLE_NONCE_KEY, 0) + 1
+
+
 def select_relative_player(*, player_ids: list[str], selected_key: str, offset: int) -> None:
     st.session_state[selected_key] = relative_player_id(player_ids, st.session_state.get(selected_key), offset)
+    reset_history_table_selection()
 
 
-def render_player_browser(players: list[dict[str, Any]], master: MasterData, key_prefix: str) -> None:
-    if not players:
+def select_player_from_history_table(table_key: str) -> None:
+    rows = st.session_state[table_key].selection.rows
+    row_ids = st.session_state.get(HISTORY_TABLE_IDS_KEY, [])
+    if rows and rows[0] < len(row_ids):
+        st.session_state[PLAYER_SELECT_KEY] = row_ids[rows[0]]
+
+
+def history_ids_from_frame(history: pd.DataFrame) -> list[str]:
+    if history.empty or "id" not in history.columns:
+        return []
+    return [f"db:{int(value)}" for value in history["id"]]
+
+
+def format_created_at(value: Any) -> str:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return "" if value is None or (isinstance(value, float) and pd.isna(value)) else str(value)
+    return parsed.strftime("%Y/%m/%d %H:%M")
+
+
+def history_display_frame(history: pd.DataFrame, show_details: bool = False) -> tuple[pd.DataFrame, list[str]]:
+    """表示用の表と列順を返す。DBの値は変えず、表示用に値を日本語へ置き換えたコピーを作る。"""
+    display = history.copy()
+    for column, labels in HISTORY_VALUE_LABELS.items():
+        if column in display.columns:
+            display[column] = display[column].map(lambda value, labels=labels: labels.get(value, value))
+    if "created_at" in display.columns:
+        display["created_at"] = display["created_at"].map(format_created_at)
+    if show_details:
+        columns = [column for column in HISTORY_DEFAULT_COLUMNS if column in display.columns]
+        columns += [column for column in display.columns if column not in columns and column not in HISTORY_HIDDEN_COLUMNS]
+    else:
+        columns = [column for column in HISTORY_DEFAULT_COLUMNS if column in display.columns]
+    return display, columns
+
+
+def history_column_config(columns: list[str]) -> dict[str, Any]:
+    return {column: st.column_config.Column(HISTORY_COLUMN_LABELS.get(column, column)) for column in columns}
+
+
+def history_row_label(row: pd.Series) -> str:
+    return player_label({key: row.get(key) for key in ("name", "position", "player_type", "age", "batting_throwing")})
+
+
+def render_player_section(history: pd.DataFrame, master: MasterData) -> None:
+    latest_players = st.session_state.get("latest_players", [])
+    latest_by_id = {player_unique_id(player, index): player for index, player in enumerate(latest_players)}
+    history_ids = history_ids_from_frame(history)
+    player_ids = player_choice_ids(history_ids, list(latest_by_id), st.session_state.get(PLAYER_SELECT_KEY))
+    if not player_ids:
         st.info("表示する選手がまだありません。左の条件で生成してください。")
         return
-    selected_player_id_key = f"{key_prefix}_selected_player_id"
-    player_ids = [player_unique_id(player, index) for index, player in enumerate(players)]
-    if st.session_state.get(selected_player_id_key) not in player_ids:
-        st.session_state[selected_player_id_key] = player_ids[0]
-    player_by_id = dict(zip(player_ids, players, strict=True))
-    label_by_id = {player_id: player_label(player, index) for index, (player_id, player) in enumerate(zip(player_ids, players, strict=True))}
-    selected_player_id = st.session_state[selected_player_id_key]
-    current_index = player_ids.index(selected_player_id)
-    st.markdown('<div class="pp-list-note">選手一覧から詳細表示する選手を選択</div>', unsafe_allow_html=True)
-    previous_col, select_col, next_col = st.columns(
-        [0.16, 0.68, 0.16],
-        gap="small",
+    if st.session_state.get(PLAYER_SELECT_KEY) not in player_ids:
+        st.session_state[PLAYER_SELECT_KEY] = player_ids[0]
+    row_position_by_id = {player_id: position for position, player_id in enumerate(history_ids)}
+    label_by_id = {}
+    for player_id in player_ids:
+        if player_id in latest_by_id:
+            label_by_id[player_id] = player_label(latest_by_id[player_id], is_new=True)
+        else:
+            label_by_id[player_id] = history_row_label(history.iloc[row_position_by_id[player_id]])
+    current_index = player_ids.index(st.session_state[PLAYER_SELECT_KEY])
+    # 選手選択欄とカードは改修前のカード幅にそろえて中央に置く（表や出力ボタンは全幅のまま）
+    with st.container(key=PLAYER_AREA_KEY):
+        render_section_heading("選手を選択")
+        previous_col, select_col, count_col, next_col = st.columns([0.15, 0.6, 0.1, 0.15], gap="small", vertical_alignment="center")
+        with previous_col:
+            st.button("◀ 前の選手", use_container_width=True, disabled=current_index <= 0, key="player_prev", on_click=select_relative_player, kwargs={"player_ids": player_ids, "selected_key": PLAYER_SELECT_KEY, "offset": -1})
+        with select_col:
+            selected_player_id = st.selectbox("選手一覧", player_ids, format_func=lambda player_id: label_by_id[player_id], key=PLAYER_SELECT_KEY, label_visibility="collapsed", on_change=reset_history_table_selection)
+        current_index = player_ids.index(selected_player_id)
+        with count_col:
+            st.markdown(f'<div class="pp-player-count">{current_index + 1} / {len(player_ids)}</div>', unsafe_allow_html=True)
+        with next_col:
+            st.button("次の選手 ▶", use_container_width=True, disabled=current_index >= len(player_ids) - 1, key="player_next", on_click=select_relative_player, kwargs={"player_ids": player_ids, "selected_key": PLAYER_SELECT_KEY, "offset": 1})
+        if selected_player_id in latest_by_id:
+            player = latest_by_id[selected_player_id]
+        else:
+            player = player_from_history_row(history.iloc[row_position_by_id[selected_player_id]])
+        render_seed_copy(player)
+        render_detail_panel(player, master, DETAIL_KEY_PREFIX)
+
+
+def seed_copy_text(player: dict[str, Any]) -> str:
+    """「seedをコピー」でコピーする再現用の文字列（<投手|野手>/<カテゴリ>/<seed>）。"""
+    return f"{player.get('role', '')}{SEED_SPEC_SEPARATOR}{player.get('category', '')}{SEED_SPEC_SEPARATOR}{player.get('seed', '')}"
+
+
+def seed_copy_html(copy_text: str) -> str:
+    # スクリプト内に埋め込むため、"</script>" で閉じられないよう "<" もエスケープする
+    copy_json = json.dumps(str(copy_text)).replace("<", "\\u003c")
+    return f"""
+    <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;font-family:'Source Sans Pro',sans-serif;font-size:14px;color:{UI_COLORS['muted']};">
+      <span>再生成用: <b style="color:{UI_COLORS['text']};">{e(copy_text)}</b></span>
+      <button id="copy" style="cursor:pointer;border:1.5px solid {UI_COLORS['primary']};background:#fff;color:{UI_COLORS['primary']};border-radius:8px;padding:4px 12px;font-size:14px;font-weight:700;">seedをコピー</button>
+      <span id="msg" aria-live="polite"></span>
+    </div>
+    <script>
+    const copyText = {copy_json};
+    document.getElementById("copy").addEventListener("click", async () => {{
+      const msg = document.getElementById("msg");
+      try {{
+        await navigator.clipboard.writeText(copyText);
+      }} catch (error) {{
+        const area = document.createElement("textarea");
+        area.value = copyText;
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        area.remove();
+      }}
+      msg.textContent = "コピーしました";
+      setTimeout(() => {{ msg.textContent = ""; }}, 2000);
+    }});
+    </script>
+    """
+
+
+def render_seed_copy(player: dict[str, Any]) -> None:
+    if player.get("seed") in (None, ""):
+        return
+    components.html(seed_copy_html(seed_copy_text(player)), height=40)
+
+
+def history_excel_bytes(history: pd.DataFrame, sheet_name: str = "players") -> bytes:
+    excel_buffer = BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+        history.to_excel(writer, sheet_name=sheet_name, index=False)
+    return excel_buffer.getvalue()
+
+
+def history_csv_bytes(frame: pd.DataFrame) -> bytes:
+    return frame.to_csv(index=False).encode("utf-8-sig")
+
+
+def history_view_export_frame(display: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """「表示中の内容」の出力用。表と同じ行・列・日本語の列名にする。"""
+    labels: list[str] = []
+    for column in columns:
+        label = HISTORY_COLUMN_LABELS.get(column, column)
+        # 日本語名が既存の列名と重なる場合は内部名を添えて区別する
+        labels.append(label if label not in labels else f"{label}（{column}）")
+    exported = display[columns].copy()
+    exported.columns = labels
+    return exported
+
+
+def export_file_name(kind: str, extension: str, now: Any = None) -> str:
+    stamp = pd.Timestamp(now if now is not None else pd.Timestamp.now()).strftime("%Y%m%d_%H%M")
+    return f"players_{kind}_{stamp}.{extension}"
+
+
+HISTORY_PERIOD_OPTIONS = ["すべて", "今日", "7日以内"]
+HISTORY_TABLE_HEIGHT = 420
+EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+SEED_INPUT_KEY = "seed_input"
+ROLE_INPUT_KEY = "role_input"
+CATEGORY_INPUT_KEY = "category_input"
+PENDING_CONDITIONS_KEY = "pending_generation_conditions"
+SEED_SPEC_SEPARATOR = "/"
+SQLITE_INTEGER_MAX = 2**63 - 1
+
+
+def filter_history_table(history: pd.DataFrame, categories: list[str], positions: list[str], period: str, name_query: str, today: Any = None) -> pd.DataFrame:
+    """過去生成選手の表の絞り込み。選択肢が空の項目は絞り込まない。"""
+    filtered = history
+    if categories:
+        filtered = filtered[filtered["category"].isin(categories)]
+    if positions:
+        filtered = filtered[filtered["position"].isin(positions)]
+    if period in ("今日", "7日以内"):
+        today = pd.Timestamp(today if today is not None else pd.Timestamp.now()).normalize()
+        start = today if period == "今日" else today - pd.Timedelta(days=6)
+        created = pd.to_datetime(filtered["created_at"], errors="coerce")
+        filtered = filtered[created >= start]
+    query = name_query.strip()
+    if query:
+        filtered = filtered[filtered["name"].astype(str).str.contains(query, case=False, regex=False)]
+    return filtered
+
+
+def history_position_options(history: pd.DataFrame) -> list[str]:
+    order = POSITIONS["投手"] + POSITIONS["野手"]
+    present = set(history["position"].dropna().astype(str)) if "position" in history.columns else set()
+    return [position for position in order if position in present] + sorted(present - set(order))
+
+
+def render_history_section(history: pd.DataFrame) -> None:
+    render_section_heading("過去生成選手")
+    if history.empty:
+        st.caption("保存済みの選手はまだありません。")
+        return
+    category_col, position_col, period_col, name_col = st.columns([0.28, 0.28, 0.2, 0.24], gap="small")
+    with category_col:
+        categories = st.multiselect("カテゴリ", CATEGORIES, key="history_filter_categories", placeholder="すべて")
+    with position_col:
+        positions = st.multiselect("起用", history_position_options(history), key="history_filter_positions", placeholder="すべて")
+    with period_col:
+        period = st.segmented_control("生成日", HISTORY_PERIOD_OPTIONS, default="すべて", key="history_filter_period") or "すべて"
+    with name_col:
+        name_query = st.text_input("名前で検索", key="history_filter_name", placeholder="名前の一部")
+    filtered = filter_history_table(history, categories, positions, period, name_query)
+    detail_col, count_col = st.columns([0.5, 0.5], vertical_alignment="center")
+    with detail_col:
+        show_details = st.toggle("詳細列を表示", key="history_show_details")
+    with count_col:
+        st.markdown(f'<div class="pp-table-count">{len(filtered)}件を表示（全{len(history)}件）</div>', unsafe_allow_html=True)
+    display, columns = history_display_frame(filtered, show_details)
+    st.session_state[HISTORY_TABLE_IDS_KEY] = history_ids_from_frame(filtered)
+    table_key = f"history_table_{st.session_state.get(HISTORY_TABLE_NONCE_KEY, 0)}"
+    st.dataframe(
+        display,
+        use_container_width=True,
+        hide_index=True,
+        height=HISTORY_TABLE_HEIGHT if len(display) > 10 else "auto",
+        column_order=columns,
+        column_config=history_column_config(columns),
+        on_select=partial(select_player_from_history_table, table_key),
+        selection_mode="single-row",
+        key=table_key,
     )
-    with previous_col:
-        st.button("前の選手", use_container_width=True, disabled=current_index <= 0, key=f"{key_prefix}_prev", on_click=select_relative_player, kwargs={"player_ids": player_ids, "selected_key": selected_player_id_key, "offset": -1})
-    with select_col:
-        selected_player_id = st.selectbox("選手一覧", player_ids, format_func=lambda player_id: label_by_id[player_id], key=selected_player_id_key, label_visibility="collapsed")
-    current_index = player_ids.index(selected_player_id)
-    with next_col:
-        st.button("次の選手", use_container_width=True, disabled=current_index >= len(players) - 1, key=f"{key_prefix}_next", on_click=select_relative_player, kwargs={"player_ids": player_ids, "selected_key": selected_player_id_key, "offset": 1})
-    render_detail_panel(player_by_id[selected_player_id], master, key_prefix)
+    render_history_exports(history, history_view_export_frame(display, columns))
+
+
+def render_history_exports(history: pd.DataFrame, view: pd.DataFrame) -> None:
+    now = pd.Timestamp.now()
+    csv_col, excel_col, _spacer = st.columns([0.22, 0.22, 0.56], gap="small")
+    with csv_col:
+        st.download_button(f"CSVで保存（表示中 {len(view)}件）", data=history_csv_bytes(view), file_name=export_file_name("view", "csv", now), mime="text/csv", use_container_width=True, key="export_view_csv")
+    with excel_col:
+        st.download_button(f"Excelで保存（表示中 {len(view)}件）", data=history_excel_bytes(view, sheet_name="表示中"), file_name=export_file_name("view", "xlsx", now), mime=EXCEL_MIME, use_container_width=True, key="export_view_excel")
+    with st.expander("全データを出力（内部の列名・値のまま）"):
+        st.caption("絞り込みや表示列に関係なく、保存済みの全選手・全列を出力します。")
+        all_csv_col, all_excel_col, _all_spacer = st.columns([0.26, 0.26, 0.48], gap="small")
+        with all_csv_col:
+            st.download_button(f"全データをCSVで保存（全 {len(history)}件）", data=history_csv_bytes(history), file_name=export_file_name("all", "csv", now), mime="text/csv", use_container_width=True, key="export_all_csv")
+        with all_excel_col:
+            st.download_button(f"全データをExcelで保存（全 {len(history)}件）", data=history_excel_bytes(history), file_name=export_file_name("all", "xlsx", now), mime=EXCEL_MIME, use_container_width=True, key="export_all_excel")
+
+
+class SeedSpecError(ValueError):
+    """seed入力欄の値を読み取れないときのエラー。メッセージは画面にそのまま出す。"""
+
+
+@dataclass(frozen=True)
+class SeedSpec:
+    seed: int
+    role: str | None = None
+    category: str | None = None
+
+
+def parse_seed_int(text: str) -> int:
+    try:
+        seed = int(text.strip())
+    except ValueError:
+        raise SeedSpecError(f"seed「{text.strip()}」を整数として読み取れません。0以上の整数を入力してください。") from None
+    if not 0 <= seed <= SQLITE_INTEGER_MAX:
+        raise SeedSpecError(f"seed「{text.strip()}」は範囲外です。0以上の整数を入力してください。")
+    return seed
+
+
+def parse_seed_spec(text: str) -> SeedSpec | None:
+    """seed入力欄の値を読む。空欄は None。数字だけならseedのみ、「投手/カテゴリ/seed」なら条件も返す。"""
+    value = unicodedata.normalize("NFKC", str(text or "")).strip()
+    if not value:
+        return None
+    if SEED_SPEC_SEPARATOR not in value:
+        return SeedSpec(seed=parse_seed_int(value))
+    parts = [part.strip() for part in value.split(SEED_SPEC_SEPARATOR)]
+    if len(parts) != 3 or not all(parts):
+        raise SeedSpecError(f"「{value}」は形式が合いません。「投手/助っ人外国人用/5821876419」の形式か、数字だけを入力してください。")
+    role, category, seed_text = parts
+    if role not in POSITIONS:
+        raise SeedSpecError(f"「{role}」は投手/野手の名前として見つかりません。「投手」か「野手」を指定してください。")
+    if category not in CATEGORIES:
+        raise SeedSpecError(f"カテゴリ「{category}」が見つかりません。{('、'.join(CATEGORIES))}のいずれかを指定してください。")
+    return SeedSpec(seed=parse_seed_int(seed_text), role=role, category=category)
+
+
+def generate_and_save_players(role: str, category: str, count: int, master: MasterData, seed: int | None = None) -> None:
+    players = []
+    with st.spinner("選手を生成中です..."):
+        if seed is not None:
+            players.append(generate_player(role, category, master, seed=seed, used_names=set()))
+        else:
+            progress = st.progress(0, text="選手を生成中です...")
+            used_names: set[str] = set()
+            for index, batch_seed in enumerate(generate_batch_seeds(count)):
+                players.append(generate_player(role, category, master, seed=batch_seed, used_names=used_names))
+                progress.progress((index + 1) / count, text=f"選手を生成中です... {index + 1}/{count}")
+            progress.empty()
+        saved_ids: list[int] = []
+        try:
+            # 新しい順（id降順）で並べたときに生成順になるよう、末尾から保存する
+            save_players(players[::-1], saved_ids)
+            saved_ids.reverse()
+        except sqlite3.Error as error:
+            st.session_state["save_error"] = f"選手の保存に失敗しました（{error}）。生成した選手は画面にだけ表示しています。"
+            saved_ids = []
+        else:
+            st.session_state.pop("save_error", None)
+    if len(saved_ids) == len(players):
+        players = [{**player, "id": player_id} for player, player_id in zip(players, saved_ids)]
+    st.session_state["latest_players"] = players
+    st.session_state[PLAYER_SELECT_KEY] = player_unique_id(players[0], 0) if players else None
+    st.session_state[f"{DETAIL_KEY_PREFIX}_selected_player_tab"] = "投手能力" if role == "投手" else "野手能力"
+    reset_history_table_selection()
+    st.session_state["pending_toast"] = f"{len(players)}人の選手を生成しました"
+
+
+def start_generation() -> None:
+    st.session_state["generating"] = True
+
+
+def render_generation_sidebar() -> tuple[str, str, int, str]:
+    # 貼り付けた「投手/カテゴリ/seed」の条件は、ウィジェットを描く前に反映する
+    pending = st.session_state.pop(PENDING_CONDITIONS_KEY, None)
+    if pending:
+        st.session_state[ROLE_INPUT_KEY], st.session_state[CATEGORY_INPUT_KEY] = pending
+    seed_text = str(st.session_state.get(SEED_INPUT_KEY, "") or "")
+    seed_given = bool(seed_text.strip())
+    with st.sidebar:
+        st.header("生成条件")
+        role = st.radio("投手 / 野手", ["投手", "野手"], horizontal=True, key=ROLE_INPUT_KEY)
+        category = st.selectbox("カテゴリ", CATEGORIES, key=CATEGORY_INPUT_KEY)
+        count = st.number_input("生成人数", min_value=1, max_value=1000, value=3, step=1, disabled=seed_given)
+        if seed_given:
+            st.caption("seed指定時は1人だけ生成します")
+        st.text_input(
+            "seed（任意）",
+            key=SEED_INPUT_KEY,
+            placeholder="空欄ならランダム",
+            help="外国人選手は、一度に生成した中で名前の重複を避けるために名前が変わっていた場合、seedから再生成しても同じ名前にはなりません。",
+        )
+        st.caption("『seedをコピー』で得た文字列を貼ると、同じ条件で再生成します")
+        st.button("生成する", type="primary", use_container_width=True, key="generate_button", disabled=bool(st.session_state.get("generating")), on_click=start_generation)
+        st.caption(f"Version {APP_VERSION}")
+    return role, category, int(count), seed_text
+
+
+def render_app_title() -> None:
+    st.markdown(f'<div class="pp-title">⚾ {e(APP_NAME)}</div>', unsafe_allow_html=True)
+
+
+def generation_page() -> None:
+    master = load_master_data()
+    render_app_title()
+    render_page_description("投手/野手、カテゴリ、生成人数だけを選ぶと、ゲーム風の能力詳細画面で確認できます。")
+    role, category, count, seed_text = render_generation_sidebar()
+    if st.session_state.get("generating"):
+        try:
+            spec = parse_seed_spec(seed_text)
+        except SeedSpecError as error:
+            st.session_state["seed_error"] = str(error)
+        else:
+            st.session_state.pop("seed_error", None)
+            if spec and spec.role and spec.category:
+                role, category = spec.role, spec.category
+                st.session_state[PENDING_CONDITIONS_KEY] = (role, category)
+            generate_and_save_players(role, category, count, master, spec.seed if spec else None)
+        st.session_state["generating"] = False
+        st.rerun()
+    if st.session_state.get("pending_toast"):
+        st.toast(st.session_state.pop("pending_toast"), icon="✅")
+    if st.session_state.get("seed_error"):
+        st.error(st.session_state["seed_error"])
+    if st.session_state.get("save_error"):
+        st.error(st.session_state["save_error"])
+    history = load_history()
+    render_player_section(history, master)
+    st.divider()
+    render_history_section(history)
+
+
+def balance_page() -> None:
+    render_app_title()
+    render_balance_check(load_master_data())
+
 
 def main() -> None:
-    st.set_page_config(page_title="パワプロ風 架空選手生成", page_icon="⚾", layout="wide")
+    st.set_page_config(page_title=APP_NAME, page_icon="⚾", layout="wide")
     init_db()
-    master = load_master_data()
     inject_powerpro_ui_css()
-    st.markdown('<div class="pp-title">⚾ 選手能力詳細ジェネレーター</div>', unsafe_allow_html=True)
-    render_page_description("投手/野手、カテゴリ、生成人数だけを選ぶと、ゲーム風の能力詳細画面で確認できます。")
-    with st.sidebar:
-        st.header("画面")
-        page = st.radio("表示する画面", ["選手生成", "バランス確認"], label_visibility="collapsed")
-        st.header("生成条件")
-        role = st.radio("投手 / 野手", ["投手", "野手"], horizontal=True)
-        category = st.selectbox("カテゴリ", CATEGORIES)
-        count = st.number_input("生成人数", min_value=1, max_value=1000, value=3, step=1)
-        generate = st.button("生成する", type="primary", use_container_width=True)
-        st.caption(f"Version {APP_VERSION}")
-    if page == "バランス確認":
-        render_balance_check(master)
-        return
-    if generate:
-        total_count = int(count)
-        progress = st.progress(0, text="選手を生成中です...")
-        players = []
-        used_names: set[str] = set()
-        seeds = generate_batch_seeds(total_count)
-        for index, seed in enumerate(seeds):
-            players.append(generate_player(role, category, master, seed=seed, used_names=used_names))
-            progress.progress((index + 1) / total_count, text=f"選手を生成中です... {index + 1}/{total_count}")
-        saved_count = save_players(players)
-        progress.empty()
-        st.session_state["latest_players"] = players
-        st.session_state["latest_selected_player_id"] = player_unique_id(players[0], 0) if players else None
-        st.session_state["latest_selected_player_tab"] = "投手能力" if role == "投手" else "野手能力"
-        render_success_message(f"{len(players)}人の選手を生成し、SQLiteに{saved_count}件保存しました。")
-    render_player_browser(st.session_state.get("latest_players", []), master, "latest")
-    latest_players = st.session_state.get("latest_players", [])
-    latest_ids = [player_unique_id(player, index) for index, player in enumerate(latest_players)]
-    latest_selected_id = relative_player_id(latest_ids, st.session_state.get("latest_selected_player_id"), 0)
-    latest_player_by_id = dict(zip(latest_ids, latest_players, strict=True)) if latest_players else {}
-    latest_role = latest_player_by_id[latest_selected_id].get("role") if latest_selected_id in latest_player_by_id else "投手"
-    latest_tab = normalize_selected_tab_value({"role": latest_role}, st.session_state.get("latest_selected_player_tab"))
-    role_help = "球速、制球、スタミナ、変化球と投手特殊能力を確認します。" if latest_role == "投手" else "打撃、走塁、守備の基礎能力と野手特殊能力を確認します。"
-    help_messages = {
-        "投手能力": "球速、制球、スタミナ、変化球と投手特殊能力を確認します。",
-        "野手能力": "打撃、走塁、守備の基礎能力と野手特殊能力を確認します。",
-        "守備・起用": "メインポジション、サブポジション、起用適性を確認します。",
-        "プロフィール": "氏名、年齢、投打、国籍、出身地、体格を確認します。生成条件は「生成情報」から確認できます。",
-    }
-    st.markdown(f'<div class="pp-help">{e(help_messages.get(latest_tab, role_help))}</div>', unsafe_allow_html=True)
-    st.divider()
-    history = load_history()
-    history_players = [player_from_history_row(row) for _, row in history.head(100).iterrows()] if not history.empty else []
-    with st.expander("過去生成選手", expanded=False):
-        render_player_browser(history_players, master, "history")
-        st.dataframe(history, use_container_width=True, hide_index=True)
-        if not history.empty:
-            st.download_button("CSV出力", data=history.to_csv(index=False).encode("utf-8-sig"), file_name="pawapuro_players.csv", mime="text/csv")
-            excel_buffer = BytesIO()
-            with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-                history.to_excel(writer, sheet_name="players", index=False)
-            st.download_button("Excel出力", data=excel_buffer.getvalue(), file_name="pawapuro_players.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            st.info("同じseedを使うことで、同条件の再生成に利用できるデータ構造です。")
+    inject_app_chrome_css()
+    pages = [
+        st.Page(generation_page, title="選手生成", icon="⚾", url_path="generate", default=True),
+        st.Page(balance_page, title="バランス確認", icon="📊", url_path="balance"),
+    ]
+    st.navigation(pages, position="top").run()
 
 
 if __name__ == "__main__":
