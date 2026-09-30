@@ -8,6 +8,7 @@ import re
 import sqlite3
 import math
 import unicodedata
+from contextlib import contextmanager
 from functools import lru_cache, partial
 from html import escape
 from dataclasses import dataclass
@@ -8220,6 +8221,190 @@ def breaking_balance_tables(df: pd.DataFrame) -> dict[str, Any]:
 BALANCE_TAB_LABELS = ["概要", "整合性チェック", "人物属性", "新分類", "基礎能力", "特殊能力", "変化球", "守備・サブポジ"]
 
 
+# ---- バランス確認：表・グラフの共通ヘルパー ----
+BALANCE_TABLE_ROW_PX = 35
+BALANCE_TABLE_MAX_ROWS = 25
+BALANCE_RATIO_COLUMNS = {"割合", "構成比%", "保有率%", "比率", "割合%"}
+BALANCE_AVERAGE_COLUMNS = {"平均値", "平均", "中央値"}
+BALANCE_FINE_AVERAGE_COLUMNS = {"平均数"}
+PITCHER_ROLE_ORDER = ["先発", "中継ぎ", "抑え"]
+SUB_POSITION_APTITUDE_ORDER = ["◎", "○", "△"]
+BATTING_THROWING_ORDER = ["右投右打", "右投左打", "右投両打", "左投左打", "左投右打", "左投両打"]
+AGE_BAND_ORDER = ["18-19歳", "20-22歳", "23-26歳", "27-30歳", "31-34歳", "35歳以上"]
+ABILITY_RANK_ORDER = ["S", "A", "B", "C", "D", "E", "F", "G"]
+FIELDER_ABILITY_KEYS = ["弾道", "ミート", "パワー", "走力", "肩力", "守備力", "捕球"]
+PITCHER_ABILITY_KEYS = ["球速", "コントロール", "スタミナ"]
+# 格の高い順。PLAYER_CLASS_WEIGHTS の並び（カテゴリ順）をつなげたもの
+PLAYER_CLASS_ORDER = list(dict.fromkeys(name for category in CATEGORIES for name, _weight in PLAYER_CLASS_WEIGHTS.get(category, [])))
+
+
+def category_chart_colors() -> dict[str, str]:
+    # UI_COLORS はこの後で定義されるため、呼び出し時に参照する
+    return {"架空球団用": UI_COLORS["primary"], "ドラフト候補用": UI_COLORS["fielder"], "助っ人外国人用": UI_COLORS["warn"]}
+
+
+def role_chart_colors() -> dict[str, str]:
+    # 投手・野手は能力カードのタブ色に合わせる
+    return {"投手": UI_COLORS["pitcher"], "野手": UI_COLORS["fielder"]}
+
+
+def ordered_values(values: Any, order: list[str]) -> list[str]:
+    """order の順に並べ、order に無い値は後ろに元の順で付ける。"""
+    present = [str(value) for value in dict.fromkeys(values)]
+    return [value for value in order if value in present] + [value for value in present if value not in order]
+
+
+def balance_table_height(row_count: int) -> int:
+    return (min(max(row_count, 1), BALANCE_TABLE_MAX_ROWS) + 1) * BALANCE_TABLE_ROW_PX + 3
+
+
+def balance_column_config(df: pd.DataFrame) -> dict[str, Any]:
+    """列名から数値の書式を決める（人数・件数は整数、比率は小数1桁＋%、平均は小数1桁）。"""
+    config: dict[str, Any] = {}
+    for column in df.columns:
+        if not pd.api.types.is_numeric_dtype(df[column]) or pd.api.types.is_bool_dtype(df[column]):
+            continue
+        name = str(column)
+        if name in BALANCE_RATIO_COLUMNS or name.endswith("%"):
+            config[column] = st.column_config.NumberColumn(name, format="%.1f%%")
+        elif name in BALANCE_FINE_AVERAGE_COLUMNS:
+            config[column] = st.column_config.NumberColumn(name, format="%.2f")
+        elif name in BALANCE_AVERAGE_COLUMNS:
+            config[column] = st.column_config.NumberColumn(name, format="%.1f")
+        elif pd.api.types.is_integer_dtype(df[column]) or (df[column].dropna() % 1 == 0).all():
+            config[column] = st.column_config.NumberColumn(name, format="%d")
+        else:
+            config[column] = st.column_config.NumberColumn(name, format="%.1f")
+    return config
+
+
+def prepare_balance_table(df: pd.DataFrame) -> pd.DataFrame:
+    """表示用に整える：列名を文字列にし、比率は小数1桁に丸め直す（元の集計関数は変えない）。"""
+    work = df.copy()
+    work.columns = [str(column) for column in work.columns]
+    for column in work.columns:
+        if (column in BALANCE_RATIO_COLUMNS or column.endswith("%")) and pd.api.types.is_numeric_dtype(work[column]):
+            work[column] = work[column].round(1)
+    return work
+
+
+def render_balance_table(df: pd.DataFrame, *, height: int | str = "auto", column_config: dict[str, Any] | None = None) -> None:
+    """バランス確認ページの表はすべてここを通す。index は出さず、行数に合わせて高さを決める。"""
+    work = prepare_balance_table(df)
+    config = {**balance_column_config(work), **(column_config or {})}
+    table_height = balance_table_height(len(work)) if height == "auto" else height
+    st.dataframe(work, hide_index=True, use_container_width=True, height=table_height, column_config=config)
+
+
+def heat_color(value: Any, max_value: float, *, faint: bool = False) -> str:
+    """白→紺のグラデーション。faint のセルは薄い色にする。"""
+    if not isinstance(value, (int, float)) or pd.isna(value) or max_value <= 0:
+        return ""
+    ratio = max(0.0, min(1.0, float(value) / max_value))
+    if faint:
+        ratio *= 0.25
+    start, end = (255, 255, 255), (11, 42, 91)  # 白 → --ui-primary
+    red, green, blue = (round(start[i] + (end[i] - start[i]) * ratio) for i in range(3))
+    text = "#FFFFFF" if ratio > 0.55 else UI_COLORS["text"]
+    return f"background-color: rgb({red},{green},{blue}); color: {text};"
+
+
+def render_heatmap_table(df: pd.DataFrame, value_columns: list[str], *, number_format: str = "{:.0f}", faint_columns: list[str] | None = None, column_config: dict[str, Any] | None = None) -> None:
+    """pandas Styler で色を付けた表（ヒートマップ）。matplotlib を使わずに色を計算する。"""
+    work = prepare_balance_table(df)
+    value_columns = [column for column in value_columns if column in work.columns]
+    faint = set(faint_columns or [])
+    max_value = float(work[value_columns].max().max()) if value_columns and not work.empty else 0.0
+    styler = work.style
+    for column in value_columns:
+        styler = styler.map(lambda value, is_faint=column in faint: heat_color(value, max_value, faint=is_faint), subset=[column])
+    formats = {column: number_format for column in value_columns}
+    formats.update({column: "{:d}" for column in work.columns if column == "n" or column == "人数"})
+    styler = styler.format(formats, na_rep="")
+    st.dataframe(styler, hide_index=True, use_container_width=True, height=balance_table_height(len(work)), column_config=column_config)
+
+
+def balance_bar_chart(
+    df: pd.DataFrame,
+    category_column: str,
+    value_column: str,
+    *,
+    horizontal: bool = True,
+    order: list[str] | None = None,
+    color_column: str | None = None,
+    color_map: dict[str, str] | None = None,
+    group_offset: bool = False,
+    stacked: bool = False,
+    value_title: str | None = None,
+    tooltip_columns: list[str] | None = None,
+) -> None:
+    """Altair の棒グラフ。色は UI_COLORS のパレットを使う。"""
+    import altair as alt
+
+    if df.empty:
+        st.caption("データがありません。")
+        return
+    work = df.copy()
+    work[category_column] = work[category_column].astype(str)
+    sort = order or list(dict.fromkeys(work[category_column]))
+    category_axis = alt.Axis(title=None, labelLimit=240, labelFontSize=13, labelOverlap=False, labelPadding=6)
+    value_axis = alt.Axis(title=value_title or value_column, format="d" if pd.api.types.is_integer_dtype(work[value_column]) else "", tickCount=8, labelFontSize=12, titleFontSize=12, grid=True, gridColor=UI_COLORS["border"])
+    tooltips = [alt.Tooltip(column) for column in (tooltip_columns or [category_column, value_column] + ([color_column] if color_column else []))]
+    category_encoding = alt.Y(f"{category_column}:N", sort=sort, axis=category_axis) if horizontal else alt.X(f"{category_column}:N", sort=sort, axis=alt.Axis(title=None, labelAngle=0, labelFontSize=12))
+    value_encoding = alt.X(f"{value_column}:Q", axis=value_axis, stack="zero" if stacked else None) if horizontal else alt.Y(f"{value_column}:Q", axis=value_axis, stack="zero" if stacked else None)
+    encodings: dict[str, Any] = {"tooltip": tooltips}
+    if color_column:
+        domain = ordered_values(work[color_column].astype(str), list((color_map or {}).keys()))
+        palette = [(color_map or {}).get(value, UI_COLORS["chart-neutral"]) for value in domain]
+        encodings["color"] = alt.Color(f"{color_column}:N", scale=alt.Scale(domain=domain, range=palette), legend=alt.Legend(title=None, orient="top", labelFontSize=12))
+        if group_offset:
+            encodings["yOffset" if horizontal else "xOffset"] = alt.YOffset(f"{color_column}:N", sort=domain) if horizontal else alt.XOffset(f"{color_column}:N", sort=domain)
+    bar = alt.Chart(work).mark_bar(color=UI_COLORS["primary"], cornerRadiusEnd=3)
+    chart = bar.encode(**({"y": category_encoding, "x": value_encoding} if horizontal else {"x": category_encoding, "y": value_encoding}), **encodings)
+    groups = work[color_column].nunique() if (color_column and group_offset) else 1
+    # 横棒は1本あたりの高さで決める（本数が少なくてもラベルが重ならない）
+    height = alt.Step(16 * groups + 12) if horizontal else 260
+    chart = chart.properties(height=height).configure_view(strokeWidth=0).configure(background="transparent", font="Yu Gothic UI")
+    st.altair_chart(chart, use_container_width=True)
+
+
+@contextmanager
+def balance_card(title: str | None = None, caption: str | None = None):
+    """白いカード。小見出しと注記を付けられる。"""
+    with st.container(border=True):
+        if title:
+            render_sub_heading(title)
+        if caption:
+            st.caption(caption)
+        yield
+
+
+def render_table_expander(df: pd.DataFrame, **kwargs: Any) -> None:
+    with st.expander("表で見る"):
+        render_balance_table(df, **kwargs)
+
+
+def count_table(series: pd.Series, label: str, *, order: list[str] | None = None, count_label: str = "人数") -> pd.DataFrame:
+    counts = series.astype(str).value_counts()
+    index = ordered_values(counts.index, order) if order else list(counts.index)
+    return counts.reindex(index).rename_axis(label).reset_index(name=count_label)
+
+
+def crosstab_table(rows: pd.Series, columns: pd.Series, *, row_label: str, row_order: list[str] | None = None, column_order: list[str] | None = None, margins: bool = False) -> pd.DataFrame:
+    """クロス表を、行名を列に戻した DataFrame にする。"""
+    table = pd.crosstab(rows.astype(str), columns.astype(str))
+    table = table.reindex(index=ordered_values(table.index, row_order or []), columns=ordered_values(table.columns, column_order or []), fill_value=0)
+    if margins:
+        table["合計"] = table.sum(axis=1)
+        table.loc["合計"] = table.sum(axis=0)
+    table = table.rename_axis(index=row_label, columns=None).reset_index()
+    return table
+
+
+def format_sub_positions(values: Any) -> str:
+    return "、".join(f"{item['position']}{item['aptitude']}" for item in normalize_sub_positions(values))
+
+
 def render_balance_filters(df_all: pd.DataFrame) -> pd.DataFrame:
     """絞り込み・件数・CSV出力（全タブ共通）。"""
     render_section_heading("絞り込み")
@@ -8357,168 +8542,409 @@ def render_check_metric(column: Any, checks: dict[str, Any], key: str) -> None:
 
 def render_balance_overview_tab(df: pd.DataFrame, checks: dict[str, Any]) -> None:
     render_balance_check_summary(checks)
-    st.metric("総件数", len(df))
-    render_section_heading("投手/野手 × カテゴリ別人数")
-    role_category = pd.crosstab(df["role"], df["category"], margins=True, margins_name="合計")
-    st.dataframe(role_category, use_container_width=True)
-    col5, col6 = st.columns(2)
-    with col5:
-        render_sub_heading("野手ポジション別人数")
-        fielder_positions = df[df["role"] == "野手"]["position"].value_counts().rename_axis("ポジション").reset_index(name="人数")
-        st.dataframe(fielder_positions, use_container_width=True, hide_index=True)
-    with col6:
-        render_sub_heading("投手役割別人数")
-        pitcher_roles = df[df["role"] == "投手"]["position"].value_counts().rename_axis("役割").reset_index(name="人数")
-        st.dataframe(pitcher_roles, use_container_width=True, hide_index=True)
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("総件数", len(df))
+    metric_cols[1].metric("投手", int(df["role"].eq("投手").sum()))
+    metric_cols[2].metric("野手", int(df["role"].eq("野手").sum()))
+    metric_cols[3].metric("カテゴリ数", int(df["category"].nunique()))
+
+    render_section_heading("人数の内訳")
+    with balance_card("投手/野手 × カテゴリ別人数"):
+        render_balance_table(crosstab_table(df["role"], df["category"], row_label="投手/野手", row_order=["投手", "野手"], column_order=CATEGORIES, margins=True))
+    col1, col2 = st.columns(2, gap="large")
+    with col1, balance_card("野手ポジション別人数"):
+        fielder_positions = count_table(df.loc[df["role"].eq("野手"), "position"], "ポジション", order=SUB_POSITION_LABELS)
+        balance_bar_chart(fielder_positions, "ポジション", "人数", order=list(fielder_positions["ポジション"]))
+        render_table_expander(fielder_positions)
+    with col2, balance_card("投手役割別人数"):
+        pitcher_roles = count_table(df.loc[df["role"].eq("投手"), "position"], "役割", order=PITCHER_ROLE_ORDER)
+        balance_bar_chart(pitcher_roles, "役割", "人数", order=list(pitcher_roles["役割"]))
+        render_table_expander(pitcher_roles)
+
+
+def consistency_display_table(df: pd.DataFrame, master: MasterData, kind: str) -> pd.DataFrame:
+    table = consistency_table(df, master, kind)
+    table["整合性"] = table["整合性"].map({True: "✅ 一致", False: "⚠️ 不一致"})
+    return table
+
+
+def invalid_pitch_display_table(invalid: pd.DataFrame) -> pd.DataFrame:
+    work = invalid.copy()
+    if "kind" in work.columns:
+        work["区分"] = work.pop("kind").map({"breaking": "変化球", "second_fastball": "ストレート系第二種"}).fillna("")
+    if "第二球種" in work.columns:
+        work["第二球種"] = work["第二球種"].map(lambda value: "○" if value else "")
+    return work
+
+
+def left_violation_display_table(violations: pd.DataFrame) -> pd.DataFrame:
+    work = violations.copy()
+    sub_column = "sub_positions" if "sub_positions" in work.columns else "サブポジ"
+    work[sub_column] = work[sub_column].apply(format_sub_positions)
+    return work.rename(columns={"name": "名前", "position": "ポジション", "batting_throwing": "投打", sub_column: "サブポジ"})[["名前", "ポジション", "投打", "サブポジ"]]
+
+
+def render_violation_table(table: pd.DataFrame) -> None:
+    if table.empty:
+        st.success("違反なし")
+    else:
+        render_balance_table(table)
 
 
 def render_balance_consistency_tab(df: pd.DataFrame, master: MasterData, checks: dict[str, Any]) -> None:
     render_section_heading("生成品質チェック")
-    metric_cols = st.columns(6)
+    metric_cols = st.columns(5)
     metric_cols[0].metric("ユニークseed数", checks["unique_seed_count"])
-    for column, key in zip(metric_cols[1:], ["seed_duplicate_count", "complete_duplicate_count", "invalid_special_count", "handedness_mismatch_count", "restricted_left_count"]):
+    for column, key in zip(metric_cols[1:], ["seed_duplicate_count", "complete_duplicate_count", "invalid_special_count", "handedness_mismatch_count"]):
+        render_check_metric(column, checks, key)
+    extra_cols = st.columns(5)
+    for column, key in zip(extra_cols, ["restricted_left_count", "invalid_pitch_count", "left_sub_violation_count", "unknown_special_kind_count"]):
         render_check_metric(column, checks, key)
     if checks["restricted_left_count"] > 0:
         with st.expander("左投げの捕手/内野手の内訳"):
-            st.dataframe(checks["restricted_table"], use_container_width=True, hide_index=True)
-    extra_cols = st.columns(6)
-    for column, key in zip(extra_cols, ["invalid_pitch_count", "left_sub_violation_count", "unknown_special_kind_count"]):
-        render_check_metric(column, checks, key)
+            render_balance_table(checks["restricted_table"])
 
     render_section_heading("名前・国籍・出身地チェック")
     profile_cols = st.columns(5)
     profile_cols[0].metric("ユニーク名前数", checks["unique_name_count"])
-    profile_cols[1].metric("名前重複率", f"{checks['name_duplicate_rate']}%")
+    profile_cols[1].metric("名前重複率", f"{checks['name_duplicate_rate']:.1f}%")
     profile_cols[2].metric("国籍数", int(df["nationality"].nunique()))
     render_check_metric(profile_cols[3], checks, "name_inconsistency_count")
     render_check_metric(profile_cols[4], checks, "birthplace_inconsistency_count")
+    col1, col2 = st.columns(2, gap="large")
+    with col1, balance_card("国籍 × 名前種別の整合性"):
+        render_balance_table(consistency_display_table(df, master, "name"))
+    with col2, balance_card("国籍 × 出身地種別の整合性"):
+        render_balance_table(consistency_display_table(df, master, "birthplace"))
 
-    col_profile1, col_profile2 = st.columns(2)
-    with col_profile1:
-        render_sub_heading("国籍 × 名前種別の整合性")
-        st.dataframe(consistency_table(df, master, "name"), use_container_width=True, hide_index=True)
-    with col_profile2:
-        render_sub_heading("国籍 × 出身地種別の整合性")
-        st.dataframe(consistency_table(df, master, "birthplace"), use_container_width=True, hide_index=True)
+    render_section_heading("違反一覧")
+    with balance_card("右投手/左投手別 不正球種チェック"):
+        render_violation_table(invalid_pitch_display_table(checks["invalid_pitches"]))
+    with balance_card("左投げ野手サブポジ違反チェック"):
+        render_violation_table(left_violation_display_table(checks["left_sub_violation"]) if not checks["left_sub_violation"].empty else pd.DataFrame())
 
-    render_section_heading("右投手/左投手別 不正球種チェック")
-    st.dataframe(checks["invalid_pitches"], use_container_width=True, hide_index=True)
 
-    render_section_heading("左投げ野手サブポジ違反チェック")
-    st.dataframe(checks["left_sub_violation"], use_container_width=True, hide_index=True)
+def growth_heatmap_table(growth_df: pd.DataFrame, row_column: str, row_label: str, row_order: list[str]) -> pd.DataFrame:
+    """行ごとの成長タイプ構成比（%）に n（人数）列を付けたもの。"""
+    labels = list(GROWTH_TYPE_LABELS.values())
+    table = pd.crosstab(growth_df[row_column].astype(str), growth_df["成長タイプ"], normalize="index").mul(100).reindex(columns=labels, fill_value=0)
+    table = table.reindex(ordered_values(table.index, row_order))
+    table.insert(0, "n", growth_df[row_column].astype(str).value_counts().reindex(table.index).astype(int))
+    return table.rename_axis(index=row_label, columns=None).reset_index()
 
 
 def render_balance_profile_tab(df: pd.DataFrame) -> None:
-    render_section_heading("国籍別人数")
-    st.dataframe(df["nationality"].value_counts().rename_axis("国籍").reset_index(name="人数"), use_container_width=True, hide_index=True)
+    render_section_heading("国籍・投打")
+    col1, col2 = st.columns(2, gap="large")
+    with col1, balance_card("国籍別人数"):
+        nationality = count_table(df["nationality"], "国籍")
+        balance_bar_chart(nationality, "国籍", "人数")
+        render_table_expander(nationality)
+    with col2, balance_card("投打の分布", "投手/野手別の人数"):
+        batting = df.groupby(["batting_throwing", "role"]).size().reset_index(name="人数").rename(columns={"batting_throwing": "投打", "role": "投手/野手"})
+        batting_order = ordered_values(batting["投打"], BATTING_THROWING_ORDER)
+        balance_bar_chart(batting, "投打", "人数", order=batting_order, color_column="投手/野手", color_map=role_chart_colors(), group_offset=True)
+        render_table_expander(crosstab_table(df["batting_throwing"], df["role"], row_label="投打", row_order=BATTING_THROWING_ORDER, column_order=["投手", "野手"], margins=True))
 
-    render_section_heading("年齢分布")
-    age_dist = df["age"].value_counts().sort_index().rename_axis("年齢").reset_index(name="人数")
-    st.dataframe(age_dist, use_container_width=True, hide_index=True)
+    render_section_heading("年齢")
+    with balance_card("年齢分布", "1歳刻み。投手/野手で積み上げ"):
+        ages = df.groupby(["age", "role"]).size().reset_index(name="人数").rename(columns={"age": "年齢", "role": "投手/野手"})
+        ages["年齢"] = ages["年齢"].astype(int)
+        age_order = [str(age) for age in range(int(ages["年齢"].min()), int(ages["年齢"].max()) + 1)]
+        balance_bar_chart(ages.assign(年齢=ages["年齢"].astype(str)), "年齢", "人数", horizontal=False, order=age_order, color_column="投手/野手", color_map=role_chart_colors(), stacked=True)
+        render_table_expander(crosstab_table(df["age"].astype(int), df["role"], row_label="年齢", row_order=age_order, column_order=["投手", "野手"], margins=True))
 
-    career_df = df[df["entry_route"].fillna("").ne("")].copy()
     render_section_heading("プロ経歴分布")
+    career_df = df[df["entry_route"].fillna("").ne("")].copy()
     if career_df.empty:
         st.info("経歴情報を持つ保存済み選手がありません。")
     else:
-        career_df["年齢帯"] = pd.Categorical(career_df["age"].apply(career_age_band), categories=CAREER_AGE_BAND_ORDER, ordered=True)
-        render_sub_heading("プロ年数分布")
-        st.dataframe(career_df["pro_years"].value_counts().sort_index().rename_axis("プロ年数").reset_index(name="人数"), use_container_width=True, hide_index=True)
-        render_sub_heading("年齢帯 × プロ年数")
-        st.dataframe(pd.crosstab(career_df["年齢帯"], career_df["pro_years"]), use_container_width=True)
-        career_col1, career_col2 = st.columns(2)
-        with career_col1:
-            render_sub_heading("年齢帯別プロ年数")
-            st.dataframe(pro_years_age_band_stats(career_df), use_container_width=True, hide_index=True)
-        with career_col2:
-            render_sub_heading("入団経路分布")
-            route_dist = career_df["entry_route"].value_counts().rename_axis("入団経路").reset_index(name="人数")
-            route_dist["構成比%"] = (route_dist["人数"] / len(career_df) * 100).round(2)
-            st.dataframe(route_dist, use_container_width=True, hide_index=True)
-        render_sub_heading("入団経路 × 年齢帯")
-        st.dataframe(pd.crosstab(career_df["entry_route"], career_df["年齢帯"]), use_container_width=True)
+        career_df["年齢帯"] = career_df["age"].apply(career_age_band)
+        pro_year_order = [str(value) for value in sorted(career_df["pro_years"].astype(int).unique())]
+        col1, col2 = st.columns(2, gap="large")
+        with col1, balance_card("プロ年数分布"):
+            pro_years = count_table(career_df["pro_years"].astype(int), "プロ年数", order=pro_year_order)
+            balance_bar_chart(pro_years, "プロ年数", "人数", horizontal=False, order=pro_year_order)
+            render_table_expander(pro_years)
+        with col2, balance_card("入団経路分布"):
+            route_dist = count_table(career_df["entry_route"], "入団経路")
+            route_dist["構成比%"] = route_dist["人数"] / len(career_df) * 100
+            balance_bar_chart(route_dist, "入団経路", "人数")
+            render_table_expander(route_dist)
+        with balance_card("年齢帯別プロ年数"):
+            render_balance_table(pro_years_age_band_stats(career_df))
+        with balance_card("年齢帯 × プロ年数"):
+            render_balance_table(crosstab_table(career_df["年齢帯"], career_df["pro_years"].astype(int), row_label="年齢帯", row_order=CAREER_AGE_BAND_ORDER, column_order=pro_year_order))
+        with balance_card("入団経路 × 年齢帯"):
+            render_balance_table(crosstab_table(career_df["entry_route"], career_df["年齢帯"], row_label="入団経路", column_order=CAREER_AGE_BAND_ORDER))
 
     render_section_heading("成長タイプ分布")
     growth_df = df.copy()
     growth_df["成長タイプ"] = growth_df["growth_type"].apply(growth_type_label)
-    growth_total = growth_df["成長タイプ"].value_counts().reindex(GROWTH_TYPE_LABELS.values(), fill_value=0).rename_axis("成長タイプ").reset_index(name="人数")
-    growth_total["割合"] = (growth_total["人数"] / len(growth_df) * 100).round(2)
-    gcol1, gcol2 = st.columns(2)
-    with gcol1:
-        st.dataframe(growth_total, use_container_width=True, hide_index=True)
-        st.dataframe(pd.crosstab(growth_df["category"], growth_df["成長タイプ"], normalize="index").mul(100).round(1), use_container_width=True)
-    with gcol2:
-        st.dataframe(pd.crosstab(growth_df["role"], growth_df["成長タイプ"], normalize="index").mul(100).round(1), use_container_width=True)
-        st.dataframe(pd.crosstab(growth_df["age"].apply(lambda age: age_band(int(age))), growth_df["成長タイプ"], normalize="index").mul(100).round(1), use_container_width=True)
+    growth_df["年齢帯"] = growth_df["age"].apply(lambda age: age_band(int(age)))
+    labels = list(GROWTH_TYPE_LABELS.values())
+    growth_total = growth_df["成長タイプ"].value_counts().reindex(labels, fill_value=0).rename_axis("成長タイプ").reset_index(name="人数")
+    growth_total["割合"] = growth_total["人数"] / len(growth_df) * 100
+    col1, col2 = st.columns(2, gap="large")
+    with col1, balance_card("成長タイプ別人数"):
+        balance_bar_chart(growth_total, "成長タイプ", "人数", order=labels)
+        render_table_expander(growth_total)
+    with col2, balance_card("カテゴリ別の成長タイプ構成比", "各行の構成比（%）。n は人数"):
+        render_heatmap_table(growth_heatmap_table(growth_df, "category", "カテゴリ", CATEGORIES), labels, number_format="{:.1f}")
+    col1, col2 = st.columns(2, gap="large")
+    with col1, balance_card("投手/野手別の成長タイプ構成比", "各行の構成比（%）。n は人数"):
+        render_heatmap_table(growth_heatmap_table(growth_df, "role", "投手/野手", ["投手", "野手"]), labels, number_format="{:.1f}")
+    with col2, balance_card("年齢帯別の成長タイプ構成比", "各行の構成比（%）。n は人数"):
+        render_heatmap_table(growth_heatmap_table(growth_df, "年齢帯", "年齢帯", AGE_BAND_ORDER), labels, number_format="{:.1f}")
+
+
+def classification_chart_data(df: pd.DataFrame, group_column: str, value_column: str) -> pd.DataFrame:
+    label = CLASSIFICATION_LABELS.get(value_column, value_column)
+    return classification_distribution_table(df, [group_column], value_column).rename(columns={group_column: "区分"}).rename(columns={label: "値"})
+
+
+def classification_pivot(data: pd.DataFrame, label: str, value_order: list[str], group_order: list[str]) -> pd.DataFrame:
+    """行＝分類の値、列＝カテゴリ（またはポジション）の人数表。"""
+    pivot = data.pivot_table(index="値", columns="区分", values="人数", aggfunc="sum", fill_value=0)
+    pivot = pivot.reindex(index=value_order, columns=ordered_values(pivot.columns, group_order), fill_value=0)
+    pivot["合計"] = pivot.sum(axis=1)
+    return pivot.rename_axis(index=label, columns=None).reset_index()
+
+
+def render_classification_block(df: pd.DataFrame, value_column: str, *, group_column: str = "category", group_order: list[str] | None = None, value_order: list[str] | None = None, use_ratio: bool = False, caption: str | None = None) -> None:
+    label = CLASSIFICATION_LABELS.get(value_column, value_column)
+    data = classification_chart_data(df, group_column, value_column)
+    with balance_card(label, caption):
+        if data.empty:
+            st.caption("データがありません。")
+            return
+        group_order = group_order or CATEGORIES
+        order = ordered_values(data["値"], value_order or list(data.groupby("値")["人数"].sum().sort_values(ascending=False).index))
+        color_map = category_chart_colors() if group_column == "category" else None
+        group_label = "カテゴリ" if group_column == "category" else "ポジション"
+        # ポジションスタイルは値の名前にポジションが含まれるので色分けしない
+        multiple_groups = group_column == "category" and data["区分"].nunique() > 1
+        balance_bar_chart(
+            data.rename(columns={"区分": group_label}),
+            "値",
+            "構成比%" if use_ratio else "人数",
+            order=order,
+            color_column=group_label if multiple_groups else None,
+            color_map=color_map,
+            group_offset=use_ratio and multiple_groups,
+            stacked=not use_ratio,
+            value_title="構成比（%）" if use_ratio else "人数",
+            tooltip_columns=["値", group_label, "人数", "構成比%"],
+        )
+        render_table_expander(classification_pivot(data, label, order, group_order))
 
 
 def render_balance_classification_tab(df: pd.DataFrame) -> None:
-    render_section_heading("新分類分布")
-    class_col1, class_col2 = st.columns(2)
-    with class_col1:
-        st.dataframe(classification_distribution_table(df, ["category"], "player_class").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
-        st.dataframe(classification_distribution_table(df, ["position"], "position_style").rename(columns={"position": "ポジション"}), use_container_width=True, hide_index=True)
-        st.dataframe(classification_distribution_table(df[df["category"].eq("助っ人外国人用")], ["category"], "weakness_profile").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
-    with class_col2:
-        st.dataframe(classification_distribution_table(df, ["category"], "archetype").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
-        st.dataframe(classification_distribution_table(df[df["category"].eq("ドラフト候補用")], ["category"], "development_stage").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
-        st.dataframe(classification_distribution_table(df[df["category"].eq("助っ人外国人用")], ["category"], "acquisition_role").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
+    render_section_heading("選手格・アーキタイプ")
+    render_classification_block(df, "player_class", value_order=PLAYER_CLASS_ORDER, caption="格の高い順。カテゴリで色分け")
+    render_classification_block(df, "archetype", use_ratio=True, caption="カテゴリ内の構成比（%）")
+    render_section_heading("ポジションスタイル")
+    fielders = df[df["role"].eq("野手")]
+    style_order = list(dict.fromkeys(value for position in SUB_POSITION_LABELS for value in fielders.loc[fielders["position"].eq(position), "position_style"].dropna().astype(str) if value))
+    render_classification_block(df, "position_style", group_column="position", group_order=SUB_POSITION_LABELS + PITCHER_ROLE_ORDER, value_order=style_order, caption="ポジション別の人数")
+    render_section_heading("カテゴリ専用の分類")
+    col1, col2 = st.columns(2, gap="large")
+    with col1:
+        render_classification_block(df[df["category"].eq("ドラフト候補用")], "development_stage", value_order=["即戦力型", "標準型", "素材型"], caption="ドラフト候補用のみ")
+    with col2:
+        render_classification_block(df[df["category"].eq("助っ人外国人用")], "acquisition_role", caption="助っ人外国人用のみ")
+    render_classification_block(df[df["category"].eq("助っ人外国人用")], "weakness_profile", caption="助っ人外国人用のみ")
+
+
+def ability_values(df: pd.DataFrame, key: str) -> pd.Series:
+    return pd.to_numeric(df["abilities"].apply(lambda abilities: ability_numeric_value(abilities, key)), errors="coerce")
+
+
+def ability_stats_table(df: pd.DataFrame, role: str, keys: list[str]) -> pd.DataFrame:
+    """平均値・中央値・最小・最大。ability_average_table を拡張した表示用の表。"""
+    target = df[df["role"] == role]
+    rows = []
+    for key in keys:
+        values = ability_values(target, key).dropna()
+        rows.append({"能力": key, "人数": len(values), "平均値": values.mean() if len(values) else None, "中央値": values.median() if len(values) else None, "最小": values.min() if len(values) else None, "最大": values.max() if len(values) else None})
+    return pd.DataFrame(rows)
+
+
+def ability_rank_table(df: pd.DataFrame, role: str, keys: list[str]) -> pd.DataFrame:
+    """能力ごとのランク（S〜G）別人数。球速・弾道はランクが無いので除く。"""
+    target = df[df["role"] == role]
+    rows = []
+    for key in keys:
+        if key in {"球速", "弾道"}:
+            continue
+        values = ability_values(target, key).dropna()
+        counts = values.astype(int).apply(rank).value_counts()
+        rows.append({"能力": key, **{grade: int(counts.get(grade, 0)) for grade in ABILITY_RANK_ORDER}})
+    return pd.DataFrame(rows, columns=["能力", *ABILITY_RANK_ORDER])
+
+
+def ability_category_average_table(df: pd.DataFrame, role: str, keys: list[str]) -> pd.DataFrame:
+    """行＝能力、列＝カテゴリの平均値。"""
+    target = df[df["role"] == role]
+    categories = ordered_values(target["category"], CATEGORIES)
+    rows = []
+    for key in keys:
+        row = {"能力": key}
+        for category in categories:
+            values = ability_values(target[target["category"].eq(category)], key).dropna()
+            row[category] = round(values.mean(), 1) if len(values) else None
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def render_ability_role_block(df: pd.DataFrame, role: str, keys: list[str]) -> None:
+    if not df["role"].eq(role).any():
+        st.info(f"{role}のデータがありません。")
+        return
+    with balance_card(f"{role}能力の分布", "平均値・中央値・最小・最大"):
+        render_balance_table(ability_stats_table(df, role, keys))
+    with balance_card(f"{role}能力のランク別人数"):
+        rank_table = ability_rank_table(df, role, keys)
+        render_heatmap_table(rank_table, ABILITY_RANK_ORDER)
+    with balance_card(f"カテゴリ別の{role}能力平均"):
+        category_average = ability_category_average_table(df, role, keys)
+        render_balance_table(category_average, column_config={category: st.column_config.NumberColumn(category, format="%.1f") for category in CATEGORIES})
 
 
 def render_balance_ability_tab(df: pd.DataFrame) -> None:
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2, gap="large")
     with col1:
-        render_sub_heading("野手能力 平均値")
-        st.dataframe(ability_average_table(df, "野手", ["弾道", "ミート", "パワー", "走力", "肩力", "守備力", "捕球"]), use_container_width=True, hide_index=True)
+        render_section_heading("野手能力")
+        render_ability_role_block(df, "野手", FIELDER_ABILITY_KEYS)
     with col2:
-        render_sub_heading("投手能力 平均値")
-        st.dataframe(ability_average_table(df, "投手", ["球速", "コントロール", "スタミナ"]), use_container_width=True, hide_index=True)
+        render_section_heading("投手能力")
+        render_ability_role_block(df, "投手", PITCHER_ABILITY_KEYS)
+    pitchers = df[df["role"].eq("投手")]
+    if pitchers.empty:
+        return
+    render_section_heading("役割別の球速分布")
+    speeds = pd.DataFrame({"役割": pitchers["position"].astype(str), "球速": ability_values(pitchers, "球速")}).dropna()
+    col1, col2 = st.columns(2, gap="large")
+    with col1, balance_card("役割別の球速（箱ひげ図）", "箱＝中央50%、線＝最小〜最大（外れ値を除く）"):
+        import altair as alt
+
+        role_order = ordered_values(speeds["役割"], PITCHER_ROLE_ORDER)
+        chart = alt.Chart(speeds).mark_boxplot(size=28, color=UI_COLORS["pitcher"], median=alt.MarkConfig(color=UI_COLORS["surface"])).encode(
+            x=alt.X("球速:Q", scale=alt.Scale(zero=False), axis=alt.Axis(title="球速（km/h）", grid=True, gridColor=UI_COLORS["border"])),
+            y=alt.Y("役割:N", sort=role_order, axis=alt.Axis(title=None, labelFontSize=13)),
+        ).properties(height=len(role_order) * 50 + 40).configure_view(strokeWidth=0).configure(background="transparent", font="Yu Gothic UI")
+        st.altair_chart(chart, use_container_width=True)
+    with col2, balance_card("役割別の球速"):
+        speed_stats = speeds.groupby("役割")["球速"].agg(["count", "mean", "median", "min", "max"]).reindex(role_order).reset_index()
+        render_balance_table(speed_stats.rename(columns={"count": "人数", "mean": "平均値", "median": "中央値", "min": "最小", "max": "最大"}))
+
+
+def ranked_special_heatmap(pivot: pd.DataFrame, exclude_standard: bool) -> None:
+    ranks = [grade for grade in RANKED_SPECIAL_RANKS if not (exclude_standard and grade == "D")]
+    table = pivot[["区分", "グループ", *ranks, "合計"]]
+    render_heatmap_table(table, ranks, faint_columns=[] if exclude_standard else ["D"])
 
 
 def render_balance_special_tab(df: pd.DataFrame, master: MasterData) -> None:
     special_lengths = df["special_abilities"].apply(len)
-    metric_col1, metric_col2, _ = st.columns([1, 1, 2])
-    metric_col1.metric("1人あたり平均特殊能力数", f"{special_lengths.mean():.2f}")
-    metric_col2.metric("6個以上の選手数", int((special_lengths >= 6).sum()))
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("1人あたり平均特殊能力数", f"{special_lengths.mean():.2f}")
+    metric_cols[1].metric("6個以上の選手数", int((special_lengths >= 6).sum()))
+    metric_cols[2].metric("最多", f"{int(special_lengths.max())}個")
+    metric_cols[3].metric("0個の選手数", int((special_lengths == 0).sum()))
 
+    render_section_heading("種別と出現回数")
     special_counts, _ = special_ability_summary(df, master)
-    col3, col4 = st.columns(2)
-    with col3:
-        render_sub_heading("特殊能力 種別別出現数")
-        st.dataframe(special_kind_table(df, master), use_container_width=True, hide_index=True)
-        st.caption("個性系：" + "、".join(sorted(PERSONALITY_SPECIALS)) + "。他の種別と重複して数えます。")
-    with col4:
-        render_sub_heading("特殊能力 出現回数")
-        st.dataframe(special_counts, use_container_width=True, hide_index=True)
+    col1, col2 = st.columns(2, gap="large")
+    with col1, balance_card("種別別出現数", "個性系：" + "、".join(sorted(PERSONALITY_SPECIALS)) + "。他の種別と重複して数えます。"):
+        kinds = special_kind_table(df, master)
+        balance_bar_chart(kinds, "種別", "出現数", order=list(kinds["種別"]))
+        render_table_expander(kinds)
+    with col2, balance_card("特殊能力 出現回数", f"{len(special_counts)}種類（25行を超える分は表内でスクロール）"):
+        render_balance_table(special_counts)
 
-    render_section_heading("ランク系特殊能力の分布")
-    st.dataframe(ranked_special_pivot(df), use_container_width=True, hide_index=True)
+    render_section_heading("ランク系特殊能力")
+    with balance_card("グループ × ランクの人数", "D（標準）のセルは薄い色で表示します。"):
+        exclude_standard = st.toggle("D を除外", value=False, key="balance_ranked_exclude_d")
+        pivot = ranked_special_pivot(df)
+        if pivot.empty:
+            st.caption("データがありません。")
+        else:
+            ranked_special_heatmap(pivot, exclude_standard)
 
     render_section_heading("特殊能力数の分布")
-    st.dataframe(special_count_pivot(df), use_container_width=True, hide_index=True)
+    counts = df.assign(特殊能力数=df["special_abilities"].apply(special_count_display_bucket)).groupby(["特殊能力数", "role"]).size().reset_index(name="人数").rename(columns={"role": "投手/野手"})
+    with balance_card("特殊能力数別の人数", "投手/野手で積み上げ。6個以上は 6 / 7 / 8 / 9個以上 に分けて表示"):
+        balance_bar_chart(counts, "特殊能力数", "人数", horizontal=False, order=SPECIAL_COUNT_DISPLAY_BUCKETS, color_column="投手/野手", color_map=role_chart_colors(), stacked=True)
+        render_table_expander(special_count_pivot(df))
 
-    render_section_heading("選手タイプ別 通常特殊能力平均数")
-    type_avg = df.assign(通常特殊能力数=special_lengths).groupby(["role", "player_type"])["通常特殊能力数"].mean().round(2).reset_index().rename(columns={"role": "投手/野手", "player_type": "選手タイプ", "通常特殊能力数": "平均数"})
-    st.dataframe(type_avg, use_container_width=True, hide_index=True)
+    with balance_card("選手タイプ別 通常特殊能力平均数"):
+        type_avg = df.assign(通常特殊能力数=special_lengths).groupby(["role", "player_type"])["通常特殊能力数"].agg(["size", "mean"]).reset_index()
+        type_avg = type_avg.rename(columns={"role": "投手/野手", "player_type": "選手タイプ", "size": "人数", "mean": "平均数"})
+        type_avg["投手/野手"] = pd.Categorical(type_avg["投手/野手"], categories=["投手", "野手"], ordered=True)
+        render_balance_table(type_avg.sort_values(["投手/野手", "平均数"], ascending=[True, False]))
+
+
+def breaking_metric_values(breaking_tables: dict[str, Any]) -> dict[str, str]:
+    """breaking_balance_tables()["metrics"] の「値」列（数値と "12.5%" が混在）をメトリクス表示用の文字列にそろえる。"""
+    values = {}
+    for _, row in breaking_tables["metrics"].iterrows():
+        value = row["値"]
+        if isinstance(value, str) and value.endswith("%"):
+            values[row["項目"]] = f"{float(value.rstrip('%')):.1f}%"
+        elif isinstance(value, float) and not float(value).is_integer():
+            values[row["項目"]] = f"{value:.2f}"
+        else:
+            values[row["項目"]] = f"{int(value)}"
+    return values
 
 
 def render_balance_breaking_tab(df: pd.DataFrame) -> None:
+    pitchers = df[df["role"].eq("投手")]
+    if pitchers.empty:
+        st.info("投手のデータがありません。")
+        return
     breaking_tables = breaking_balance_tables(df)
+    metrics = breaking_metric_values(breaking_tables)
+    throwing = pitchers["handedness"].astype(str)
+    right_count, left_count = int(throwing.eq("右投").sum()), int(throwing.eq("左投").sum())
     render_section_heading("変化球バランス")
-    st.dataframe(breaking_tables["metrics"], use_container_width=True, hide_index=True)
-    bcol1, bcol2 = st.columns(2)
-    with bcol1:
-        render_sub_heading("通常変化球数分布")
-        st.dataframe(breaking_tables["count_dist"], use_container_width=True, hide_index=True)
-        render_sub_heading("方向別出現数")
-        st.dataframe(breaking_tables["direction"], use_container_width=True, hide_index=True)
-        render_sub_heading("ストレート系第二種 種類別出現数")
-        st.dataframe(breaking_tables["second_fastball"], use_container_width=True, hide_index=True)
-    with bcol2:
-        render_sub_heading("総変化量分布")
-        st.dataframe(breaking_tables["movement_dist"], use_container_width=True, hide_index=True)
-        render_sub_heading("球種別出現数")
-        st.dataframe(breaking_tables["pitch"], use_container_width=True, hide_index=True)
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("右投手", f"{right_count}人", f"{right_count / len(pitchers) * 100:.1f}%", delta_color="off", delta_arrow="off")
+    metric_cols[1].metric("左投手", f"{left_count}人", f"{left_count / len(pitchers) * 100:.1f}%", delta_color="off", delta_arrow="off")
+    metric_cols[2].metric("平均通常変化球数", metrics["投手1人あたり平均通常変化球数"])
+    metric_cols[3].metric("平均総変化量", metrics["投手1人あたり平均総変化量"])
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("第二球種あり", f"{metrics['第二球種あり投手数']}人", metrics["第二球種あり投手割合"], delta_color="off", delta_arrow="off")
+    metric_cols[1].metric("ストレート系第二種あり", f"{metrics['ストレート系第二種あり投手数']}人", metrics["ストレート系第二種あり投手割合"], delta_color="off", delta_arrow="off")
+    metric_cols[2].metric("不正球種件数", check_metric_value(int(metrics["不正球種件数"])), help="内訳は「整合性チェック」タブに表示します。")
+
+    render_section_heading("球種数と変化量")
+    col1, col2 = st.columns(2, gap="large")
+    with col1, balance_card("通常変化球数分布"):
+        count_dist = breaking_tables["count_dist"].astype({"通常変化球数": int}).astype({"通常変化球数": str})
+        balance_bar_chart(count_dist, "通常変化球数", "投手数", horizontal=False, order=list(count_dist["通常変化球数"]))
+        render_table_expander(count_dist)
+    with col2, balance_card("総変化量分布"):
+        movement_dist = breaking_tables["movement_dist"].astype({"総変化量": int}).astype({"総変化量": str})
+        balance_bar_chart(movement_dist, "総変化量", "投手数", horizontal=False, order=list(movement_dist["総変化量"]))
+        render_table_expander(movement_dist)
+
+    render_section_heading("方向・球種")
+    col1, col2 = st.columns(2, gap="large")
+    with col1:
+        with balance_card("方向別出現数"):
+            balance_bar_chart(breaking_tables["direction"], "方向", "出現数")
+            render_table_expander(breaking_tables["direction"])
+        with balance_card("ストレート系第二種 種類別出現数"):
+            if breaking_tables["second_fastball"].empty:
+                st.caption("ストレート系第二種を持つ投手はいません。")
+            else:
+                balance_bar_chart(breaking_tables["second_fastball"], "球種", "出現数")
+                render_table_expander(breaking_tables["second_fastball"])
+    with col2, balance_card("球種別出現数"):
+        balance_bar_chart(breaking_tables["pitch"], "球種", "出現数")
+        render_table_expander(breaking_tables["pitch"])
 
 
 def render_balance_defense_tab(df: pd.DataFrame) -> None:
@@ -8527,16 +8953,47 @@ def render_balance_defense_tab(df: pd.DataFrame) -> None:
         st.info("野手のデータがありません。")
         return
     render_section_heading("サブポジ集計")
-    st.dataframe(sub_tables["metrics"], use_container_width=True, hide_index=True)
-    scol1, scol2 = st.columns(2)
-    with scol1:
-        st.dataframe(sub_tables["count_dist"], use_container_width=True, hide_index=True)
-        st.dataframe(sub_tables["main_has_rate"], use_container_width=True, hide_index=True)
-        st.dataframe(sub_tables["sub_counts"], use_container_width=True, hide_index=True)
-    with scol2:
-        st.dataframe(sub_tables["main_candidate"], use_container_width=True, hide_index=True)
-        st.dataframe(sub_tables["apt_counts"], use_container_width=True, hide_index=True)
-        st.dataframe(sub_tables["pos_apt"], use_container_width=True, hide_index=True)
+    metric_values = dict(zip(sub_tables["metrics"]["指標"], sub_tables["metrics"]["値"]))
+    metric_cols = st.columns(5)
+    for column, (label, value) in zip(metric_cols, metric_values.items()):
+        column.metric(label, f"{int(value)}人" if label.endswith("数") else f"{float(value):.1f}%")
+
+    col1, col2 = st.columns(2, gap="large")
+    with col1, balance_card("サブポジ数分布"):
+        count_dist = sub_tables["count_dist"].set_index("サブポジ数").reindex(["0個", "1個", "2個", "3個以上"], fill_value=0).reset_index()
+        balance_bar_chart(count_dist, "サブポジ数", "人数", order=list(count_dist["サブポジ数"]))
+        render_table_expander(count_dist)
+    with col2, balance_card("サブポジ評価分布"):
+        if sub_tables["apt_counts"].empty:
+            st.caption("サブポジを持つ野手はいません。")
+        else:
+            apt_counts = sub_tables["apt_counts"].set_index("評価").reindex(ordered_values(sub_tables["apt_counts"]["評価"], SUB_POSITION_APTITUDE_ORDER)).reset_index()
+            balance_bar_chart(apt_counts, "評価", "出現数", order=list(apt_counts["評価"]))
+            render_table_expander(apt_counts)
+
+    col1, col2 = st.columns(2, gap="large")
+    with col1, balance_card("メインポジション別 サブポジ保有率"):
+        main_has_rate = sub_tables["main_has_rate"].rename(columns={"position": "ポジション"})
+        main_has_rate = main_has_rate.set_index("ポジション").reindex(ordered_values(main_has_rate["ポジション"], SUB_POSITION_LABELS)).reset_index()
+        render_balance_table(main_has_rate)
+    with col2, balance_card("サブポジ別出現数"):
+        if sub_tables["sub_counts"].empty:
+            st.caption("サブポジを持つ野手はいません。")
+        else:
+            sub_counts = sub_tables["sub_counts"].set_index("サブポジ").reindex(ordered_values(sub_tables["sub_counts"]["サブポジ"], SUB_POSITION_LABELS)).reset_index()
+            balance_bar_chart(sub_counts, "サブポジ", "出現数", order=list(sub_counts["サブポジ"]))
+            render_table_expander(sub_counts)
+
+    if not sub_tables["main_candidate"].empty:
+        col1, col2 = st.columns(2, gap="large")
+        with col1, balance_card("メインポジション × サブポジ", "出現数"):
+            main_candidate = sub_tables["main_candidate"].pivot_table(index="メインポジション", columns="サブポジ", values="出現数", aggfunc="sum", fill_value=0)
+            main_candidate = main_candidate.reindex(index=ordered_values(main_candidate.index, SUB_POSITION_LABELS), columns=ordered_values(main_candidate.columns, SUB_POSITION_LABELS), fill_value=0)
+            render_heatmap_table(main_candidate.rename_axis(columns=None).reset_index(), list(main_candidate.columns))
+        with col2, balance_card("サブポジ × 評価", "出現数"):
+            pos_apt = sub_tables["pos_apt"].pivot_table(index="サブポジ", columns="評価", values="出現数", aggfunc="sum", fill_value=0)
+            pos_apt = pos_apt.reindex(index=ordered_values(pos_apt.index, SUB_POSITION_LABELS), columns=ordered_values(pos_apt.columns, SUB_POSITION_APTITUDE_ORDER), fill_value=0)
+            render_heatmap_table(pos_apt.rename_axis(columns=None).reset_index(), list(pos_apt.columns))
 
 
 def render_balance_danger_zone() -> None:
@@ -10189,10 +10646,11 @@ def balance_page_css() -> str:
     @import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800&display=swap");
     .stApp:has(SCOPE) {background:var(--ui-bg);}
     SCOPE {font-family:FONT;}
-    SCOPE *:not([data-testid="stIconMaterial"]):not(code) {font-family:inherit;}
+    SCOPE *:not([data-testid="stIconMaterial"]):not(code):not(text):not(tspan) {font-family:inherit;}
     SCOPE [data-testid="stMetricValue"], SCOPE [data-testid="stMetricValue"] * {font-variant-numeric:tabular-nums; font-weight:800; color:var(--ui-primary);}
     SCOPE [data-testid="stMetricValue"] {font-size:28px;}
     SCOPE [data-testid="stMetricLabel"] p {font-size:13px; font-weight:700; color:var(--ui-muted);}
+    SCOPE [data-testid="stMetric"] {background:var(--ui-surface); border:1px solid var(--ui-border); border-radius:10px; padding:10px 14px;}
     SCOPE [data-testid="stCaptionContainer"], SCOPE [data-testid="stCaptionContainer"] p {color:var(--ui-muted); font-size:13px;}
     /* タイトルを1段にまとめる */
     SCOPE .pp-title-inline {display:flex; flex-wrap:wrap; align-items:baseline; column-gap:10px; row-gap:2px; font-size:24px; padding:10px 20px; border-left-color:var(--ui-primary);}
