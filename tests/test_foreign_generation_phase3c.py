@@ -58,7 +58,8 @@ def test_existing_foreign_import_seed_regression():
     expected = {
         # 外国人投手は実在準拠バランス（apply_foreign_pitcher_balance）で再調整した値
         ("投手", 2026092803): "b187eed3b172d4990556b6ca9afca28dc3548e85be1176398e943f50be22c8f9",
-        ("野手", 2026092804): "0e32b366d9e4cc8cf1b2d10ba04f195045e95a89a39e0267d4e2ccd7003893d4",
+        # 外国人野手は実在準拠バランス（apply_foreign_fielder_balance）で再調整した値
+        ("野手", 2026092804): "ff8954fd6e13eea579b6df482880b156b60ed5094a4668241e19b872f33df7c9",
     }
     master = app.load_master_data()
     for (role, seed), expected_hash in expected.items():

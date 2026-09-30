@@ -5669,13 +5669,21 @@ FOREIGN_TWO_SEAM_RATES = {"先発": 0.27, "中継ぎ": 0.46, "抑え": 0.53}
 # 第二球種は変化球1つ分の枠を使うので、第二球種を持つ投手は常に変化球2球種。
 FOREIGN_TWO_PITCH_RATES_WITHOUT_SECOND_FASTBALL = {"先発": 0.02, "中継ぎ": 0.26, "抑え": 0.29}
 # 選手格ごとの特能補正（青特能の出やすさ, 赤特能の出やすさ, ランク特能を良くする確率, 悪くする確率）
-FOREIGN_PITCHER_CLASS_SPECIAL_SCALES = {
+# 外国人の投手・野手で共通。
+FOREIGN_CLASS_SPECIAL_SCALES = {
     "大物実績者": (1.40, 0.65, 0.35, 0.00),
     "主力期待級": (1.08, 0.90, 0.12, 0.05),
     "レギュラー競争級": (1.00, 1.00, 0.05, 0.08),
     "保険・バックアップ級": (0.80, 1.15, 0.00, 0.25),
     "育成素材型": (0.80, 1.20, 0.00, 0.20),
     "再生候補": (0.88, 1.15, 0.03, 0.22),
+}
+# 獲得目的「若手育成」を付けられる上限年齢（投手・野手共通）
+FOREIGN_YOUNG_DEVELOPMENT_MAX_AGE = 27
+# 実在の外国人選手に1人もいない特能は、大物実績者にだけまれに付ける（特能名, 確率）。
+FOREIGN_STAR_ONLY_SPECIALS = {
+    "投手": [("対強打者○", 0.10), ("闘志", 0.05), ("重い球", 0.05)],
+    "野手": [("対エース○", 0.08), ("野手存在感", 0.05)],
 }
 # 実在データで同時に持たない組み合わせ
 FOREIGN_PITCHER_SPECIAL_CONFLICTS = [
@@ -5769,13 +5777,19 @@ def foreign_pitcher_stamina(rng: random.Random, position: str, archetype: str, a
     return clamp(mean, low, high)
 
 
-def foreign_pitcher_physique(rng: random.Random, nationality: str) -> tuple[int, int]:
-    height = truncated_normal_int(rng, FOREIGN_PITCHER_HEIGHT_BY_NATIONALITY.get(nationality, 190.0), 6.5, 178, 210)
-    bmi = max(24.5, min(30.5, rng.gauss(27.3, 1.2)))
+def foreign_physique(rng: random.Random, height_mean: float, height_sd: float, height_low: int, height_high: int, bmi_mean: float, bmi_sd: float, bmi_low: float, bmi_high: float) -> tuple[int, int]:
+    """外国人の身長と、BMIに連動した体重（投手・野手共通）。"""
+    height = truncated_normal_int(rng, height_mean, height_sd, height_low, height_high)
+    bmi = max(bmi_low, min(bmi_high, rng.gauss(bmi_mean, bmi_sd)))
     return height, int(round(bmi * (height / 100) ** 2))
 
 
-def foreign_pitcher_growth_type(rng: random.Random, age: int) -> str:
+def foreign_pitcher_physique(rng: random.Random, nationality: str) -> tuple[int, int]:
+    return foreign_physique(rng, FOREIGN_PITCHER_HEIGHT_BY_NATIONALITY.get(nationality, 190.0), 6.5, 178, 210, 27.3, 1.2, 24.5, 30.5)
+
+
+def foreign_growth_type(rng: random.Random, age: int) -> str:
+    """年齢と整合する成長タイプ（外国人の投手・野手共通）。超晩成は26歳以下だけ。"""
     if age <= 24:
         weights = {"very_early": 10, "early": 22, "normal": 40, "late": 20, "very_late": 8}
     elif age <= 26:
@@ -5791,7 +5805,7 @@ def foreign_pitcher_acquisition_role(rng: random.Random, current: str, position:
     is_left = batting_throwing.startswith("左投")
     invalid = (
         (position == "先発" and current not in FOREIGN_PITCHER_STARTER_ACQUISITIONS)
-        or (current == "若手育成" and age > 27)
+        or (current == "若手育成" and age > FOREIGN_YOUNG_DEVELOPMENT_MAX_AGE)
         or (current == "左腕補強" and not is_left)
     )
     if not invalid:
@@ -5804,7 +5818,7 @@ def foreign_pitcher_acquisition_role(rng: random.Random, current: str, position:
         candidates = ["勝ちパターン候補", "ロングリリーフ", "再生候補"]
     if is_left:
         candidates.append("左腕補強")
-    if age <= 27:
+    if age <= FOREIGN_YOUNG_DEVELOPMENT_MAX_AGE:
         candidates.append("若手育成")
     items = [(label, PITCHER_ACQUISITION_ROLE_WEIGHTS.get(label, 10) * (2 if player_class == "再生候補" and label == "再生候補" else 1)) for label in candidates]
     return weighted_choice(rng, items)
@@ -5887,10 +5901,6 @@ def foreign_pitcher_special_abilities(
     breaking_balls: list[dict[str, Any]],
 ) -> list[str]:
     """型・能力と連動した通常特能。実在の外国人投手にない特能はほぼ出さない。"""
-    blue_scale, red_scale, _, _ = FOREIGN_PITCHER_CLASS_SPECIAL_SCALES.get(player_class, (1.0, 1.0, 0.0, 0.0))
-    allowed = role_allowed_specials(master, "投手")
-    group_of = {str(row["name"]): str(row.get("group", "")) for row in master.abilities}
-    kind_of = {str(row["name"]): str(row.get("kind", "")) for row in master.abilities}
     names = {str(ball.get("name")) for ball in breaking_balls}
     directions = {str(ball.get("direction_code")) for ball in breaking_balls if ball.get("kind") == "breaking"}
     has_two_seam = "ツーシームファスト" in names
@@ -5959,14 +5969,39 @@ def foreign_pitcher_special_abilities(
         ("ストライク先行", 0.007, True),
         ("火消し", 0.007 if can_relieve else 0.0, True),
     ]
+    return select_foreign_specials(
+        rng, master, "投手", player_class, candidates, FOREIGN_PITCHER_SPECIAL_CONFLICTS,
+        ("球速安定", "キレ○", "対ランナー", "リリース○", "低め○"),
+    )
+
+
+def select_foreign_specials(
+    rng: random.Random,
+    master: MasterData,
+    role: str,
+    player_class: str,
+    candidates: list[tuple[str, float, bool]],
+    conflicts: list[tuple[str, str]],
+    fillers: tuple[str, ...],
+    is_allowed: Any = None,
+) -> list[str]:
+    """外国人の通常特能を候補（特能名, 確率, 選手格補正を掛けるか）から抽選する（投手・野手共通）。
+
+    実在の外国人選手にいない特能は候補に入れず、大物実績者にだけ FOREIGN_STAR_ONLY_SPECIALS を足す。
+    同じグループ（g始まり）の特能と矛盾ペアは同時に持たせない。
+    """
+    blue_scale, red_scale, _, _ = FOREIGN_CLASS_SPECIAL_SCALES.get(player_class, (1.0, 1.0, 0.0, 0.0))
+    allowed = role_allowed_specials(master, role)
+    group_of = {str(row["name"]): str(row.get("group", "")) for row in master.abilities}
+    kind_of = {str(row["name"]): str(row.get("kind", "")) for row in master.abilities}
+    candidates = list(candidates)
     if player_class == "大物実績者":
-        # 実在の外国人投手にはいない特能は、大物実績者にだけまれに付ける。
-        candidates += [("対強打者○", 0.10, False), ("闘志", 0.05, False), ("重い球", 0.05, False)]
+        candidates += [(name, chance, False) for name, chance in FOREIGN_STAR_ONLY_SPECIALS.get(role, [])]
 
     selected: list[str] = []
     used_groups: set[str] = set()
     for name, chance, scaled in candidates:
-        if name not in allowed or chance <= 0:
+        if name not in allowed or chance <= 0 or (is_allowed is not None and not is_allowed(name)):
             continue
         if scaled:
             chance *= red_scale if kind_of.get(name) == "red" else blue_scale
@@ -5975,7 +6010,7 @@ def foreign_pitcher_special_abilities(
         group = group_of.get(name, name)
         if group.startswith("g") and group in used_groups:
             continue
-        if any((name == a and b in selected) or (name == b and a in selected) for a, b in FOREIGN_PITCHER_SPECIAL_CONFLICTS):
+        if any((name == a and b in selected) or (name == b and a in selected) for a, b in conflicts):
             continue
         selected.append(name)
         used_groups.add(group)
@@ -5985,14 +6020,35 @@ def foreign_pitcher_special_abilities(
     while sum(is_countable_special(name) for name in selected) > high:
         drop = next(name for name in reversed(selected) if is_countable_special(name))
         selected.remove(drop)
-    for name in ("球速安定", "キレ○", "対ランナー", "リリース○", "低め○"):
+    for name in fillers:
         if sum(is_countable_special(item) for item in selected) >= low:
             break
         group = group_of.get(name, name)
         if name in allowed and name not in selected and not (group.startswith("g") and group in used_groups):
-            selected.append(name)
-            used_groups.add(group)
+            if is_allowed is None or is_allowed(name):
+                selected.append(name)
+                used_groups.add(group)
     return selected
+
+
+def foreign_class_rank_shift(rng: random.Random, player_class: str) -> int:
+    """選手格によるランク特能の補正（+1で1段良く、-1で1段悪く）。投手・野手共通。"""
+    _, _, up_rate, down_rate = FOREIGN_CLASS_SPECIAL_SCALES.get(player_class, (1.0, 1.0, 0.0, 0.0))
+    shift = 0
+    if rng.random() < up_rate:
+        shift += 1
+    if rng.random() < down_rate:
+        shift -= 1
+    return shift
+
+
+def ranked_special_names_by_group(master: MasterData) -> dict[str, dict[str, str]]:
+    names_by_group: dict[str, dict[str, str]] = {}
+    for row in master.abilities:
+        name = str(row.get("name", ""))
+        if re.search(r"[A-G]$", name):
+            names_by_group.setdefault(ranked_special_base_name(name), {})[name[-1]] = name
+    return names_by_group
 
 
 def foreign_pitcher_ranked_specials(
@@ -6003,12 +6059,7 @@ def foreign_pitcher_ranked_specials(
     speed: int,
     batting_throwing: str,
 ) -> dict[str, str]:
-    _, _, up_rate, down_rate = FOREIGN_PITCHER_CLASS_SPECIAL_SCALES.get(player_class, (1.0, 1.0, 0.0, 0.0))
-    names_by_group: dict[str, dict[str, str]] = {}
-    for row in master.abilities:
-        name = str(row.get("name", ""))
-        if re.search(r"[A-G]$", name):
-            names_by_group.setdefault(ranked_special_base_name(name), {})[name[-1]] = name
+    names_by_group = ranked_special_names_by_group(master)
     result = dict(current)
     for group in current:
         key = f"{group}_左投" if group == "対左打者" and batting_throwing.startswith("左投") else group
@@ -6017,12 +6068,7 @@ def foreign_pitcher_ranked_specials(
         if not weights or not set(RANKED_SPECIAL_RANKS).issubset(names):
             continue
         rank_value = weighted_choice(rng, list(weights.items()))
-        shift = 0
-        if group != "クイック":
-            if rng.random() < up_rate:
-                shift += 1
-            if rng.random() < down_rate:
-                shift -= 1
+        shift = foreign_class_rank_shift(rng, player_class) if group != "クイック" else 0
         if group == "ノビ":
             if speed >= 159 and rng.random() < 0.4:
                 shift += 1
@@ -6074,7 +6120,392 @@ def apply_foreign_pitcher_balance(player: dict[str, Any], seed: int, master: Mas
     player["abilities"] = abilities
 
     player["acquisition_role"] = foreign_pitcher_acquisition_role(rng, str(player.get("acquisition_role", "")), position, player_class, age, batting_throwing)
-    growth_type = foreign_pitcher_growth_type(rng, age)
+    growth_type = foreign_growth_type(rng, age)
+    player["growth_type"] = growth_type
+    player["growth_type_label"] = growth_type_label(growth_type)
+    return player
+
+
+# ---------------------------------------------------------------------------
+# 助っ人外国人野手の実在準拠バランス
+# 基準: パワプロ2022〜2026 デフォルト選手データの外国人野手（延べ151人）。
+# 投手と同じく、既存処理で作った選手を名前空間付きサブRNGで再調整する。
+# 若手育成の年齢・成長タイプ・選手格の補正・実在にない特能の扱いは投手と共通の仕組みを使う。
+# ---------------------------------------------------------------------------
+FOREIGN_FIELDER_BALANCE_NAMESPACE = "foreign_fielder_balance_v1"
+# ポジションの割合（実在5年）
+FOREIGN_FIELDER_POSITION_TARGETS = {"外野手": 42.0, "一塁手": 28.0, "三塁手": 11.5, "遊撃手": 9.5, "二塁手": 5.0, "捕手": 3.0}
+# アーキタイプごとのポジションの向き不向き（全体の割合は FOREIGN_FIELDER_POSITION_TARGETS に合わせる）
+FOREIGN_FIELDER_POSITION_AFFINITY = {
+    "長打": {"外野手": 1.0, "一塁手": 1.35, "三塁手": 1.1, "遊撃手": 0.3, "二塁手": 0.5, "捕手": 0.9},
+    "巧打": {"外野手": 1.0, "一塁手": 1.0, "三塁手": 1.0, "遊撃手": 1.0, "二塁手": 1.2, "捕手": 1.0},
+    "俊足": {"外野手": 1.3, "一塁手": 0.3, "三塁手": 0.7, "遊撃手": 1.8, "二塁手": 1.8, "捕手": 0.3},
+    "守備": {"外野手": 0.8, "一塁手": 0.6, "三塁手": 1.3, "遊撃手": 2.2, "二塁手": 1.8, "捕手": 1.8},
+    "強肩": {"外野手": 1.1, "一塁手": 0.5, "三塁手": 1.3, "遊撃手": 1.4, "二塁手": 0.8, "捕手": 1.8},
+    "バランス": {"外野手": 1.0, "一塁手": 1.0, "三塁手": 1.0, "遊撃手": 1.0, "二塁手": 1.0, "捕手": 1.0},
+}
+# ポジション別の基準値（ミート, パワー, 走力, 肩力, 守備力）。実在外国人野手の平均を元に、
+# アーキタイプの偏り（遊撃手・二塁手は守備型が多い）を差し引いて、生成後の平均が実在に近づく値にしている。
+FOREIGN_FIELDER_POSITION_PROFILES = {
+    "一塁手": (45.5, 71.5, 42.0, 64.0, 47.0),
+    "三塁手": (41.0, 70.0, 52.0, 70.0, 49.0),
+    "二塁手": (42.0, 66.0, 70.0, 68.0, 49.0),
+    "遊撃手": (38.0, 56.0, 72.0, 77.0, 52.5),
+    "外野手": (45.0, 71.0, 61.0, 66.0, 42.0),
+    "捕手": (45.0, 67.0, 46.0, 79.0, 44.0),
+}
+# アーキタイプごとの補正（ミート, パワー, 走力, 肩力, 守備力）
+FOREIGN_FIELDER_ARCHETYPE_SHIFTS = {
+    "長打": (0.0, 4.0, -2.0, 0.0, -1.0),
+    "巧打": (5.0, -1.5, 0.0, 0.0, 0.0),
+    "俊足": (0.0, -3.0, 8.0, 0.0, 1.0),
+    "守備": (-1.5, -2.5, 1.0, 1.0, 5.0),
+    "強肩": (0.0, 0.0, 0.0, 7.0, 1.0),
+    "バランス": (0.0, 0.0, 0.0, 0.0, 0.0),
+}
+# 選手格ごとの打撃（ミート・パワー）の補正。守備・走力・肩にはほとんど掛けない。
+FOREIGN_FIELDER_CLASS_BATTING = {
+    "大物実績者": 6.0, "主力期待級": 2.0, "レギュラー競争級": 0.0,
+    "保険・バックアップ級": -4.0, "育成素材型": -4.0, "再生候補": -2.5,
+}
+FOREIGN_FIELDER_CLASS_DEFENSE = {
+    "大物実績者": 1.0, "主力期待級": 0.5, "レギュラー競争級": 0.0,
+    "保険・バックアップ級": -1.0, "育成素材型": -1.0, "再生候補": -1.0,
+}
+FOREIGN_FIELDER_HEIGHT_BY_NATIONALITY = {
+    "アメリカ": 189.5, "ドミニカ共和国": 187.5, "ベネズエラ": 186.0, "キューバ": 187.5,
+    "メキシコ": 185.0, "韓国": 183.0, "台湾": 181.0,
+}
+FOREIGN_FIELDER_HEIGHT_BY_POSITION = {"一塁手": 1.5, "三塁手": 0.0, "外野手": 0.0, "捕手": -1.0, "二塁手": -4.0, "遊撃手": -3.0}
+# 投打（左投げは一塁手・外野手だけ。全体で約8%）
+FOREIGN_FIELDER_LEFT_THROW_RATE = 0.115
+FOREIGN_FIELDER_BAT_SIDE_WEIGHTS = {
+    "右投": [("右打", 77.5), ("左打", 13.0), ("両打", 9.5)],
+    "左投": [("左打", 90.0), ("右打", 10.0)],
+}
+# サブポジの数（ポジション別）と組み合わせ（実在の件数）
+FOREIGN_FIELDER_SUB_POSITION_COUNT_WEIGHTS = {
+    "外野手": [(0, 62), (1, 26), (2, 12)],
+    "一塁手": [(0, 28), (1, 37), (2, 35)],
+    "三塁手": [(0, 10), (1, 24), (2, 66)],
+    "遊撃手": [(0, 4), (1, 12), (2, 84)],
+    "二塁手": [(0, 3), (1, 7), (2, 90)],
+    "捕手": [(0, 10), (1, 20), (2, 70)],
+}
+FOREIGN_FIELDER_SUB_POSITION_WEIGHTS = {
+    "一塁手": {"外野手": 23, "三塁手": 18, "二塁手": 6},
+    "三塁手": {"一塁手": 15, "外野手": 10},
+    "外野手": {"一塁手": 25, "三塁手": 7},
+    "遊撃手": {"二塁手": 12, "三塁手": 10, "外野手": 5},
+    "二塁手": {"三塁手": 6, "外野手": 5, "遊撃手": 3},
+    "捕手": {"一塁手": 4, "外野手": 4},
+}
+# 実在データで同時に持たない組み合わせ（同じグループの特能は別途除外される）
+FOREIGN_FIELDER_SPECIAL_CONFLICTS = [
+    ("野手調子安定", "野手調子極端"), ("積極打法", "慎重打法"), ("積極盗塁", "慎重盗塁"),
+    ("パワーヒッター", "ラインドライブ"), ("プルヒッター", "広角打法"), ("三振", "粘り打ち"),
+]
+# ランク特能の重み（A〜G）。実在外国人野手（回復・盗塁は2026寄り）の分布に合わせる。
+FOREIGN_FIELDER_RANKED_WEIGHTS = {
+    "走塁": {"A": 1, "B": 5, "C": 16, "D": 74, "E": 3, "F": 0.8, "G": 0.2},
+    "送球": {"A": 0.2, "B": 1.3, "C": 5.5, "D": 39, "E": 45, "F": 8, "G": 1},
+    "盗塁": {"A": 0.3, "B": 1.5, "C": 4.2, "D": 62, "E": 23, "F": 7, "G": 2},
+    "対左投手": {"A": 3, "B": 9, "C": 22, "D": 33, "E": 22, "F": 9, "G": 2},
+    "チャンス": {"A": 1.5, "B": 6, "C": 16, "D": 59, "E": 11, "F": 5, "G": 1.5},
+    "ケガしにくさ": {"A": 0.2, "B": 0.8, "C": 2.5, "D": 64, "E": 22, "F": 8, "G": 2.5},
+    "回復": {"A": 1.5, "B": 6.5, "C": 15, "D": 57, "E": 14, "F": 5, "G": 1},
+    "キャッチャー": {"A": 1, "B": 4, "C": 20, "D": 50, "E": 20, "F": 4, "G": 1},
+}
+# 選手格の補正を掛けないランク特能（走力・肩で決まる項目）
+FOREIGN_FIELDER_PHYSICAL_RANKED = {"走塁", "送球", "盗塁"}
+
+
+@lru_cache(maxsize=1)
+def foreign_fielder_position_weights_by_archetype() -> dict[str, list[tuple[str, float]]]:
+    """アーキタイプ別のポジション重み。全体の割合が目標どおりになるよう反復で補正する。"""
+    archetype_share = dict(FOREIGN_ARCHETYPE_WEIGHTS["野手"])
+    total = sum(archetype_share.values())
+    archetype_share = {key: value / total for key, value in archetype_share.items()}
+    target_total = sum(FOREIGN_FIELDER_POSITION_TARGETS.values())
+    targets = {pos: value / target_total for pos, value in FOREIGN_FIELDER_POSITION_TARGETS.items()}
+    factors = {pos: 1.0 for pos in targets}
+
+    def conditional(archetype: str) -> dict[str, float]:
+        raw = {pos: targets[pos] * factors[pos] * FOREIGN_FIELDER_POSITION_AFFINITY[archetype][pos] for pos in targets}
+        norm = sum(raw.values())
+        return {pos: value / norm for pos, value in raw.items()}
+
+    for _ in range(200):
+        marginal = {pos: 0.0 for pos in targets}
+        for archetype, share in archetype_share.items():
+            for pos, value in conditional(archetype).items():
+                marginal[pos] += share * value
+        for pos in targets:
+            factors[pos] *= targets[pos] / marginal[pos]
+    return {archetype: list(conditional(archetype).items()) for archetype in archetype_share}
+
+
+def foreign_fielder_split_normal(rng: random.Random, mean: float, sd_low: float, sd_high: float, low: int, high: int) -> int:
+    """下側と上側でばらつきの違う正規分布を、範囲外は引き直して整数で返す。"""
+    for _ in range(100):
+        z = rng.gauss(0.0, 1.0)
+        value = int(round(mean + z * (sd_low if z < 0 else sd_high)))
+        if low <= value <= high:
+            return value
+    return clamp(mean, low, high)
+
+
+def foreign_fielder_batting_throwing(rng: random.Random, position: str) -> str:
+    throwing = "左投" if position in {"一塁手", "外野手"} and rng.random() < FOREIGN_FIELDER_LEFT_THROW_RATE else "右投"
+    return throwing + weighted_choice(rng, FOREIGN_FIELDER_BAT_SIDE_WEIGHTS[throwing])
+
+
+def foreign_fielder_abilities(
+    rng: random.Random,
+    position: str,
+    archetype: str,
+    player_class: str,
+    weakness_profile: str,
+    age: int,
+    height: int,
+) -> dict[str, Any]:
+    """ポジション別の平均を中心に、実在並みの幅に収めた基本能力と弾道。"""
+    base_contact, base_power, base_speed, base_arm, base_fielding = FOREIGN_FIELDER_POSITION_PROFILES[position]
+    shift_contact, shift_power, shift_speed, shift_arm, shift_fielding = FOREIGN_FIELDER_ARCHETYPE_SHIFTS.get(archetype, (0.0,) * 5)
+    batting = FOREIGN_FIELDER_CLASS_BATTING.get(player_class, 0.0)
+    defense = FOREIGN_FIELDER_CLASS_DEFENSE.get(player_class, 0.0)
+    # 「打てる外国人はミートもパワーもある」ように、打撃の共通因子を両方に入れる。
+    hitting = rng.gauss(0.0, 1.0)
+
+    power_mean = base_power + shift_power + batting * 0.8 + hitting * 3.4 + (height - 187.5) * 0.12
+    if age <= 24:
+        power_mean -= 2.0
+    power = foreign_fielder_split_normal(rng, power_mean, 6.4, 4.4, 38, 88)
+    # 走力・肩・守備は、ミートと共通の打撃因子を除いたパワーの高さで下げる（ミートと守備・肩は無相関に近い）。
+    power_dev = power - base_power - batting * 0.8 - hitting * 3.4
+
+    contact_mean = base_contact + shift_contact + batting + hitting * 4.2
+    if weakness_profile == "低ミート":
+        contact_mean -= 6.0
+    contact = foreign_fielder_split_normal(rng, contact_mean, 7.5, 8.2, 20, 70)
+
+    speed_mean = base_speed + shift_speed - 0.35 * power_dev
+    if weakness_profile == "低走力":
+        speed_mean -= 8.0
+    if age >= 33:
+        speed_mean -= 4.0
+    elif age <= 25:
+        speed_mean += 2.0
+    speed = foreign_fielder_split_normal(rng, speed_mean, 9.0, 10.5, 25, 90)
+
+    arm = foreign_fielder_split_normal(rng, base_arm + shift_arm - 0.18 * power_dev, 11.0, 7.5, 35, 95)
+
+    fielding_mean = base_fielding + 1.5 + shift_fielding + defense - 0.22 * power_dev
+    if weakness_profile == "低守備":
+        fielding_mean -= 6.0
+    if age >= 34:
+        fielding_mean -= 2.0
+    # 守備職人でも守備力は55〜60程度まで。60以上はごく一部。
+    fielding = foreign_fielder_split_normal(rng, fielding_mean, 8.0, 3.4, 25, 65)
+
+    catching_mean = 46.5 + 0.6 * (fielding - 47) + defense
+    if weakness_profile == "低捕球":
+        catching_mean -= 7.0
+    catching = foreign_fielder_split_normal(rng, catching_mean, 6.5, 7.0, 25, 70)
+
+    # 弾道はパワーを基準にしつつ、確率で上下にずれる（パワー87で弾道2の実在例もある）。
+    trajectory_score = power + {"長打": 3.0, "巧打": -3.0}.get(archetype, 0.0) + rng.gauss(0.0, 16.0)
+    trajectory = 2 if trajectory_score < 59.5 else 3 if trajectory_score < 82.5 else 4
+    return {
+        "弾道": trajectory, "ミート": ability(contact), "パワー": ability(power), "走力": ability(speed),
+        "肩力": ability(arm), "守備力": ability(fielding), "捕球": ability(catching),
+    }
+
+
+def foreign_fielder_sub_positions(rng: random.Random, position: str, batting_throwing: str, fielding: int) -> list[dict[str, str]]:
+    """実在の組み合わせに沿ったサブポジ（最大2つ）。左投げは一塁手・外野手だけ。"""
+    count = weighted_choice(rng, FOREIGN_FIELDER_SUB_POSITION_COUNT_WEIGHTS[position])
+    candidates = [
+        (pos, weight) for pos, weight in FOREIGN_FIELDER_SUB_POSITION_WEIGHTS[position].items()
+        if not (batting_throwing.startswith("左投") and pos not in {"一塁手", "外野手"})
+    ]
+    selected: list[dict[str, str]] = []
+    while candidates and len(selected) < count:
+        pos = weighted_choice(rng, candidates)
+        candidates = [(p, w) for p, w in candidates if p != pos]
+        if pos == "一塁手":
+            aptitude = weighted_choice(rng, [("◎", 5), ("○", 55), ("△", 40)])
+        else:
+            aptitude = weighted_choice(rng, [("◎", 3 if fielding >= 55 else 0), ("○", 35), ("△", 62)])
+        selected.append({"position": pos, "aptitude": aptitude})
+    return selected
+
+
+def foreign_fielder_acquisition_role(rng: random.Random, current: str, position: str, player_class: str, age: int) -> str:
+    candidates = list(FIELDER_ACQUISITION_ROLES_BY_POSITION.get(position, ["保険要員"]))
+    if player_class == "育成素材型" and "若手育成" not in candidates:
+        candidates.append("若手育成")
+    if age > FOREIGN_YOUNG_DEVELOPMENT_MAX_AGE:
+        candidates = [label for label in candidates if label != "若手育成"]
+    if current in candidates:
+        return current
+    items = [(label, 40 if player_class == "保険・バックアップ級" and label == "保険要員" else 20) for label in candidates]
+    return weighted_choice(rng, items)
+
+
+def foreign_fielder_special_abilities(
+    rng: random.Random,
+    master: MasterData,
+    position: str,
+    archetype: str,
+    player_class: str,
+    weakness_profile: str,
+    abilities: dict[str, Any],
+    sub_positions: list[dict[str, str]],
+) -> list[str]:
+    """外国人野手らしい特能（三振・積極打法・併殺・満塁男など）。実在にない特能はほぼ出さない。"""
+    contact = ability_numeric_value(abilities, "ミート") or 0
+    power = ability_numeric_value(abilities, "パワー") or 0
+    speed = ability_numeric_value(abilities, "走力") or 0
+    arm = ability_numeric_value(abilities, "肩力") or 0
+    fielding = ability_numeric_value(abilities, "守備力") or 0
+    # 三振はほぼ全員に付く前提で、ミートが高い選手だけ少し外す。
+    strikeout = 0.90 if contact <= 35 else 0.76 if contact <= 45 else 0.62 if contact <= 55 else 0.50
+    slugger = power >= 76
+    candidates: list[tuple[str, float, bool]] = [
+        ("三振", strikeout, False),
+        ("積極打法", 0.44, False),
+        ("慎重打法", 0.27, False),
+        ("併殺", 0.48 if speed <= 45 else 0.33 if speed <= 60 else 0.18, False),
+        ("満塁男", 0.34, True),
+        ("強振多用", 0.33 if power >= 70 else 0.22, False),
+        ("サヨナラ男", 0.27, True),
+        ("固め打ち", 0.31, True),
+        ("広角打法", 0.30 if archetype == "巧打" or contact >= 55 else 0.15, True),
+        ("プルヒッター", 0.26, True),
+        ("選球眼", 0.21, False),
+        ("決勝打", 0.22, True),
+        ("積極走塁", 0.32 if speed >= 60 else 0.14, False),
+        ("積極守備", 0.17, False),
+        ("死球集中", 0.16, False),
+        ("エラー", 0.32 if fielding <= 40 else 0.17 if fielding <= 50 else 0.08, False),
+        ("初球○", 0.16, True),
+        ("マルチ弾", 0.42 if slugger else 0.075, True),
+        ("パワーヒッター", 0.42 if slugger else 0.075, True),
+        ("アベレージヒッター", 0.15 if contact >= 55 else 0.03, True),
+        ("ラインドライブ", 0.05, True),
+        ("流し打ち", 0.06, True),
+        ("悪球打ち", 0.05, False),
+        ("カット打ち", 0.03, True),
+        ("ダメ押し", 0.05, True),
+        ("逆境○", 0.04, True),
+        ("意外性", 0.04, True),
+        ("対ストレート○", 0.06, True),
+        ("対変化球○", 0.05, True),
+        ("ハイボールヒッター", 0.05, True),
+        ("ローボールヒッター", 0.04, True),
+        ("インコースヒッター", 0.05, True),
+        ("アウトコースヒッター", 0.04, True),
+        ("内野安打○", 0.08 if speed >= 70 else 0.01, True),
+        ("ヘッドスライディング", 0.02, True),
+        ("守備職人", 0.10 if fielding >= 55 else 0.0, True),
+        ("レーザービーム", 0.20 if arm >= 75 else 0.03, True),
+        ("高速チャージ", 0.05, True),
+        ("ブロッキング", 0.10, True),
+        ("ホーム死守", 0.05, True),
+        ("フレーミング○", 0.08, True),
+        ("積極盗塁", 0.10 if speed >= 70 else 0.02, False),
+        ("慎重盗塁", 0.02, False),
+        ("粘り打ち", 0.05, True),
+        ("バント○", 0.01, True),
+        ("野手調子極端", 0.12 if weakness_profile == "明確な弱点なし" and player_class == "再生候補" else 0.05, False),
+        # 実在の外国人野手に調子安定は5年間で0人。
+        ("野手調子安定", 0.004, False),
+    ]
+    return select_foreign_specials(
+        rng, master, "野手", player_class, candidates, FOREIGN_FIELDER_SPECIAL_CONFLICTS,
+        ("選球眼", "初球○", "固め打ち", "満塁男"),
+        is_allowed=lambda name: is_special_allowed_for_player(name, "野手", position, sub_positions),
+    )
+
+
+def foreign_fielder_ranked_specials(
+    rng: random.Random,
+    master: MasterData,
+    current: dict[str, str],
+    position: str,
+    player_class: str,
+    weakness_profile: str,
+    abilities: dict[str, Any],
+    sub_positions: list[dict[str, str]],
+) -> dict[str, str]:
+    names_by_group = ranked_special_names_by_group(master)
+    speed = ability_numeric_value(abilities, "走力") or 0
+    arm = ability_numeric_value(abilities, "肩力") or 0
+    groups = [group for group in current if group != "キャッチャー"]
+    if has_position_aptitude(position, sub_positions, {"捕手"}):
+        groups.append("キャッチャー")
+    result: dict[str, str] = {}
+    for group in groups:
+        weights = FOREIGN_FIELDER_RANKED_WEIGHTS.get(group)
+        names = names_by_group.get(group, {})
+        if not weights or not set(RANKED_SPECIAL_RANKS).issubset(names):
+            if group in current:
+                result[group] = current[group]
+            continue
+        rank_value = weighted_choice(rng, list(weights.items()))
+        shift = 0 if group in FOREIGN_FIELDER_PHYSICAL_RANKED else foreign_class_rank_shift(rng, player_class)
+        if group == "走塁" and speed >= 75 and rng.random() < 0.30:
+            shift += 1
+        elif group == "盗塁":
+            if speed >= 75 and rng.random() < 0.35:
+                shift += 1
+            elif speed <= 45 and rng.random() < 0.35:
+                shift -= 1
+        elif group == "送球":
+            if weakness_profile == "送球不安":
+                shift -= 1
+            elif arm >= 85 and rng.random() < 0.25:
+                shift += 1
+        result[group] = names[shifted_rank(rank_value, shift)]
+    return result
+
+
+def apply_foreign_fielder_balance(player: dict[str, Any], seed: int, master: MasterData) -> dict[str, Any]:
+    """助っ人外国人野手を実在の外国人野手の傾向（能力の幅・弾道・ポジション・投打・体格・特能）に合わせて再調整する。"""
+    rng = make_sub_rng(seed, FOREIGN_FIELDER_BALANCE_NAMESPACE)
+    archetype = str(player.get("archetype", "")) or "バランス"
+    player_class = str(player.get("player_class", ""))
+    weakness_profile = str(player.get("weakness_profile", ""))
+    age = int(player.get("age", 28))
+
+    weights = dict(foreign_fielder_position_weights_by_archetype()).get(archetype) or list(FOREIGN_FIELDER_POSITION_TARGETS.items())
+    position = weighted_choice(rng, weights)
+    if position != player.get("position"):
+        player["position"] = position
+        player["position_style"] = choose_position_style(rng, "野手", position, archetype) or FIELDER_STYLE_DEFAULTS.get(position, "")
+    batting_throwing = foreign_fielder_batting_throwing(rng, position)
+    player["batting_throwing"] = batting_throwing
+    player["handedness"] = handedness_from_batting_throwing(batting_throwing)
+    player["acquisition_role"] = foreign_fielder_acquisition_role(rng, str(player.get("acquisition_role", "")), position, player_class, age)
+
+    height_mean = FOREIGN_FIELDER_HEIGHT_BY_NATIONALITY.get(str(player.get("nationality", "")), 187.5) + FOREIGN_FIELDER_HEIGHT_BY_POSITION.get(position, 0.0)
+    height, weight = foreign_physique(rng, height_mean, 6.0, 172, 205, 28.5, 1.6, 25.0, 32.5)
+    player.update({"height": height, "weight": weight, "height_cm": height, "weight_kg": weight})
+
+    old_abilities = dict(player.get("abilities", {}))
+    abilities = {**old_abilities, **foreign_fielder_abilities(rng, position, archetype, player_class, weakness_profile, age, height)}
+    sub_positions = foreign_fielder_sub_positions(rng, position, batting_throwing, ability_numeric_value(abilities, "守備力") or 0)
+    player["sub_positions"] = sub_positions
+    player["special_abilities"] = foreign_fielder_special_abilities(
+        rng, master, position, archetype, player_class, weakness_profile, abilities, sub_positions,
+    )
+    abilities["ranked_specials"] = foreign_fielder_ranked_specials(
+        rng, master, dict(old_abilities.get("ranked_specials", {}) or {}), position, player_class, weakness_profile, abilities, sub_positions,
+    )
+    player["abilities"] = abilities
+
+    growth_type = foreign_growth_type(rng, age)
     player["growth_type"] = growth_type
     player["growth_type_label"] = growth_type_label(growth_type)
     return player
@@ -6299,6 +6730,8 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     }
     if role == "投手" and model_category == "助っ人外国人用":
         apply_foreign_pitcher_balance(player, seed, master)
+    elif role == "野手" and model_category == "助っ人外国人用":
+        apply_foreign_fielder_balance(player, seed, master)
     return player
 
 
