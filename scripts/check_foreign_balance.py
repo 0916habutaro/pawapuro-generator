@@ -228,6 +228,7 @@ def check_fielders(df):
     s = "特殊能力"
     for nm, lo, real in [("三振", .65, "71.5%"), ("積極打法", .38, "46.4%"), ("満塁男", .28, "36.4%")]:
         v = specials.map(lambda l: nm in l).mean(); R.add(s, nm, pct(v), v >= lo, f"{pct(lo)}以上", real)
+    v = specials.map(lambda l: "パワーヒッター" in l).mean(); R.add(s, "パワーヒッター", pct(v), v <= 0.06, "6%以下", "3.3%")
     tot = specials.map(lambda l: sum(x in F_NOT_REAL for x in l)).sum() / n
     R.add(s, "実在にない特能（1人あたり）", num(tot), tot <= 0.05, "0.05以下", "0")
     v = specials.map(lambda l: has(l, "野手調子安定", "調子安定")).mean()

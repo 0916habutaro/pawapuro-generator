@@ -6315,7 +6315,7 @@ def foreign_fielder_abilities(
 
     # 弾道はパワーを基準にしつつ、確率で上下にずれる（パワー87で弾道2の実在例もある）。
     trajectory_score = power + {"長打": 3.0, "巧打": -3.0}.get(archetype, 0.0) + rng.gauss(0.0, 16.0)
-    trajectory = 2 if trajectory_score < 59.5 else 3 if trajectory_score < 82.5 else 4
+    trajectory = 2 if trajectory_score < 59.5 else 3 if trajectory_score < 83.2 else 4
     return {
         "弾道": trajectory, "ミート": ability(contact), "パワー": ability(power), "走力": ability(speed),
         "肩力": ability(arm), "守備力": ability(fielding), "捕球": ability(catching),
@@ -6391,7 +6391,8 @@ def foreign_fielder_special_abilities(
         ("エラー", 0.32 if fielding <= 40 else 0.17 if fielding <= 50 else 0.08, False),
         ("初球○", 0.16, True),
         ("マルチ弾", 0.42 if slugger else 0.075, True),
-        ("パワーヒッター", 0.42 if slugger else 0.075, True),
+        # 実在のパワーヒッターは3.3%（マルチ弾15%）なので、パワー連動は残して重みを1/4にする。
+        ("パワーヒッター", 0.105 if slugger else 0.019, True),
         ("アベレージヒッター", 0.15 if contact >= 55 else 0.03, True),
         ("ラインドライブ", 0.05, True),
         ("流し打ち", 0.06, True),
