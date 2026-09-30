@@ -90,3 +90,18 @@ def test_draft_specials_respect_groups_positions_and_class_bounds():
             assert low <= sum(app.is_countable_special(name) for name in names) <= high
     assert rate(FIELDERS, lambda p: "エラー" in p["special_abilities"]) <= 0.08
     assert rate(FIELDERS, lambda p: "併殺" in p["special_abilities"]) <= 0.08
+
+
+def test_draft_abilities_keep_realistic_spread():
+    def sd(values: list[float]) -> float:
+        center = mean(values)
+        return (sum((item - center) ** 2 for item in values) / (len(values) - 1)) ** 0.5
+
+    regular_pitchers = [p for p in PITCHERS if p["player_class"] != "育成候補"]
+    regular_fielders = [p for p in FIELDERS if p["player_class"] != "育成候補"]
+    assert sd([value(p, "球速") for p in regular_pitchers]) >= 2.5
+    assert sd([value(p, "コントロール") for p in regular_pitchers]) >= 8.0
+    for key in ("ミート", "パワー", "走力", "肩力", "守備力"):
+        assert sd([value(p, key) for p in regular_fielders]) >= 7.0
+    assert 0.02 <= rate(regular_fielders, lambda p: value(p, "走力") < 45) <= 0.12
+    assert 0.02 <= rate(regular_fielders, lambda p: value(p, "肩力") < 50) <= 0.12

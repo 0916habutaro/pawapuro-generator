@@ -7094,15 +7094,15 @@ def draft_route_group(route: str) -> str:
 # 投手の能力の写し方: 経路ごとに（既存処理の平均, 目標の平均, 幅の倍率）。
 # 既存処理の平均は育成候補を除くドラフト候補（投手1617人）で測った値。
 DRAFT_PITCHER_SPEED_MAPS = {
-    "高卒": (145.8, 150.5, 0.62), "大卒": (147.5, 152.9, 0.70),
-    "社会人": (147.8, 152.3, 0.82), "その他": (147.4, 152.5, 0.75),
+    "高卒": (145.8, 150.5, 0.62), "大卒": (147.5, 152.9, 0.80),
+    "社会人": (147.8, 152.3, 0.90), "その他": (147.4, 152.5, 0.85),
 }
 # 選手格ごとの球速の補正。既存処理は中位・下位・育成候補の差が小さいので広げる
 # （大卒の目安: 超上位155、上位154、中位153、下位151、育成候補147〜148）。
 DRAFT_PITCHER_CLASS_SPEED_SHIFTS = {"中位候補": -0.3, "下位候補": -0.9, "育成候補": -4.5}
 DRAFT_PITCHER_CONTROL_MAPS = {
-    "高卒": (35.7, 41.0, 0.72), "大卒": (45.0, 47.5, 0.90),
-    "社会人": (48.9, 50.5, 0.90), "その他": (45.0, 48.5, 0.90),
+    "高卒": (35.7, 41.0, 0.72), "大卒": (45.0, 47.5, 1.05),
+    "社会人": (48.9, 50.5, 1.05), "その他": (45.0, 48.5, 1.05),
 }
 # スタミナは幅を大きく絞る（高卒の実在は10〜90%タイルで34〜45、大卒・社会人の最高は68）。4つ目は上限。
 DRAFT_PITCHER_STAMINA_MAPS = {
@@ -7181,12 +7181,12 @@ DRAFT_FIELDER_CURRENT_SDS = {
     "社会人": (10.7, 12.5, 10.8, 9.1, 9.4, 8.4), "その他": (10.7, 15.0, 12.4, 9.1, 10.6, 9.8),
 }
 DRAFT_FIELDER_TARGET_ROUTE_MEANS = {
-    "高卒": (31.0, 45.0, 61.0, 67.0, 38.0, 37.0), "大卒": (38.0, 50.0, 66.5, 64.0, 49.0, 45.0),
-    "社会人": (40.0, 49.0, 66.5, 63.0, 50.0, 45.0), "その他": (39.0, 49.5, 66.5, 63.5, 49.5, 45.0),
+    "高卒": (31.0, 45.0, 61.0, 67.5, 38.0, 37.0), "大卒": (38.0, 50.0, 66.5, 65.0, 49.0, 45.0),
+    "社会人": (40.0, 49.0, 66.5, 64.0, 50.0, 45.0), "その他": (39.0, 49.5, 66.5, 64.5, 49.5, 45.0),
 }
 DRAFT_FIELDER_TARGET_SDS = {
-    "高卒": (7.5, 8.5, 8.0, 7.0, 7.5, 7.0), "大卒": (8.5, 9.0, 8.0, 8.0, 7.5, 7.0),
-    "社会人": (7.0, 9.5, 8.0, 7.0, 7.5, 7.0), "その他": (8.0, 9.0, 8.0, 8.0, 7.5, 7.0),
+    "高卒": (7.5, 8.5, 9.5, 8.0, 7.5, 7.0), "大卒": (8.5, 9.0, 10.5, 9.5, 7.5, 7.0),
+    "社会人": (7.0, 9.5, 10.5, 8.5, 7.5, 7.0), "その他": (8.0, 9.0, 10.5, 9.5, 7.5, 7.0),
 }
 # 実在の1年目の守備位置ごとのずれ。捕手は肩、二遊間・外野は足、一塁・三塁はパワー。
 DRAFT_FIELDER_TARGET_POSITION_DEVS = {
@@ -7201,6 +7201,8 @@ DRAFT_FIELDER_CAPS = {
     "高卒": {"ミート": 55, "パワー": 70}, "大卒": {"ミート": 65, "パワー": 78},
     "社会人": {"ミート": 60, "パワー": 75}, "その他": {"ミート": 62, "パワー": 76},
 }
+DRAFT_ARM_LOW_TAIL_PIVOT = 60.0
+DRAFT_ARM_LOW_TAIL_STRETCH = 1.4
 # 弾道はパワーに揺らぎを足したスコアで決める（実在の1年目: 弾道1 2%、2 47%、3 45%、4 6%）。
 DRAFT_TRAJECTORY_NOISE_SD = 8.0
 DRAFT_TRAJECTORY_THRESHOLDS = (21.0, 50.0, 68.0)
@@ -7316,7 +7318,7 @@ def apply_draft_pitcher_balance(player: dict[str, Any], seed: int, master: Maste
     speed += DRAFT_PITCHER_CLASS_SPEED_SHIFTS.get(str(player.get("player_class", "")), 0.0)
     speed = compress_tail(speed, speed_target - 3.5, 0.6, upper=False)
     # 158以上は全体の3〜5%程度に抑える（実在の最高は161）。
-    speed = round(compress_tail(speed, speed_target + 3.5, 0.45, upper=True))
+    speed = round(compress_tail(speed, speed_target + 3.5, 0.35, upper=True))
     control_mean, control_target, control_scale = DRAFT_PITCHER_CONTROL_MAPS[route]
     control = draft_map_value(float(ability_numeric_value(abilities, "コントロール") or 45), control_mean, control_target, control_scale)
     control = clamp(round(compress_tail(control, 30.0, 0.5, upper=False)), 15, 95)
@@ -7349,9 +7351,8 @@ def draft_fielder_abilities(rng: random.Random, abilities: dict[str, Any], posit
         current_mean = DRAFT_FIELDER_CURRENT_ROUTE_MEANS[route][index]
         z = ((ability_numeric_value(abilities, key) or current_mean) - current_mean - current_devs[index]) / DRAFT_FIELDER_CURRENT_SDS[route][index]
         values[key] = DRAFT_FIELDER_TARGET_ROUTE_MEANS[route][index] + target_devs[index] + class_shifts[index] + DRAFT_FIELDER_TARGET_SDS[route][index] * z
-    # 走力・肩力は下側（40台前半）を薄くする。
-    for key in ("走力", "肩力"):
-        values[key] = compress_tail(values[key], 50.0, 0.6, upper=False)
+    # 実在は肩力の下側（50未満が7%）が正規分布より厚い。
+    values["肩力"] = compress_tail(values["肩力"], DRAFT_ARM_LOW_TAIL_PIVOT, DRAFT_ARM_LOW_TAIL_STRETCH, upper=False)
     for key, cap in DRAFT_FIELDER_CAPS[route].items():
         values[key] = compress_tail(values[key], cap, 0.4, upper=True) if player_class == "超上位候補" else min(values[key], cap)
     for key in FICTIONAL_FIELDER_ABILITY_KEYS:

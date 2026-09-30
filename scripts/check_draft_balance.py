@@ -8,6 +8,8 @@
 - CSV の category が「ドラフト候補用」の行だけを見る（category 列がなければ全行）。
 - 育成候補（player_class=育成候補）は除いて判定する（実在データは支配下指名の選手だけのため）。
 - 判定基準は `ドラフト候補バランス_改修指示.md` §6。
+- v2: 能力の幅（経路別の標準偏差、走力・肩力の下側の裾）を追加。平均だけ合わせて
+  幅を縮めすぎた場合（選手が似たり寄ったりになる）を検出する。
   ドキュメントの目標値を変えたときは、このファイルの基準も合わせて直すこと。
 - 「実在」列は、パワプロ実在選手のプロ1年目（2022〜2026、投手167人／野手139人）の実測値。
   実在データを同じ形式に変換してこのチェッカーにかけると、全項目合格する（年齢の項目は対象外）。
@@ -165,7 +167,6 @@ def check_fielders(df, R):
     R.rng(s, "高卒 守備力平均", fd[h].mean(), 35, 40, "37.1")
     R.rng(s, "パワー80以上（全体）", (pw >= 80).mean(), None, 0.01, "0%（最高72）", "pct")
     R.rng(s, "ミート70以上（全体）", (mt >= 70).mean(), None, 0.01, "0%（最高61）", "pct")
-    R.rng(s, "肩力50未満（全体）", (ar < 50).mean(), None, 0.10, "7.2%", "pct")
 
     s = "野手 弾道"
     R.rng(s, "弾道1", (tj == 1).mean(), None, 0.03, "2.2%", "pct")
@@ -184,6 +185,54 @@ def check_fielders(df, R):
     R.rng(s, "大卒・社会人 通常特能の数", spc[ds].mean(), 1.4, 2.0, "1.72")
     for nm, real in [("エラー", "4.3%"), ("併殺", "2.9%")]:
         R.rng(s, nm, specials.map(lambda l: nm in l).mean(), None, 0.06, real, "pct")
+
+
+# ---------------------------------------------------------------- 幅（標準偏差）
+
+# 実在1年目の標準偏差。社会人は人数が少ない（投手37／野手21）ので大卒とまとめる。
+# 基準は実在の 0.8〜1.5倍（狭すぎる＝選手が似たり寄ったり、広すぎる＝極端な選手が多い）。
+SPREAD_LO, SPREAD_HI = 0.8, 1.5
+P_SPREAD = {  # (項目名, 取り出し方, 高卒, 大卒・社会人)
+    "球速": ("sp", 2.67, 3.57),
+    "コントロール": ("ct", 9.42, 11.11),
+    "スタミナ": ("st", 4.82, 7.57),
+}
+F_SPREAD = {
+    "ミート": 6.98, "パワー": 9.18, "走力": 11.27, "肩力": 8.80, "守備力": 8.20,
+}
+F_SPREAD_DS = {
+    "ミート": 8.15, "パワー": 10.84, "走力": 12.96, "肩力": 10.40, "守備力": 9.73,
+}
+
+
+def check_spread(P, F, R):
+    s = "幅（標準偏差、実在の0.8〜1.5倍）"
+    if len(P):
+        A = P.abilities_json.map(J)
+        vals = {
+            "sp": A.map(lambda a: int(re.findall(r"\d+", str(a.get("球速", "0")))[0])),
+            "ct": A.map(lambda a: a["コントロール"]["value"]),
+            "st": A.map(lambda a: a["スタミナ"]["value"]),
+        }
+        h = P.entry_route == "高卒"
+        ds = P.entry_route.isin(["大卒", "社会人"])
+        for nm, (k, rh, rd) in P_SPREAD.items():
+            for lab, m, real in [("高卒", h, rh), ("大卒・社会人", ds, rd)]:
+                v = vals[k][m].std()
+                R.rng(s, f"投手 {lab} {nm}", v, round(real * SPREAD_LO, 1), round(real * SPREAD_HI, 1), f"{real:.1f}")
+    if len(F):
+        A = F.abilities_json.map(J)
+        h = F.entry_route == "高卒"
+        ds = F.entry_route.isin(["大卒", "社会人"])
+        for nm in F_SPREAD:
+            x = A.map(lambda a: a[nm]["value"])
+            for lab, m, real in [("高卒", h, F_SPREAD[nm]), ("大卒・社会人", ds, F_SPREAD_DS[nm])]:
+                v = x[m].std()
+                R.rng(s, f"野手 {lab} {nm}", v, round(real * SPREAD_LO, 1), round(real * SPREAD_HI, 1), f"{real:.1f}")
+        rn = A.map(lambda a: a["走力"]["value"])
+        ar = A.map(lambda a: a["肩力"]["value"])
+        R.rng(s, "野手 走力45未満（全体）", (rn < 45).mean(), 0.03, 0.10, "6.5%", "pct")
+        R.rng(s, "野手 肩力50未満（全体）", (ar < 50).mean(), 0.03, 0.10, "7.2%", "pct")
 
 
 # ---------------------------------------------------------------- 共通項目
@@ -223,6 +272,7 @@ def main(paths):
             check_pitchers(P, R)
         if len(F):
             check_fielders(F, R)
+        check_spread(P, F, R)
         check_common(df, R)
         cnt = df.groupby(["role", "entry_route"]).size()
         small = [f"{k[0]}{k[1]}={v}" for k, v in cnt.items() if k[1] in MAIN_ROUTES and v < 200]
