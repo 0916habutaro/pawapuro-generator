@@ -8238,6 +8238,74 @@ def render_balance_filters(df_all: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def special_count_display_bucket(values: list[str]) -> str:
+    """表示用の特殊能力数の区分（6/7/8/9個以上に細分化）。special_count_bucket は他で使うため別関数にする。"""
+    count = len(values)
+    return "9個以上" if count >= 9 else f"{count}個"
+
+
+SPECIAL_COUNT_DISPLAY_BUCKETS = [f"{count}個" for count in range(9)] + ["9個以上"]
+
+
+def special_count_pivot(df: pd.DataFrame) -> pd.DataFrame:
+    """行＝投手/野手×カテゴリ、列＝特殊能力数、合計列付きのピボット表。"""
+    columns = ["投手/野手", "カテゴリ", *SPECIAL_COUNT_DISPLAY_BUCKETS, "合計"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    work = df.assign(特殊能力数=df["special_abilities"].apply(special_count_display_bucket))
+    pivot = pd.crosstab([work["role"], work["category"]], work["特殊能力数"]).reindex(columns=SPECIAL_COUNT_DISPLAY_BUCKETS, fill_value=0)
+    order = [(role, category) for role in ["投手", "野手"] for category in CATEGORIES if (role, category) in pivot.index]
+    pivot = pivot.reindex(order)
+    pivot["合計"] = pivot.sum(axis=1)
+    return pivot.rename_axis(index=["投手/野手", "カテゴリ"], columns=None).reset_index()
+
+
+def ranked_special_pivot(df: pd.DataFrame) -> pd.DataFrame:
+    """行＝グループ、列＝A〜G のピボット表。主要グループを上に並べる。"""
+    columns = ["区分", "グループ", *RANKED_SPECIAL_RANKS, "合計"]
+    dist = ranked_special_distribution(df)
+    if dist.empty or int(dist["人数"].sum()) == 0:
+        return pd.DataFrame(columns=columns)
+    pivot = dist.pivot_table(index="グループ", columns="ランク", values="人数", aggfunc="sum", fill_value=0).reindex(columns=RANKED_SPECIAL_RANKS, fill_value=0)
+    main_groups = [group for group in RANKED_SPECIAL_DISPLAY_GROUPS if group in pivot.index]
+    pivot = pivot.reindex(main_groups + [group for group in pivot.index if group not in main_groups])
+    pivot["合計"] = pivot.sum(axis=1)
+    pivot = pivot.rename_axis(index="グループ", columns=None).reset_index()
+    pivot.insert(0, "区分", pivot["グループ"].map(lambda group: "主要" if group in main_groups else "その他"))
+    return pivot[columns]
+
+
+SPECIAL_KIND_HIDDEN_WHEN_ZERO = {"金特", "中間ランク", "不明"}
+
+
+def special_kind_table(df: pd.DataFrame, master: MasterData) -> pd.DataFrame:
+    """種別別出現数。0件の金特・中間ランク・不明は隠し、個性系の行を足す。"""
+    _, kind_counts = special_ability_summary(df, master)
+    kind_counts = kind_counts[~(kind_counts["種別"].isin(SPECIAL_KIND_HIDDEN_WHEN_ZERO) & kind_counts["出現数"].eq(0))]
+    personality_count = sum(1 for values in df["special_abilities"] for name in values if name in PERSONALITY_SPECIALS)
+    return pd.concat([kind_counts, pd.DataFrame([{"種別": "個性系", "出現数": personality_count}])], ignore_index=True)
+
+
+def unknown_special_kind_count(df: pd.DataFrame, master: MasterData) -> int:
+    _, kind_counts = special_ability_summary(df, master)
+    return int(kind_counts.loc[kind_counts["種別"].eq("不明"), "出現数"].sum())
+
+
+# 整合性チェックの要約に出す項目：(キー, 表示名, 判定基準)
+BALANCE_CHECK_ITEMS = [
+    ("seed_duplicate_count", "seed重複数", "同じseedの選手が複数保存されている件数。0件が正常です。"),
+    ("complete_duplicate_count", "完全重複選手数", "seed以外のすべての項目が一致する選手の件数。0件が正常です。"),
+    ("invalid_special_count", "不適切な特殊能力件数", "投手/野手やポジションに合わない特殊能力を持つ件数。0件が正常です。"),
+    ("handedness_mismatch_count", "利き腕/投打 不一致件数", "利き腕と投打（右投/左投）が食い違う件数。0件が正常です。"),
+    ("restricted_left_count", "左投げの捕手/内野手", "左投げの捕手・二塁手・三塁手・遊撃手の人数。0件が正常です。"),
+    ("name_inconsistency_count", "国籍×名前 不整合", "国籍に合わない名前の件数。0件が正常です。"),
+    ("birthplace_inconsistency_count", "国籍×出身地 不整合", "国籍に合わない出身地の件数。0件が正常です。"),
+    ("invalid_pitch_count", "不正球種件数", "右投手のスクリュー、左投手のシンカー、方向と球種の不一致など。0件が正常です。"),
+    ("left_sub_violation_count", "左投げ野手のサブポジ違反", "左投げ野手のサブポジに二塁手・三塁手・遊撃手がある件数。0件が正常です。"),
+    ("unknown_special_kind_count", "特殊能力の種別「不明」", "マスタに無い特殊能力の出現数。0件が正常です。"),
+]
+
+
 def collect_balance_checks(df: pd.DataFrame, master: MasterData) -> dict[str, Any]:
     """整合性チェックの件数をまとめて算出する。"""
     restricted_table = restricted_left_throwing_positions(df)
@@ -8257,12 +8325,38 @@ def collect_balance_checks(df: pd.DataFrame, master: MasterData) -> dict[str, An
         "name_duplicate_rate": round((len(df) - unique_name_count) / len(df) * 100, 2),
         "name_inconsistency_count": inconsistency_count(df, master, "name"),
         "birthplace_inconsistency_count": inconsistency_count(df, master, "birthplace"),
-        "breaking_tables": breaking_tables,
-        "sub_tables": sub_tables,
+        "invalid_pitches": breaking_tables["invalid"],
+        "invalid_pitch_count": len(breaking_tables["invalid"]),
+        "left_sub_violation": sub_tables.get("left_violation", pd.DataFrame()),
+        "left_sub_violation_count": len(sub_tables.get("left_violation", [])),
+        "unknown_special_kind_count": unknown_special_kind_count(df, master),
     }
 
 
+def balance_check_problems(checks: dict[str, Any]) -> list[str]:
+    return [label for key, label, _help in BALANCE_CHECK_ITEMS if checks.get(key, 0) > 0]
+
+
+def check_metric_value(count: int) -> str:
+    return "✅ 0" if count == 0 else f"⚠️ {count}"
+
+
+def render_balance_check_summary(checks: dict[str, Any]) -> None:
+    problems = balance_check_problems(checks)
+    total = len(BALANCE_CHECK_ITEMS)
+    if not problems:
+        st.success(f"整合性チェック：全{total}項目 問題なし")
+    else:
+        st.warning(f"整合性チェック：{total}項目中{len(problems)}項目で要確認\n\n" + "\n".join(f"- {label}（{checks[key]}件）" for key, label, _help in BALANCE_CHECK_ITEMS if label in problems))
+
+
+def render_check_metric(column: Any, checks: dict[str, Any], key: str) -> None:
+    label, help_text = next((label, help_text) for item_key, label, help_text in BALANCE_CHECK_ITEMS if item_key == key)
+    column.metric(label, check_metric_value(int(checks[key])), help=help_text)
+
+
 def render_balance_overview_tab(df: pd.DataFrame, checks: dict[str, Any]) -> None:
+    render_balance_check_summary(checks)
     st.metric("総件数", len(df))
     st.subheader("投手/野手 × カテゴリ別人数")
     role_category = pd.crosstab(df["role"], df["category"], margins=True, margins_name="合計")
@@ -8282,19 +8376,22 @@ def render_balance_consistency_tab(df: pd.DataFrame, master: MasterData, checks:
     st.subheader("生成品質チェック")
     metric_cols = st.columns(6)
     metric_cols[0].metric("ユニークseed数", checks["unique_seed_count"])
-    metric_cols[1].metric("seed重複数", checks["seed_duplicate_count"])
-    metric_cols[2].metric("完全重複選手数", checks["complete_duplicate_count"])
-    metric_cols[3].metric("不適切な特殊能力件数", checks["invalid_special_count"])
-    metric_cols[4].metric("利き腕/投打 不一致件数", checks["handedness_mismatch_count"])
-    metric_cols[5].metric("左投げの捕手/内野手", checks["restricted_left_count"])
+    for column, key in zip(metric_cols[1:], ["seed_duplicate_count", "complete_duplicate_count", "invalid_special_count", "handedness_mismatch_count", "restricted_left_count"]):
+        render_check_metric(column, checks, key)
+    if checks["restricted_left_count"] > 0:
+        with st.expander("左投げの捕手/内野手の内訳"):
+            st.dataframe(checks["restricted_table"], use_container_width=True, hide_index=True)
+    extra_cols = st.columns(6)
+    for column, key in zip(extra_cols, ["invalid_pitch_count", "left_sub_violation_count", "unknown_special_kind_count"]):
+        render_check_metric(column, checks, key)
 
     st.subheader("名前・国籍・出身地チェック")
     profile_cols = st.columns(5)
     profile_cols[0].metric("ユニーク名前数", checks["unique_name_count"])
     profile_cols[1].metric("名前重複率", f"{checks['name_duplicate_rate']}%")
     profile_cols[2].metric("国籍数", int(df["nationality"].nunique()))
-    profile_cols[3].metric("国籍×名前 不整合", checks["name_inconsistency_count"])
-    profile_cols[4].metric("国籍×出身地 不整合", checks["birthplace_inconsistency_count"])
+    render_check_metric(profile_cols[3], checks, "name_inconsistency_count")
+    render_check_metric(profile_cols[4], checks, "birthplace_inconsistency_count")
 
     col_profile1, col_profile2 = st.columns(2)
     with col_profile1:
@@ -8304,15 +8401,11 @@ def render_balance_consistency_tab(df: pd.DataFrame, master: MasterData, checks:
         st.subheader("国籍 × 出身地種別の整合性")
         st.dataframe(consistency_table(df, master, "birthplace"), use_container_width=True, hide_index=True)
 
-    st.subheader("利き腕診断")
-    st.dataframe(checks["restricted_table"], use_container_width=True, hide_index=True)
-
     st.subheader("右投手/左投手別 不正球種チェック")
-    st.dataframe(checks["breaking_tables"]["invalid"], use_container_width=True, hide_index=True)
+    st.dataframe(checks["invalid_pitches"], use_container_width=True, hide_index=True)
 
-    if checks["sub_tables"]:
-        st.subheader("左投げ野手サブポジ違反チェック")
-        st.dataframe(checks["sub_tables"]["left_violation"], use_container_width=True, hide_index=True)
+    st.subheader("左投げ野手サブポジ違反チェック")
+    st.dataframe(checks["left_sub_violation"], use_container_width=True, hide_index=True)
 
 
 def render_balance_profile_tab(df: pd.DataFrame) -> None:
@@ -8384,49 +8477,29 @@ def render_balance_ability_tab(df: pd.DataFrame) -> None:
 
 def render_balance_special_tab(df: pd.DataFrame, master: MasterData) -> None:
     special_lengths = df["special_abilities"].apply(len)
-    ranked_dist = ranked_special_distribution(df)
-    key_ranked_dist = ranked_special_distribution(df, RANKED_SPECIAL_DISPLAY_GROUPS)
-    special_counts, kind_counts = special_ability_summary(df, master)
+    metric_col1, metric_col2, _ = st.columns([1, 1, 2])
+    metric_col1.metric("1人あたり平均特殊能力数", f"{special_lengths.mean():.2f}")
+    metric_col2.metric("6個以上の選手数", int((special_lengths >= 6).sum()))
+
+    special_counts, _ = special_ability_summary(df, master)
     col3, col4 = st.columns(2)
     with col3:
+        st.subheader("特殊能力 種別別出現数")
+        st.dataframe(special_kind_table(df, master), use_container_width=True, hide_index=True)
+        st.caption("個性系：" + "、".join(sorted(PERSONALITY_SPECIALS)) + "。他の種別と重複して数えます。")
+    with col4:
         st.subheader("特殊能力 出現回数")
         st.dataframe(special_counts, use_container_width=True, hide_index=True)
-    with col4:
-        st.subheader("特殊能力 種別別出現数")
-        st.dataframe(kind_counts, use_container_width=True, hide_index=True)
-        st.metric("1人あたり平均特殊能力数", round(special_lengths.mean(), 2))
-        st.metric("6個以上の選手数", int((special_lengths >= 6).sum()))
 
     st.subheader("ランク系特殊能力の分布")
-    st.dataframe(ranked_dist, use_container_width=True, hide_index=True)
+    st.dataframe(ranked_special_pivot(df), use_container_width=True, hide_index=True)
 
-    st.subheader("主要ランク系特殊能力分布")
-    st.dataframe(key_ranked_dist, use_container_width=True, hide_index=True)
-
-    st.subheader("通常特殊能力数の分布")
-    st.dataframe(special_count_distribution(df), use_container_width=True, hide_index=True)
-
-    col_special1, col_special2 = st.columns(2)
-    with col_special1:
-        st.subheader("特殊能力数分布（投手/野手別）")
-        st.dataframe(grouped_special_count_distribution(df, ["role"]).rename(columns={"role": "投手/野手"}), use_container_width=True, hide_index=True)
-    with col_special2:
-        st.subheader("特殊能力数分布（カテゴリ別）")
-        st.dataframe(grouped_special_count_distribution(df, ["category"]).rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
-
-    st.subheader("特殊能力数分布（投手/野手 × カテゴリ別）")
-    st.dataframe(grouped_special_count_distribution(df, ["role", "category"]).rename(columns={"role": "投手/野手", "category": "カテゴリ"}), use_container_width=True, hide_index=True)
+    st.subheader("特殊能力数の分布")
+    st.dataframe(special_count_pivot(df), use_container_width=True, hide_index=True)
 
     st.subheader("選手タイプ別 通常特殊能力平均数")
     type_avg = df.assign(通常特殊能力数=special_lengths).groupby(["role", "player_type"])["通常特殊能力数"].mean().round(2).reset_index().rename(columns={"role": "投手/野手", "player_type": "選手タイプ", "通常特殊能力数": "平均数"})
     st.dataframe(type_avg, use_container_width=True, hide_index=True)
-
-    col_personality1, col_personality2 = st.columns(2)
-    all_specials = [name for values in df["special_abilities"] for name in values]
-    with col_personality1:
-        st.metric("緑特の出現数", sum(1 for name in all_specials if any(row["name"] == name and row.get("kind") == "green" for row in master.abilities)))
-    with col_personality2:
-        st.metric("個性系特殊能力の出現数", sum(1 for name in all_specials if name in PERSONALITY_SPECIALS))
 
 
 def render_balance_breaking_tab(df: pd.DataFrame) -> None:
