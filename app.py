@@ -6252,6 +6252,16 @@ def career_age_band(age: Any) -> str:
     return "40歳以上"
 
 
+def age_band(age: int) -> str:
+    """成長タイプ分布用の年齢帯。scripts/validate_ability_balance.py の AGE_BINS / AGE_LABELS と同じ区分。"""
+    if age <= 19: return "18-19歳"
+    if age <= 22: return "20-22歳"
+    if age <= 26: return "23-26歳"
+    if age <= 30: return "27-30歳"
+    if age <= 34: return "31-34歳"
+    return "35歳以上"
+
+
 def pro_years_age_band_stats(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=["年齢帯", "人数", "平均", "中央値", "最小", "最大"])

@@ -655,6 +655,11 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertEqual(app.export_file_name("view", "csv", "2026-09-30 11:44:59"), "players_view_20260930_1144.csv")
         self.assertEqual(app.export_file_name("all", "xlsx", "2026-09-30 11:44:59"), "players_all_20260930_1144.xlsx")
 
+    def test_balance_growth_age_band_is_defined(self):
+        expected = {18: "18-19歳", 19: "18-19歳", 20: "20-22歳", 22: "20-22歳", 23: "23-26歳", 26: "23-26歳", 27: "27-30歳", 30: "27-30歳", 31: "31-34歳", 34: "31-34歳", 35: "35歳以上", 42: "35歳以上"}
+        for age, band in expected.items():
+            self.assertEqual(app.age_band(age), band)
+
     def test_main_defense_position_has_distinct_emphasis(self):
         source = Path("app.py").read_text(encoding="utf-8")
         block = css_block(source, ".pp-defense-pos.main")
