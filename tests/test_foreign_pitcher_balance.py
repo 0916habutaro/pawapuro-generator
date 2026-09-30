@@ -48,6 +48,13 @@ def test_foreign_pitcher_repertoire_has_two_or_three_pitches_and_a_finisher():
             assert app.is_pitch_allowed_for_generation(ball["direction_code"], ball["name"], player["batting_throwing"])
 
 
+def test_second_fastball_uses_one_breaking_ball_slot():
+    for player in PLAYERS:
+        has_second_fastball = any(ball.get("kind") == "second_fastball" for ball in player["breaking_balls"])
+        if has_second_fastball:
+            assert len(breaking(player)) == 2
+
+
 def test_foreign_pitcher_specials_have_no_conflicts_and_valid_labels():
     allowed = app.role_allowed_specials(MASTER, "投手")
     for player in PLAYERS:

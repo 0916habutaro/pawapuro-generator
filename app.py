@@ -5665,7 +5665,9 @@ FOREIGN_FINISHER_MOVEMENT_WEIGHTS = {
 }
 FOREIGN_SUB_PITCH_MOVEMENT_WEIGHTS = [(1, 25), (2, 45), (3, 30)]
 FOREIGN_TWO_SEAM_RATES = {"先発": 0.27, "中継ぎ": 0.46, "抑え": 0.53}
-FOREIGN_TWO_PITCH_RATES = {"先発": 0.30, "中継ぎ": 0.66, "抑え": 0.72}
+# 第二球種（ツーシーム等）を持たない投手が変化球2球種になる確率。
+# 第二球種は変化球1つ分の枠を使うので、第二球種を持つ投手は常に変化球2球種。
+FOREIGN_TWO_PITCH_RATES_WITHOUT_SECOND_FASTBALL = {"先発": 0.02, "中継ぎ": 0.26, "抑え": 0.29}
 # 選手格ごとの特能補正（青特能の出やすさ, 赤特能の出やすさ, ランク特能を良くする確率, 悪くする確率）
 FOREIGN_PITCHER_CLASS_SPECIAL_SCALES = {
     "大物実績者": (1.40, 0.65, 0.35, 0.00),
@@ -5810,11 +5812,13 @@ def foreign_pitcher_acquisition_role(rng: random.Random, current: str, position:
 
 def foreign_pitcher_breaking_balls(rng: random.Random, position: str, archetype: str, weakness_profile: str, batting_throwing: str) -> list[dict[str, Any]]:
     """外国人らしい「持ち球が少なく、決め球が鋭い」球種構成（2〜3球種）。"""
-    two_rate = FOREIGN_TWO_PITCH_RATES[position] + {"変化球": -0.18, "速球": 0.08, "制球": -0.05}.get(archetype, 0.0)
-    count = 2 if weakness_profile == "球種不足" or rng.random() < two_rate else 3
-    # 既存ルールどおり、ツーシームと同方向の第二球種は同時に持たせない。
+    # 実在の外国人投手に「変化球3球種＋ストレート系第二球種」はいない（214人中0人）。
+    # 第二球種の有無を先に決め、持つ投手は変化球2球種にする。
     two_seam_rate = FOREIGN_TWO_SEAM_RATES[position] + (0.03 if archetype == "制球" else 0.0)
     has_two_seam = rng.random() < two_seam_rate
+    two_rate = FOREIGN_TWO_PITCH_RATES_WITHOUT_SECOND_FASTBALL[position] + {"変化球": -0.10, "速球": 0.08, "制球": -0.03}.get(archetype, 0.0)
+    count = 2 if has_two_seam or weakness_profile == "球種不足" or rng.random() < max(0.0, two_rate) else 3
+    # 既存ルールどおり、ツーシームと同方向の第二球種は同時に持たせない。
     same_direction_factor = 0.0 if has_two_seam else FOREIGN_SAME_DIRECTION_FACTOR
     allowed = {code: allowed_pitch_names_for_generation(code, batting_throwing) for code in DIRECTION_NAMES}
     picked: list[str] = []

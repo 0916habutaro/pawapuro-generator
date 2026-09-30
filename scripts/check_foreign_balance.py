@@ -137,6 +137,9 @@ def check_pitchers(df):
     v = (n_bb == 2).mean(); R.add(s, "2球種", pct(v), 0.50 <= v <= 0.60, "50〜60%", "53.3%")
     v = (n_bb >= 4).sum(); R.add(s, "4球種以上", f"{v}件", v == 0, "0件", "0件")
     v = twoseam.mean(); R.add(s, "ツーシームファスト", pct(v), 0.33 <= v <= 0.42, "33〜42%", "38.3%")
+    has_sf = bbs.map(lambda l: any(x.get("kind") == "second_fastball" for x in l))
+    v = ((n_bb >= 3) & has_sf).mean(); R.add(s, "3球種以上＋第二球種", pct(v), v <= 0.01, "1%以下", "0%")
+    v = ((n_bb == 2) & ~has_sf).mean(); R.add(s, "2球種で第二球種なし", pct(v), 0.10 <= v <= 0.20, "10〜20%", "14.0%")
     v = (mx <= 2).mean(); R.add(s, "最大変化量2以下", pct(v), v <= 0.03, "3%以下", "0.9%")
     v = mx[pos == "抑え"].mean(); R.add(s, "抑えの最大変化量平均", num(v), v >= 4.0, "4.0以上", "4.30")
     for nm, lo, hi, real in [("フォーク", None, 0.08, "5.1%"), ("カーブ", None, 0.08, "4.7%"),
