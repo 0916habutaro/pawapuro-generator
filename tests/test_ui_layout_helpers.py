@@ -518,7 +518,8 @@ class UiLayoutHelpersTest(unittest.TestCase):
             '<p class="pp-page-description">&lt;生成条件 &amp; &quot;説明&quot;&gt;</p>',
         )
         self.assertIn('render_page_description("投手/野手、カテゴリ、生成人数だけを選ぶと', source)
-        self.assertIn('render_page_description("保存済み選手をSQLiteから読み込み', source)
+        # バランス確認ページは、タイトル・ページ名・説明文を1段にまとめて表示する
+        self.assertIn('render_app_title("バランス確認", "保存済み選手をSQLiteから読み込み', source)
 
     def test_generation_message_is_toast_without_sqlite_wording(self):
         source = Path("app.py").read_text(encoding="utf-8")
