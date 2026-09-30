@@ -62,6 +62,9 @@ FICTIONAL_ROSTER_AGE_WEIGHTS = [
     (37, 12), (38, 8), (39, 5),
     (40, 2), (41, 2), (42, 1), (43, 1), (44, 1), (45, 1), (46, 1),
 ]
+# 架空球団（日本人）野手のポジション比率。実在12球団（2022〜2026）の日本人野手に合わせる。
+# 捕手は1球団7人前後、一塁手は他ポジションからのサブポジで賄うため少ない。
+FICTIONAL_FIELDER_POSITION_WEIGHTS = [("捕手", 21.5), ("一塁手", 5.5), ("二塁手", 10.5), ("三塁手", 11.5), ("遊撃手", 17.5), ("外野手", 33.5)]
 POSITIONS = {
     "投手": ["先発", "中継ぎ", "抑え"],
     "野手": ["捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手"],
@@ -714,22 +717,30 @@ DRAFT_SOURCE_AGE_WEIGHTS = {
     "独立・クラブ": scaled_weight_items([(19, 7.5), (20, 7.5), (21, 15), (22, 15), (23, 16), (24, 16), (25, 7.5), (26, 7.5), (27, 2), (28, 2), (29, 2), (30, 2)]),
     "その他": [(19, 3), (20, 8), (21, 16), (22, 28), (23, 24), (24, 13), (25, 6), (26, 2)],
 }
-FICTIONAL_ENTRY_ROUTE_WEIGHTS = [("高卒", 27), ("大卒", 38), ("社会人", 17), ("独立・クラブ", 3), ("その他", 10)]
+# 架空球団（日本人）の入団経路とプロ入り年齢。実在（2026）の「年齢 − プロ年数」に合わせ、
+# 経路ごとのプロ入り年齢を 高卒18〜19・大卒22〜23・社会人24〜27・独立・クラブ20〜22 に収める。
+# 「その他」は実在1%強なので少なくする。
+FICTIONAL_ENTRY_ROUTE_WEIGHTS = [("高卒", 31), ("大卒", 45), ("社会人", 17), ("独立・クラブ", 3), ("その他", 1.5)]
 FICTIONAL_ENTRY_ROUTE_AGE_WEIGHTS = {
-    "20-21": [("高卒", 90), ("独立・クラブ", 4), ("その他", 6)],
-    22: [("高卒", 58), ("大卒", 38), ("社会人", 1), ("独立・クラブ", 1), ("その他", 2)],
-    23: [("高卒", 42), ("大卒", 54), ("社会人", 1), ("独立・クラブ", 1), ("その他", 2)],
-    "24-25": [("高卒", 35), ("大卒", 52), ("社会人", 8), ("独立・クラブ", 1), ("その他", 4)],
-    "27-30": [("高卒", 22), ("大卒", 38), ("社会人", 19), ("独立・クラブ", 4), ("その他", 12)],
-    "31-34": [("高卒", 16), ("大卒", 38), ("社会人", 25), ("独立・クラブ", 4), ("その他", 12)],
+    "20-21": [("高卒", 94), ("独立・クラブ", 5), ("その他", 1)],
+    22: [("高卒", 59), ("大卒", 38), ("社会人", 1), ("独立・クラブ", 1), ("その他", 1)],
+    23: [("高卒", 43), ("大卒", 54), ("社会人", 1), ("独立・クラブ", 1), ("その他", 1)],
+    "24-25": [("高卒", 36), ("大卒", 54), ("社会人", 8), ("独立・クラブ", 1), ("その他", 1)],
+    "27-30": [("高卒", 28), ("大卒", 46), ("社会人", 21), ("独立・クラブ", 3), ("その他", 1.5)],
+    "31-34": [("高卒", 22), ("大卒", 46), ("社会人", 27), ("独立・クラブ", 3), ("その他", 1.5)],
 }
+# 高卒・大卒の2つの年齢の比は実在の同じ経路の中の比率（高卒 17：18 ＝ 31：69、大卒 21：22 ＝ 46：54）。
 FICTIONAL_ENTRY_AGE_WEIGHTS = {
-    "高卒": [(18, 86), (19, 14)],
-    "大卒": [(22, 86), (23, 14)],
-    "社会人": [(22, 1), (23, 4), (24, 17), (25, 17), (26, 16), (27, 20), (28, 15), (29, 10)],
-    "独立・クラブ": [(20, 2), (21, 3), (22, 2), (23, 3), (24, 10), (25, 10), (26, 10), (27, 17), (28, 15), (29, 12), (30, 8), (31, 8)],
-    "その他": [(19, 1), (20, 1), (21, 1), (22, 1), (23, 1), (24, 8), (25, 8), (26, 9), (27, 13), (28, 12), (29, 11), (30, 10), (31, 7), (32, 4), (33, 2), (34, 1), (35, 1)],
+    "高卒": [(18, 31), (19, 69)],
+    "大卒": [(22, 46), (23, 54)],
+    "社会人": [(23, 2), (24, 40), (25, 42), (26, 10), (27, 6)],
+    "独立・クラブ": [(20, 30), (21, 45), (22, 25)],
+    # 実在にもごく少数いる遅いプロ入り（年齢 − プロ年数が27以上は0.3%）は「その他」に残す。
+    "その他": [(19, 2), (20, 4), (21, 8), (22, 14), (23, 14), (24, 10), (25, 6), (26, 2), (27, 3), (28, 2), (30, 2), (32, 1)],
 }
+# 若手素材型の上限（プロ6年目以内・26歳以下）
+FICTIONAL_YOUNG_MATERIAL_MAX_AGE = 26
+FICTIONAL_YOUNG_MATERIAL_MAX_PRO_YEARS = 6
 NPB_CURRENT_YEAR = 2026
 FICTIONAL_FOREIGN_DOMESTIC_ROUTE_RATE = 0.04
 FOREIGN_RETURNEE_RATE = 0.035
@@ -835,6 +846,8 @@ FOREIGN_ROUTE_NATIONALITY_WEIGHTS = {
 PITCHING_FORM_RANGES = {"オーバースロー": (195, 34), "スリークォーター": (180, 39), "サイドスロー": (106, 66), "アンダースロー": (40, 33)}
 BATTING_FORM_RANGES = {"スタンダード": (210, 25), "オープン": (141, 24), "クラウチング": (12, 8)}
 PITCHING_FORM_TYPE_WEIGHTS = [("オーバースロー", 55), ("スリークォーター", 34), ("サイドスロー", 9), ("アンダースロー", 2)]
+# 架空球団（日本人）は実在（2022〜2025）に合わせてスリークォーターを最多にする。
+FICTIONAL_PITCHING_FORM_TYPE_WEIGHTS = [("オーバースロー", 87), ("スリークォーター", 97), ("サイドスロー", 11), ("アンダースロー", 2)]
 BATTING_FORM_TYPE_WEIGHTS = [("スタンダード", 72), ("オープン", 25), ("クラウチング", 3)]
 PITCHER_BATTING_FORM_TYPE_WEIGHTS = [("スタンダード", 94), ("オープン", 5), ("クラウチング", 1)]
 PITCHING_FORM_GENERIC_RATE = {"架空球団用": 0.92, "ドラフト候補用": 0.97, "助っ人外国人用": 0.85}
@@ -917,7 +930,7 @@ def choose_player_class(rng: random.Random, category: str, age: int, npb_years: 
         if category == "架空球団用":
             if 18 <= age <= 24 and label == "ベテラン型":
                 continue
-            if 30 <= age and label == "若手素材型":
+            if age > FICTIONAL_YOUNG_MATERIAL_MAX_AGE and label == "若手素材型":
                 continue
             if 18 <= age <= 19 and label == "スター級":
                 weight = max(1, round(weight * 0.25))
@@ -1072,7 +1085,9 @@ def handedness_from_batting_throwing(batting_throwing: str) -> str:
     return "右投"
 
 
-def generate_batting_throwing(rng: random.Random, role: str, position: str) -> str:
+def generate_batting_throwing(rng: random.Random, role: str, position: str, category: str = "") -> str:
+    if category == "架空球団用":
+        return generate_fictional_batting_throwing(rng, role, position)
     if role == "投手":
         throw_weights = [("右投", 68), ("左投", 32)]
     elif position in ("一塁手", "外野手"):
@@ -1084,6 +1099,36 @@ def generate_batting_throwing(rng: random.Random, role: str, position: str) -> s
 
     throwing = weighted_choice(rng, throw_weights)
     bat_side = weighted_choice(rng, [("右打", 58), ("左打", 32), ("両打", 10)])
+    return f"{throwing}{bat_side}"
+
+
+# 架空球団（日本人）の投打。実在12球団（2022〜2026）では利き腕ごとに打席がほぼ決まっている。
+# 左投げは一塁手・外野手だけ。右投げ野手の左打ちの割合はポジションで大きく違う。
+FICTIONAL_PITCHER_LEFT_THROW_RATE = 0.31
+FICTIONAL_FIELDER_LEFT_THROW_RATE = 0.145
+FICTIONAL_BAT_SIDE_WEIGHTS = {
+    "投手_右投": [("右打", 80), ("左打", 19), ("両打", 1)],
+    "投手_左投": [("左打", 98), ("右打", 2)],
+    "野手_左投": [("左打", 100)],
+    "捕手": [("右打", 71), ("左打", 28), ("両打", 1)],
+    "一塁手": [("右打", 82), ("左打", 17), ("両打", 1)],
+    "二塁手": [("右打", 43), ("左打", 55), ("両打", 2)],
+    "三塁手": [("右打", 59), ("左打", 40), ("両打", 1)],
+    "遊撃手": [("右打", 44), ("左打", 54), ("両打", 2)],
+    "外野手": [("右打", 48), ("左打", 50), ("両打", 2)],
+}
+
+
+def generate_fictional_batting_throwing(rng: random.Random, role: str, position: str) -> str:
+    # 既存seedの後続系列を保つため、従来どおり乱数を2回だけ使う。
+    if role == "投手":
+        throwing = weighted_choice(rng, [("右投", 1 - FICTIONAL_PITCHER_LEFT_THROW_RATE), ("左投", FICTIONAL_PITCHER_LEFT_THROW_RATE)])
+        key = f"投手_{throwing}"
+    else:
+        left_rate = FICTIONAL_FIELDER_LEFT_THROW_RATE if position in ("一塁手", "外野手") else 0.0
+        throwing = weighted_choice(rng, [("右投", 1 - left_rate), ("左投", left_rate)])
+        key = "野手_左投" if throwing == "左投" else position
+    bat_side = weighted_choice(rng, FICTIONAL_BAT_SIDE_WEIGHTS.get(key, FICTIONAL_BAT_SIDE_WEIGHTS["三塁手"]))
     return f"{throwing}{bat_side}"
 
 def seed_batch_rng() -> random.Random:
@@ -1452,6 +1497,7 @@ def generate_career_history(
     seed: int,
     role: str,
     draft_source_type: str = "",
+    player_class: str = "",
 ) -> dict[str, Any]:
     """Generate profile-only career history without changing player abilities."""
     rng = create_career_rng(seed, role, category)
@@ -1463,13 +1509,18 @@ def generate_career_history(
         pro_years = int(weighted_choice(rng, eligible))
         return {"entry_route": "海外プロ経由", "pro_entry_age": age - pro_years + 1, "pro_years": pro_years}
 
-    route_candidates = [
-        (route, weight)
-        for route, weight in fictional_entry_route_weights_for_age(age)
-        if any(entry_age <= age for entry_age, _ in FICTIONAL_ENTRY_AGE_WEIGHTS[route])
-    ]
+    # 若手素材型はプロ6年目以内（プロ入り年齢が age − 5 以上）にする。
+    min_entry_age = age - FICTIONAL_YOUNG_MATERIAL_MAX_PRO_YEARS + 1 if player_class == "若手素材型" else 0
+
+    def entry_ages(route: str) -> list[tuple[int, float]]:
+        return [(entry_age, weight) for entry_age, weight in FICTIONAL_ENTRY_AGE_WEIGHTS[route] if min_entry_age <= entry_age <= age]
+
+    route_candidates = [(route, weight) for route, weight in fictional_entry_route_weights_for_age(age) if entry_ages(route)]
+    if not route_candidates:
+        min_entry_age = 0
+        route_candidates = [(route, weight) for route, weight in fictional_entry_route_weights_for_age(age) if entry_ages(route)]
     entry_route = weighted_choice(rng, route_candidates)
-    entry_age_candidates = [(entry_age, weight) for entry_age, weight in FICTIONAL_ENTRY_AGE_WEIGHTS[entry_route] if entry_age <= age]
+    entry_age_candidates = entry_ages(entry_route)
     pro_entry_age = int(weighted_choice(rng, entry_age_candidates))
     return {"entry_route": entry_route, "pro_entry_age": pro_entry_age, "pro_years": age - pro_entry_age + 1}
 
@@ -3690,7 +3741,25 @@ def choose_pitcher_aptitudes(rng: random.Random, category: str) -> dict[str, str
     ]
     if category == "助っ人外国人用":
         patterns = [(pattern, weight + (5 if pattern["closer_aptitude"] == "◎" else 0)) for pattern, weight in patterns]
+    elif category == "架空球団用":
+        patterns = [
+            ({"starter_aptitude": starter, "reliever_aptitude": reliever, "closer_aptitude": closer}, weight)
+            for (starter, reliever, closer), weight in FICTIONAL_PITCHER_APTITUDE_PATTERNS
+        ]
     return weighted_choice(rng, patterns).copy()
+
+
+# 架空球団（日本人）の起用適性（先, 中, 抑）。実在は ◎（主）と ○（副）に分かれ、約3割が「先中◎」。
+FICTIONAL_PITCHER_APTITUDE_PATTERNS = [
+    (("◎", "-", "-"), 10.0), (("◎", "○", "-"), 11.2), (("◎", "-", "○"), 1.6),
+    (("◎", "◎", "-"), 23.5), (("◎", "◎", "○"), 2.9),
+    (("◎", "◎", "◎"), 2.4),
+    (("-", "◎", "-"), 7.5), (("○", "◎", "-"), 11.6), (("○", "◎", "○"), 6.1), (("-", "◎", "○"), 8.9),
+    (("-", "◎", "◎"), 10.3), (("○", "◎", "◎"), 4.0),
+]
+# 抑え◎の投手のうち、ポジションを「抑え」（守護神格）にする割合。残りは中継ぎ。
+# 実在の守護神は1球団1人（全投手の3%前後）。
+FICTIONAL_CLOSER_POSITION_RATE = 0.22
 
 
 def primary_pitcher_role(aptitudes: dict[str, str]) -> str:
@@ -5540,7 +5609,8 @@ def generate_pitching_form(rng: random.Random, category: str, archetype: str, po
     if archetype == "速球": boosts["オーバースロー"] = 1.18
     if archetype in {"総合", "変化球"}: boosts["スリークォーター"] = 1.12
     if position in {"中継ぎ", "抑え"}: boosts["サイドスロー"] = 1.15
-    return generate_form(rng, PITCHING_FORM_RANGES, PITCHING_FORM_TYPE_WEIGHTS, PITCHING_FORM_GENERIC_RATE.get(category, 0.92), boosts)
+    type_weights = FICTIONAL_PITCHING_FORM_TYPE_WEIGHTS if category == "架空球団用" else PITCHING_FORM_TYPE_WEIGHTS
+    return generate_form(rng, PITCHING_FORM_RANGES, type_weights, PITCHING_FORM_GENERIC_RATE.get(category, 0.92), boosts)
 
 
 def generate_batting_form(rng: random.Random, role: str, category: str, archetype: str, height: int) -> tuple[str, int, int]:
@@ -6512,6 +6582,486 @@ def apply_foreign_fielder_balance(player: dict[str, Any], seed: int, master: Mas
     return player
 
 
+# ---------------------------------------------------------------------------
+# 架空球団（日本人）の実在準拠バランス
+# 基準: パワプロ2022〜2026 デフォルト選手データの日本人（延べ 投手1878人／野手1867人）。
+# 平均値はほぼ実在どおりなので、既存処理で作った選手を名前空間付きサブRNGで部分的に直す。
+# （能力の裾と相関・抑え・チェンジアップ系・特能と能力の連動・ランク特能・サブポジ・体格）
+# ---------------------------------------------------------------------------
+FICTIONAL_PITCHER_BALANCE_NAMESPACE = "fictional_pitcher_balance_v1"
+FICTIONAL_FIELDER_BALANCE_NAMESPACE = "fictional_fielder_balance_v1"
+# 投手の役割ごとの補正（球速, コントロール, スタミナ）。抑えは守護神格なので球速を上げる。
+FICTIONAL_PITCHER_ROLE_SHIFTS = {
+    "先発": (0.0, 1.5, -3.5),
+    "中継ぎ": (0.3, 0.0, 2.0),
+    "中継ぎ_抑え◎": (2.5, 0.0, 2.0),
+    "抑え": (4.5, 0.0, 0.0),
+}
+FICTIONAL_PITCHER_SPEED_CENTER = 151.0
+FICTIONAL_PITCHER_CONTROL_CENTER = 50.0
+# 速球派ほど制球が荒い（球速1km/hあたりのコントロール）、制球の良い投手ほどスタミナがある。
+FICTIONAL_CONTROL_PER_SPEED = -0.75
+FICTIONAL_STAMINA_PER_CONTROL = 0.12
+FICTIONAL_STAMINA_PER_SPEED = -0.06
+# 抑え（守護神格）の決め球の変化量
+FICTIONAL_CLOSER_FINISHER_MOVEMENT_WEIGHTS = [(4, 50), (5, 38), (6, 12)]
+# チェンジアップ系は左投手の球種。右投手は同じ方向の別球種に替える（名前, 確率, 替える先の候補）。
+FICTIONAL_RIGHT_PITCH_SWAPS = [
+    ("サークルチェンジ", 0.42, [("Hシンカー", 1)]),
+    ("チェンジアップ", 0.55, [("フォーク", 1), ("SFF", 1)]),
+    ("ファストチェンジ", 0.70, [("Hシンカー", 1)]),
+    ("ナックル", 1.00, [("フォーク", 1)]),
+]
+FICTIONAL_LEFT_PITCH_SWAPS = [
+    ("ファストチェンジ", 0.85, [("サークルチェンジ", 1)]),
+    ("シンキングスプリット", 0.35, [("サークルチェンジ", 6), ("スクリュー", 4)]),
+    ("シュート", 0.80, [("シンキングツーシーム", 1)]),
+    ("Hシュート", 0.70, [("シンキングツーシーム", 1)]),
+    ("ナックル", 1.00, [("フォーク", 1)]),
+]
+# チェンジアップ系を持たない左投手は、フォーク方向の球種をチェンジアップに替える。
+FICTIONAL_LEFT_CHANGEUP_FROM = {"フォーク": 0.35, "SFF": 0.35, "Vスライダー": 0.25, "パーム": 0.5}
+FICTIONAL_CHANGEUP_NAMES = {"サークルチェンジ", "チェンジアップ"}
+# 球種数を少し3球種寄りに（実在の2球種は27%）、ストレート系第二球種を8%前後にする。
+FICTIONAL_SECOND_FASTBALL_DROP_RATE = 0.28
+FICTIONAL_THIRD_PITCH_ADD_RATE = 0.19
+FICTIONAL_ADDED_PITCH_MOVEMENT_WEIGHTS = [(1, 30), (2, 40), (3, 30)]
+# 3球種目を足すときの球種の重み補正（左右でチェンジアップ系の出やすさが違う）
+FICTIONAL_ADDED_PITCH_HAND_FACTORS = {
+    "右投": {"サークルチェンジ": 0.4, "チェンジアップ": 0.4, "ファストチェンジ": 0.2, "シンキングスプリット": 0.6, "ナックル": 0.0},
+    "左投": {"サークルチェンジ": 2.0, "チェンジアップ": 2.0, "シンキングツーシーム": 2.0, "スクリュー": 1.5, "ファストチェンジ": 0.2, "ナックル": 0.0},
+}
+
+# 実在の日本人（2022〜2026）に1人もいない特能。出さない。
+FICTIONAL_NOT_REAL_SPECIALS = {
+    "投手": {"安全圏○", "重い球", "立ち上がり○", "闘志", "対強打者○", "ボール先行", "人気者", "対ランナー×", "短気", "根性"},
+    # フル出場は実在では起用法の欄にだけ出る項目なので、特殊能力としては出さない。
+    "野手": {"人気者", "窮地○", "チームプレイ×", "ムード○", "帳尻合わせ", "リベンジ", "ささやき破り", "フル出場"},
+}
+# 能力と連動させる特能: (特能名, 能力, 帯の上限のリスト, 帯ごとの保有率)。
+# 実在（5年）の保有率。既存の抽選結果は使わず、この確率で付け直す。
+FICTIONAL_LINKED_SPECIALS = {
+    "投手": [
+        ("奪三振", "球速", [147, 151, 155], [0.09, 0.18, 0.30, 0.60]),
+        ("四球", "コントロール", [40, 50, 60], [0.60, 0.35, 0.22, 0.12]),
+        ("荒れ球", "コントロール", [40, 50, 60], [0.25, 0.12, 0.02, 0.02]),
+        ("球速安定", "球速", [147, 151, 155], [0.26, 0.22, 0.30, 0.33]),
+        ("キレ○", "コントロール", [40, 50, 60], [0.07, 0.14, 0.13, 0.24]),
+    ],
+    "野手": [
+        # 特能数の上限で削られる分（約2ポイント）を見込んで、ミート30以下は実在（32%）より少し高くする。
+        ("三振", "ミート", [30, 40, 50], [0.34, 0.38, 0.37, 0.16]),
+        ("固め打ち", "ミート", [30, 40, 50], [0.01, 0.05, 0.18, 0.51]),
+        ("選球眼", "ミート", [30, 40, 50], [0.09, 0.13, 0.26, 0.33]),
+        ("広角打法", "ミート", [40, 50], [0.01, 0.07, 0.12]),
+        ("積極盗塁", "走力", [60, 70, 80], [0.01, 0.08, 0.24, 0.41]),
+        ("内野安打○", "走力", [70, 80], [0.05, 0.31, 0.63]),
+        ("併殺", "走力", [50, 60, 70], [0.30, 0.19, 0.15, 0.07]),
+        ("パワーヒッター", "パワー", [70, 80], [0.003, 0.04, 0.53]),
+        ("エラー", "守備力", [40, 50, 60], [0.06, 0.12, 0.15, 0.15]),
+    ],
+}
+# 出現率を実在に寄せる特能: (特能名, 既存処理での保有率, 目標の保有率)。
+# 既存処理の保有率は架空球団の日本人3000人ずつで測った値。
+FICTIONAL_SPECIAL_RATE_TARGETS = {
+    "投手": [
+        ("一発", 0.035, 0.121), ("変化球中心", 0.068, 0.141), ("フライボールピッチャー", 0.021, 0.071),
+        ("ゴロピッチャー", 0.029, 0.060), ("スロースターター", 0.049, 0.109), ("緊急登板○", 0.065, 0.093),
+        ("回またぎ○", 0.087, 0.097), ("力配分", 0.009, 0.042), ("ポーカーフェイス", 0.012, 0.050),
+        ("低め○", 0.085, 0.020), ("緩急○", 0.176, 0.147), ("火消し", 0.036, 0.003),
+        ("ジャイロボール", 0.021, 0.002), ("国際大会○", 0.018, 0.003), ("抜け球", 0.172, 0.27),
+        ("投手調子極端", 0.012, 0.095), ("投手調子安定", 0.030, 0.036),
+        ("投球位置左", 0.030, 0.006), ("投球位置右", 0.029, 0.016),
+    ],
+    "野手": [
+        ("死球集中", 0.014, 0.080), ("バント○", 0.106, 0.147), ("積極走塁", 0.119, 0.169),
+        ("積極打法", 0.109, 0.171), ("積極守備", 0.109, 0.163), ("プルヒッター", 0.041, 0.071),
+        ("悪球打ち", 0.013, 0.041), ("ホーム死守", 0.012, 0.034), ("決勝打", 0.220, 0.099),
+        ("ヘッドスライディング", 0.191, 0.097), ("カット打ち", 0.152, 0.078), ("国際大会○", 0.051, 0.007),
+        ("ミート多用", 0.104, 0.080), ("野手調子安定", 0.090, 0.003),
+    ],
+}
+# 実在データで同時に持たない組み合わせ（同じグループの特能は別途除外される）
+FICTIONAL_SPECIAL_CONFLICTS = [("荒れ球", "ストライク先行"), ("キレ○", "抜け球"), ("球持ち○", "抜け球")]
+# ランク特能の重み（A〜G）。実在（5年）の良い側・悪い側の割合に合わせ、A と G はごく少なくする。
+FICTIONAL_PITCHER_RANKED_WEIGHTS = {
+    "回復": {"A": 0.3, "B": 6, "C": 20.7, "D": 35, "E": 31, "F": 6.5, "G": 0.5},
+    "打たれ強さ": {"A": 0.4, "B": 7, "C": 22.6, "D": 55, "E": 12, "F": 2.8, "G": 0.2},
+    "対左打者": {"A": 0.2, "B": 3, "C": 11.8, "D": 45, "E": 32, "F": 7.7, "G": 0.3},
+    "対左打者_左投": {"A": 0.5, "B": 6, "C": 21.5, "D": 51, "E": 17, "F": 3.8, "G": 0.2},
+    "ケガしにくさ": {"A": 0.1, "B": 1.4, "C": 5.5, "D": 56, "E": 30, "F": 6.7, "G": 0.3},
+    "対ピンチ": {"A": 0.3, "B": 3.2, "C": 11.5, "D": 67, "E": 14.5, "F": 3.3, "G": 0.2},
+    "クイック": {"A": 0.3, "B": 3.2, "C": 12.5, "D": 68, "E": 13, "F": 2.8, "G": 0.2},
+    "ノビ": {"A": 0.5, "B": 8, "C": 26.5, "D": 44, "E": 17, "F": 3.8, "G": 0.2},
+    "送球": {"A": 0.1, "B": 1.5, "C": 6.4, "D": 48, "E": 39, "F": 4.8, "G": 0.2},
+}
+FICTIONAL_FIELDER_RANKED_WEIGHTS = {
+    "走塁": {"A": 1.0, "B": 10, "C": 32, "D": 55, "E": 1.6, "F": 0.3, "G": 0.1},
+    "盗塁": {"A": 0.3, "B": 3, "C": 11.7, "D": 62, "E": 18, "F": 4.8, "G": 0.2},
+    "チャンス": {"A": 0.5, "B": 5, "C": 17.5, "D": 61, "E": 12.5, "F": 3.3, "G": 0.2},
+    "送球": {"A": 0.4, "B": 5.5, "C": 20, "D": 37, "E": 30, "F": 6.9, "G": 0.2},
+    "回復": {"A": 0.2, "B": 2.5, "C": 10.3, "D": 24, "E": 52, "F": 10.7, "G": 0.3},
+    "対左投手": {"A": 0.4, "B": 5, "C": 17.6, "D": 49, "E": 22, "F": 5.8, "G": 0.2},
+    "ケガしにくさ": {"A": 0.1, "B": 1.5, "C": 6.4, "D": 65, "E": 22, "F": 4.8, "G": 0.2},
+    "キャッチャー": {"A": 0.1, "B": 0.5, "C": 1.4, "D": 88, "E": 8.5, "F": 1.4, "G": 0.1},
+}
+# 選手格によるランク特能の補正（1段良くする確率, 1段悪くする確率）。能力で決まる項目には掛けない。
+FICTIONAL_CLASS_RANK_SHIFTS = {
+    "スター級": (0.30, 0.0), "一軍主力級": (0.12, 0.02), "一軍控え級": (0.03, 0.05),
+    "二軍級": (0.0, 0.10), "若手素材型": (0.0, 0.10), "ベテラン型": (0.08, 0.05),
+}
+FICTIONAL_PHYSICAL_RANKED = {"走塁", "盗塁", "送球", "クイック", "ノビ"}
+
+# 野手の基本能力（ミート, パワー, 走力, 肩力, 守備力, 捕球）。
+# 既存処理の平均・標準偏差（架空球団の日本人3000人で測定）を、実在（5年）の平均・標準偏差と相関に写す。
+FICTIONAL_FIELDER_ABILITY_KEYS = ["ミート", "パワー", "走力", "肩力", "守備力", "捕球"]
+FICTIONAL_FIELDER_CURRENT_MEANS = (41.3, 52.8, 64.1, 67.1, 50.2, 47.6)
+FICTIONAL_FIELDER_CURRENT_SDS = (12.2, 13.8, 13.0, 9.0, 9.7, 8.7)
+FICTIONAL_FIELDER_TARGET_MEANS = (40.5, 52.6, 64.2, 66.0, 51.0, 48.7)
+FICTIONAL_FIELDER_TARGET_SDS = (11.0, 11.2, 14.3, 10.9, 11.8, 11.2)
+# 相関の変換行列（標準化した値に掛ける）。R_target^(1/2) · R_current^(-1/2) で求めた。
+# 目標の相関: ミート×パワー +0.35、ミート×走力 +0.18、パワー×走力 −0.22、パワー×守備力 −0.05、
+# 走力×守備力 +0.34、ミート×肩力 −0.13（ほかは既存のまま）。
+FICTIONAL_FIELDER_CORRELATION_TRANSFORM = (
+    (0.963, 0.112, 0.093, -0.023, -0.011, 0.020),
+    (0.082, 1.018, 0.078, 0.000, 0.080, -0.064),
+    (0.051, 0.091, 1.003, -0.003, 0.122, -0.076),
+    (-0.018, 0.003, 0.002, 0.998, -0.001, 0.005),
+    (-0.025, 0.093, 0.108, -0.008, 0.985, 0.016),
+    (0.012, -0.028, -0.030, 0.004, 0.008, 0.990),
+)
+# ポジションごとの補正（ミート, パワー, 走力, 肩力, 守備力, 捕球）
+FICTIONAL_FIELDER_POSITION_SHIFTS = {
+    "外野手": (0.0, 0.0, 0.0, 0.0, 0.5, 0.0),
+    "一塁手": (0.0, 0.0, 0.0, 0.0, 3.0, 0.0),
+    "三塁手": (0.0, 0.0, 0.0, 0.0, 3.0, 0.0),
+    "遊撃手": (-4.5, 0.0, 0.0, 0.0, 0.0, 0.0),
+}
+# 弾道はパワーに揺らぎを足したスコアで決める（実在の弾道×パワー相関0.72、弾道1は2%強、弾道4は9%強）。
+FICTIONAL_TRAJECTORY_NOISE_SD = 8.0
+FICTIONAL_TRAJECTORY_THRESHOLDS = (26.0, 49.8, 71.2)
+FICTIONAL_TRAJECTORY_ONE_MAX_POWER = 38
+# サブポジの保有率（メイン → サブ）。実在（2022〜2025）の守備力表から数えた値。
+FICTIONAL_SUB_POSITION_RATES = {
+    "遊撃手": {"二塁手": 0.91, "三塁手": 0.90, "一塁手": 0.40, "外野手": 0.37},
+    "二塁手": {"三塁手": 0.84, "遊撃手": 0.78, "外野手": 0.63, "一塁手": 0.59},
+    "三塁手": {"一塁手": 0.87, "外野手": 0.57, "二塁手": 0.54, "遊撃手": 0.36},
+    "一塁手": {"三塁手": 0.80, "外野手": 0.58, "二塁手": 0.37, "遊撃手": 0.13, "捕手": 0.10},
+    "捕手": {"一塁手": 0.39, "外野手": 0.21, "三塁手": 0.17, "二塁手": 0.05, "遊撃手": 0.02},
+    "外野手": {"一塁手": 0.29, "三塁手": 0.14, "二塁手": 0.10, "遊撃手": 0.05},
+}
+# サブポジの適性（◎, ○, △）の重み。サクセス新規作成と同じく ◎100%・○80%・△70% の守備力になる。
+FICTIONAL_SUB_POSITION_APTITUDE_WEIGHTS = {
+    ("遊撃手", "二塁手"): (57, 25, 18), ("遊撃手", "三塁手"): (44, 26, 30), ("遊撃手", "一塁手"): (45, 20, 35),
+    ("二塁手", "三塁手"): (39, 26, 35), ("二塁手", "遊撃手"): (30, 30, 40), ("二塁手", "一塁手"): (45, 20, 35),
+    ("三塁手", "一塁手"): (60, 15, 25), ("三塁手", "二塁手"): (41, 24, 35), ("三塁手", "遊撃手"): (20, 30, 50),
+    ("一塁手", "三塁手"): (30, 25, 45), ("一塁手", "二塁手"): (15, 25, 60), ("一塁手", "遊撃手"): (10, 20, 70),
+    ("一塁手", "外野手"): (35, 20, 45),
+    ("外野手", "一塁手"): (20, 18, 62), ("外野手", "三塁手"): (8, 16, 76), ("外野手", "二塁手"): (8, 16, 76),
+    ("外野手", "遊撃手"): (5, 15, 80),
+    ("捕手", "一塁手"): (20, 17, 63), ("捕手", "外野手"): (15, 20, 65), ("捕手", "三塁手"): (8, 16, 76),
+    ("捕手", "二塁手"): (5, 15, 80), ("捕手", "遊撃手"): (5, 15, 80),
+}
+FICTIONAL_SUB_TO_OUTFIELD_APTITUDE_WEIGHTS = (31, 20, 49)
+FICTIONAL_SUB_TO_CATCHER_APTITUDE_WEIGHTS = (3, 12, 85)
+FICTIONAL_SUB_INFIELD_APTITUDE_WEIGHTS = (40, 25, 35)
+
+
+def fictional_band_rate(value: float, limits: list[int], rates: list[float]) -> float:
+    for limit, rate in zip(limits, rates):
+        if value <= limit:
+            return rate
+    return rates[-1]
+
+
+def compress_tail(value: float, pivot: float, factor: float, upper: bool) -> float:
+    """pivot より外側（upper=True なら上側）の値を pivot から factor 倍の距離にする（1未満で縮め、1超で伸ばす）。"""
+    if (value > pivot) if upper else (value < pivot):
+        return pivot + (value - pivot) * factor
+    return value
+
+
+def fictional_set_special(selected: list[str], name: str, present: bool, group_of: dict[str, str], force: bool, is_allowed: Any) -> None:
+    """特能の有無を切り替える。force=True なら同じグループ・矛盾ペアの特能を外してでも付ける。"""
+    if not present:
+        if name in selected:
+            selected.remove(name)
+        return
+    if name in selected or not is_allowed(name):
+        return
+    group = group_of.get(name, name)
+    rivals = [
+        item for item in selected
+        if (group.startswith("g") and group_of.get(item) == group)
+        or any({item, name} == {a, b} for a, b in FICTIONAL_SPECIAL_CONFLICTS)
+    ]
+    if rivals and not force:
+        return
+    for item in rivals:
+        selected.remove(item)
+    selected.append(name)
+
+
+# 選手格ごとの特能数の下限に届かないときに足す特能（実在で多い順）
+FICTIONAL_SPECIAL_FILLERS = {
+    "投手": ("球速安定", "リリース○", "球持ち○", "キレ○", "逃げ球"),
+    "野手": ("選球眼", "サヨナラ男", "満塁男", "流し打ち", "初球○"),
+}
+
+
+def fictional_adjust_specials(rng: random.Random, master: MasterData, role: str, player_class: str, specials: list[str], values: dict[str, float], is_allowed: Any) -> list[str]:
+    """実在にない特能を外し、能力と連動する特能を付け直し、出現率を実在に寄せる（投手・野手共通）。"""
+    allowed_names = role_allowed_specials(master, role)
+    group_of = {str(row["name"]): str(row.get("group", "")) for row in master.abilities}
+    selected = [name for name in specials if name not in FICTIONAL_NOT_REAL_SPECIALS[role]]
+    check = lambda name: name in allowed_names and is_allowed(name)
+    for name, key, limits, rates in FICTIONAL_LINKED_SPECIALS[role]:
+        present = rng.random() < fictional_band_rate(values.get(key, 0), limits, rates)
+        fictional_set_special(selected, name, present, group_of, True, check)
+    for name, current, target in FICTIONAL_SPECIAL_RATE_TARGETS[role]:
+        if name in selected:
+            if target < current and rng.random() >= target / current:
+                selected.remove(name)
+        elif target > current and rng.random() < (target - current) / (1.0 - current):
+            fictional_set_special(selected, name, True, group_of, False, check)
+    # サブポジの付け替えなどで位置・起用の条件を満たさなくなった特能を外す。
+    selected = [name for name in selected if is_allowed(name)]
+    # 既存の選手格ごとの特能数の上下限に収める。能力と連動する特能は残し、後ろ（後から足した特能）から削る。
+    low, high = special_count_bounds("架空球団用", player_class)
+    linked = {name for name, *_ in FICTIONAL_LINKED_SPECIALS[role]}
+    countable = lambda: sum(is_countable_special(name) for name in selected)
+    while countable() > high:
+        removable = [name for name in selected if is_countable_special(name)]
+        selected.remove(next((name for name in reversed(removable) if name not in linked), removable[-1]))
+    for name in FICTIONAL_SPECIAL_FILLERS[role]:
+        if countable() >= low:
+            break
+        fictional_set_special(selected, name, True, group_of, False, check)
+    return selected
+
+
+def fictional_ranked_specials(
+    rng: random.Random,
+    master: MasterData,
+    groups: list[str],
+    weights_by_group: dict[str, dict[str, float]],
+    player_class: str,
+    current: dict[str, str],
+    link_shift: Any,
+    weights_key: Any = None,
+) -> dict[str, str]:
+    """ランク特能を実在の分布から引き直す。能力・選手格による補正では A・G を新たに作らない。"""
+    names_by_group = ranked_special_names_by_group(master)
+    up_rate, down_rate = FICTIONAL_CLASS_RANK_SHIFTS.get(player_class, (0.0, 0.0))
+    result: dict[str, str] = {}
+    for group in groups:
+        weights = weights_by_group.get(weights_key(group) if weights_key else group) or weights_by_group.get(group)
+        names = names_by_group.get(group, {})
+        if not weights or not set(RANKED_SPECIAL_RANKS).issubset(names):
+            if group in current:
+                result[group] = current[group]
+            continue
+        base = weighted_choice(rng, list(weights.items()))
+        shift = link_shift(group)
+        if group not in FICTIONAL_PHYSICAL_RANKED:
+            shift += int(rng.random() < up_rate) - int(rng.random() < down_rate)
+        value = shifted_rank(base, shift)
+        if base not in {"A", "G"}:
+            value = {"A": "B", "G": "F"}.get(value, value)
+        result[group] = names[value]
+    return result
+
+
+def fictional_pitcher_breaking_balls(rng: random.Random, breaking_balls: list[dict[str, Any]], batting_throwing: str, position: str) -> list[dict[str, Any]]:
+    """チェンジアップ系を左投手に寄せ、抑え（守護神格）の決め球を鋭くする。方向の構成は変えない。"""
+    balls = [dict(ball) for ball in breaking_balls]
+    is_left = batting_throwing.startswith("左投")
+    if any(ball.get("kind") == "second_fastball" for ball in balls) and rng.random() < FICTIONAL_SECOND_FASTBALL_DROP_RATE:
+        balls = [ball for ball in balls if ball.get("kind") != "second_fastball"]
+    breaking = [ball for ball in balls if ball.get("kind") == "breaking"]
+    if len(breaking) == 2 and rng.random() < FICTIONAL_THIRD_PITCH_ADD_RATE:
+        used_codes = {str(ball.get("direction_code")) for ball in breaking}
+        code = weighted_choice(rng, [(code, weight) for code, weight in DIRECTION_SELECTION_WEIGHTS.items() if code not in used_codes])
+        factors = FICTIONAL_ADDED_PITCH_HAND_FACTORS["左投" if is_left else "右投"]
+        items = [
+            (name, BREAKING_BY_NAME[name]["base_weight"] * factors.get(name, 1.0))
+            for name in sorted(allowed_pitch_names_for_generation(code, batting_throwing))
+        ]
+        name = weighted_choice(rng, [(name, weight) for name, weight in items if weight > 0])
+        top = max(int(ball.get("movement") or 1) for ball in breaking)
+        movement = min(top, weighted_choice(rng, FICTIONAL_ADDED_PITCH_MOVEMENT_WEIGHTS))
+        balls.insert(len(breaking), make_breaking_ball(name, movement, False, 1))
+
+    def rename(ball: dict[str, Any], new_name: str) -> None:
+        if any(other.get("name") == new_name for other in balls):
+            return
+        master = BREAKING_BY_NAME[new_name]
+        ball["name"] = new_name
+        movement = max(int(master.get("min_movement", 1)), min(int(master.get("max_movement", 7)), int(ball.get("movement") or 1)))
+        ball["movement"] = ball["level"] = movement
+
+    for name, chance, targets in (FICTIONAL_LEFT_PITCH_SWAPS if is_left else FICTIONAL_RIGHT_PITCH_SWAPS):
+        for ball in balls:
+            if ball.get("kind") == "breaking" and ball.get("name") == name and rng.random() < chance:
+                rename(ball, weighted_choice(rng, targets))
+    if is_left and not any(ball.get("name") in FICTIONAL_CHANGEUP_NAMES for ball in balls):
+        for ball in balls:
+            chance = FICTIONAL_LEFT_CHANGEUP_FROM.get(str(ball.get("name")), 0.0)
+            if ball.get("kind") == "breaking" and rng.random() < chance:
+                rename(ball, "チェンジアップ")
+                break
+
+    if position == "抑え":
+        primaries = [
+            ball for ball in balls
+            if ball.get("kind") == "breaking" and not ball.get("is_second_pitch")
+            and int(BREAKING_BY_NAME[str(ball["name"])].get("max_movement", 7)) >= 4
+        ]
+        if primaries:
+            finisher = max(primaries, key=lambda ball: int(ball.get("movement") or 0))
+            target = min(weighted_choice(rng, FICTIONAL_CLOSER_FINISHER_MOVEMENT_WEIGHTS), int(BREAKING_BY_NAME[str(finisher["name"])].get("max_movement", 7)))
+            if target > int(finisher.get("movement") or 0):
+                finisher["movement"] = finisher["level"] = target
+    enforce_second_pitch_movement_order(balls)
+    return balls
+
+
+def fictional_adjust_physique(rng: random.Random, player: dict[str, Any], role: str) -> None:
+    """日本人の身長を実在に合わせて1〜2cm下げ、体重も連動して下げる（平均 投手181・野手179）。"""
+    height_drop = (2 if rng.random() < 0.7 else 1) if role == "投手" else 1
+    weight_drop = 2 if rng.random() < 0.5 else 1
+    height = int(player.get("height_cm") or player.get("height") or 0) - height_drop
+    weight = int(player.get("weight_kg") or player.get("weight") or 0) - weight_drop
+    player.update({"height": height, "weight": weight, "height_cm": height, "weight_kg": weight})
+
+
+def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: MasterData) -> dict[str, Any]:
+    """架空球団の日本人投手を、実在12球団の日本人投手の傾向に合わせて部分的に直す。"""
+    rng = make_sub_rng(seed, FICTIONAL_PITCHER_BALANCE_NAMESPACE)
+    position = str(player.get("position", ""))
+    pitcher_aptitudes = {key: str(player.get(key, "-")) for key in PITCHER_APTITUDE_KEYS}
+    batting_throwing = str(player.get("batting_throwing", ""))
+    abilities = dict(player.get("abilities", {}))
+
+    role_key = "中継ぎ_抑え◎" if position == "中継ぎ" and pitcher_aptitudes.get("closer_aptitude") == "◎" else position
+    speed_shift, control_shift, stamina_shift = FICTIONAL_PITCHER_ROLE_SHIFTS.get(role_key, (0.0, 0.0, 0.0))
+    speed = float(pitcher_speed_value(abilities) or 150) + speed_shift
+    # 球速の裾（145以下・162以上）を細くする。既存処理は165km/hに張り付いた投手が多いので上側を強めに縮める。
+    speed = round(compress_tail(compress_tail(speed, 148.0, 0.6, upper=False), 155.0, 0.5, upper=True))
+    control = float(ability_numeric_value(abilities, "コントロール") or 50) + control_shift
+    control += FICTIONAL_CONTROL_PER_SPEED * (speed - FICTIONAL_PITCHER_SPEED_CENTER)
+    control = clamp(round(compress_tail(control, 35.0, 0.7, upper=False)), 15, 95)
+    stamina = float(ability_numeric_value(abilities, "スタミナ") or 50) + stamina_shift
+    stamina += FICTIONAL_STAMINA_PER_CONTROL * (control - FICTIONAL_PITCHER_CONTROL_CENTER)
+    stamina += FICTIONAL_STAMINA_PER_SPEED * (speed - FICTIONAL_PITCHER_SPEED_CENTER)
+    stamina = clamp(round(stamina), 15, 100)
+    set_pitcher_speed(abilities, speed)
+    abilities["コントロール"] = ability(control)
+    abilities["スタミナ"] = ability(stamina)
+    abilities["肩力"] = ability(clamp(speed - 81 + weighted_choice(rng, [(-1, 15), (0, 35), (1, 35), (2, 15)]), 49, 82))
+
+    player["breaking_balls"] = fictional_pitcher_breaking_balls(rng, list(player.get("breaking_balls", [])), batting_throwing, position)
+    player["special_abilities"] = fictional_adjust_specials(
+        rng, master, "投手", str(player.get("player_class", "")), list(player.get("special_abilities", [])),
+        {"球速": speed, "コントロール": control},
+        lambda name: is_special_allowed_for_player(name, "投手", position, [], pitcher_aptitudes),
+    )
+
+    def link_shift(group: str) -> int:
+        if group == "ノビ":
+            return int(speed >= 155 and rng.random() < 0.35) - int(speed <= 146 and rng.random() < 0.35)
+        return 0
+
+    current = dict(abilities.get("ranked_specials", {}) or {})
+    abilities["ranked_specials"] = fictional_ranked_specials(
+        rng, master, list(current), FICTIONAL_PITCHER_RANKED_WEIGHTS, str(player.get("player_class", "")), current, link_shift,
+        weights_key=lambda group: f"{group}_左投" if group == "対左打者" and batting_throwing.startswith("左投") else group,
+    )
+    player["abilities"] = abilities
+    fictional_adjust_physique(rng, player, "投手")
+    return player
+
+
+def fictional_fielder_abilities(rng: random.Random, abilities: dict[str, Any], position: str) -> dict[str, Any]:
+    """能力の平均・幅・相関を実在に写し、弾道をパワーから確率的に決め直す。"""
+    z = [
+        ((ability_numeric_value(abilities, key) or mean) - mean) / sd
+        for key, mean, sd in zip(FICTIONAL_FIELDER_ABILITY_KEYS, FICTIONAL_FIELDER_CURRENT_MEANS, FICTIONAL_FIELDER_CURRENT_SDS)
+    ]
+    shifts = FICTIONAL_FIELDER_POSITION_SHIFTS.get(position, (0.0,) * 6)
+    values: dict[str, float] = {}
+    for key, row, mean, sd, shift in zip(FICTIONAL_FIELDER_ABILITY_KEYS, FICTIONAL_FIELDER_CORRELATION_TRANSFORM, FICTIONAL_FIELDER_TARGET_MEANS, FICTIONAL_FIELDER_TARGET_SDS, shifts):
+        values[key] = mean + sd * sum(weight * item for weight, item in zip(row, z)) + shift
+    # 実在は走力・守備力の上側が厚く、守備力の下側が薄い。
+    values["走力"] = compress_tail(values["走力"], 70.0, 1.25, upper=True)
+    values["守備力"] = compress_tail(compress_tail(values["守備力"], 55.0, 1.15, upper=True), 34.0, 0.5, upper=False)
+    result = dict(abilities)
+    for key in FICTIONAL_FIELDER_ABILITY_KEYS:
+        result[key] = ability(clamp(round(values[key]), 1, 100))
+    power = result["パワー"]["value"]
+    score = power + rng.gauss(0.0, FICTIONAL_TRAJECTORY_NOISE_SD)
+    trajectory = 1 + sum(score >= threshold for threshold in FICTIONAL_TRAJECTORY_THRESHOLDS)
+    if trajectory == 1 and power > FICTIONAL_TRAJECTORY_ONE_MAX_POWER:
+        trajectory = 2
+    result["弾道"] = trajectory
+    return result
+
+
+def fictional_fielder_sub_positions(rng: random.Random, position: str, batting_throwing: str) -> list[dict[str, str]]:
+    """実在の組み合わせごとの保有率でサブポジを決める（二遊間・三塁手は3つ持ちが普通）。"""
+    selected: list[dict[str, str]] = []
+    for sub, rate in FICTIONAL_SUB_POSITION_RATES.get(position, {}).items():
+        if batting_throwing.startswith("左投") and sub not in {"一塁手", "外野手"}:
+            continue
+        if rng.random() >= rate:
+            continue
+        if sub == "外野手":
+            weights = FICTIONAL_SUB_POSITION_APTITUDE_WEIGHTS.get((position, sub), FICTIONAL_SUB_TO_OUTFIELD_APTITUDE_WEIGHTS)
+        elif sub == "捕手":
+            weights = FICTIONAL_SUB_TO_CATCHER_APTITUDE_WEIGHTS
+        else:
+            weights = FICTIONAL_SUB_POSITION_APTITUDE_WEIGHTS.get((position, sub), FICTIONAL_SUB_INFIELD_APTITUDE_WEIGHTS)
+        selected.append({"position": sub, "aptitude": weighted_choice(rng, list(zip(("◎", "○", "△"), weights)))})
+    return selected
+
+
+def apply_fictional_fielder_balance(player: dict[str, Any], seed: int, master: MasterData) -> dict[str, Any]:
+    """架空球団の日本人野手を、実在12球団の日本人野手の傾向に合わせて部分的に直す。"""
+    rng = make_sub_rng(seed, FICTIONAL_FIELDER_BALANCE_NAMESPACE)
+    position = str(player.get("position", ""))
+    batting_throwing = str(player.get("batting_throwing", ""))
+    old_abilities = dict(player.get("abilities", {}))
+    abilities = fictional_fielder_abilities(rng, old_abilities, position)
+    sub_positions = fictional_fielder_sub_positions(rng, position, batting_throwing)
+    player["sub_positions"] = sub_positions
+    values = {key: float(abilities[key]["value"]) for key in FICTIONAL_FIELDER_ABILITY_KEYS}
+    player["special_abilities"] = fictional_adjust_specials(
+        rng, master, "野手", str(player.get("player_class", "")), list(player.get("special_abilities", [])), values,
+        lambda name: is_special_allowed_for_player(name, "野手", position, sub_positions),
+    )
+    speed, arm = values["走力"], values["肩力"]
+
+    def link_shift(group: str) -> int:
+        if group == "走塁":
+            return int(speed >= 80 and rng.random() < 0.5) - int(speed <= 50 and rng.random() < 0.4)
+        if group == "盗塁":
+            return int(speed >= 80 and rng.random() < 0.6) - int(speed <= 50 and rng.random() < 0.5)
+        if group == "送球":
+            return int(arm >= 80 and rng.random() < 0.4) - int(arm <= 55 and rng.random() < 0.4)
+        return 0
+
+    current = dict(old_abilities.get("ranked_specials", {}) or {})
+    groups = [group for group in current if group != "キャッチャー"]
+    if has_position_aptitude(position, sub_positions, {"捕手"}):
+        groups.append("キャッチャー")
+    abilities["ranked_specials"] = fictional_ranked_specials(
+        rng, master, groups, FICTIONAL_FIELDER_RANKED_WEIGHTS, str(player.get("player_class", "")), current, link_shift,
+    )
+    player["abilities"] = abilities
+    fictional_adjust_physique(rng, player, "野手")
+    return player
+
+
 def generate_player(role: str, category: str, master: MasterData, seed: int | None = None, used_names: set[str] | None = None, apply_age_special_tail: bool = True, apply_individual_age_profile: bool = True, apply_ranked_age_profile: bool = True, apply_pro_year_profile: bool = True, apply_physique: bool = True, include_physique_baseline: bool = False) -> dict[str, Any]:
     seed = seed if seed is not None else random.SystemRandom().randrange(SEED_MAX)
     rng = random.Random(seed)
@@ -6534,6 +7084,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
             seed=seed,
             role=role,
             draft_source_type=draft_source_type,
+            player_class=player_class,
         )
         nationality = choose_nationality(rng, category)
         roster_origin = determine_roster_origin(category, nationality, seed)
@@ -6557,10 +7108,17 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     if role == "投手":
         pitcher_aptitudes = choose_pitcher_aptitudes(rng, model_category)
         position = primary_pitcher_role(pitcher_aptitudes)
+        if model_category == "架空球団用" and position == "抑え" and make_sub_rng(seed, "fictional_closer_position_v1").random() >= FICTIONAL_CLOSER_POSITION_RATE:
+            position = "中継ぎ"
     else:
-        position_weights = FOREIGN_FIELDER_POSITION_WEIGHTS if model_category == "助っ人外国人用" else [("捕手", 12), ("一塁手", 14), ("二塁手", 14), ("三塁手", 14), ("遊撃手", 16), ("外野手", 30)]
+        if model_category == "助っ人外国人用":
+            position_weights = FOREIGN_FIELDER_POSITION_WEIGHTS
+        elif model_category == "架空球団用":
+            position_weights = FICTIONAL_FIELDER_POSITION_WEIGHTS
+        else:
+            position_weights = [("捕手", 12), ("一塁手", 14), ("二塁手", 14), ("三塁手", 14), ("遊撃手", 16), ("外野手", 30)]
         position = weighted_choice(rng, position_weights)
-    batting_throwing = generate_batting_throwing(rng, role, position)
+    batting_throwing = generate_batting_throwing(rng, role, position, model_category)
     foreign_npby = int(roster_context.get("npb_years", 0)) if roster_context.get("roster_origin") == "foreign_import" else 0
     foreign_route = str(roster_context.get("foreign_route", ""))
     acquisition_role = choose_acquisition_role(rng, model_category, role, player_class, position, pitcher_aptitudes, batting_throwing, foreign_npby, foreign_route)
@@ -6733,6 +7291,10 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         apply_foreign_pitcher_balance(player, seed, master)
     elif role == "野手" and model_category == "助っ人外国人用":
         apply_foreign_fielder_balance(player, seed, master)
+    elif role == "投手" and model_category == "架空球団用":
+        apply_fictional_pitcher_balance(player, seed, master)
+    elif role == "野手" and model_category == "架空球団用":
+        apply_fictional_fielder_balance(player, seed, master)
     return player
 
 
