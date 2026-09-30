@@ -368,6 +368,7 @@ PITCH_SINGLE_THICKNESS = 1.375    # 単体バー太さ（u）
 PITCH_SINGLE_BORDER = 0.25
 PITCH_PAIRED_THICKNESS = 1.8      # 2列バーのフレーム全体の太さ（u）
 PITCH_PAIRED_BORDER = 0.2
+PITCH_BAR_CLEARANCE = 0.09      # 隣のバーとの最小すき間（u）。全方向単体時のすき間（約0.099u）を超えない値
 PITCH_FRAME_COLOR = "#008FF5"
 PITCH_CELL_EMPTY_START = "#0A96FF"
 PITCH_CELL_EMPTY_END = "#42B5FF"
@@ -7263,8 +7264,32 @@ def pitch_cell_color(index: int, active: bool) -> str:
     return _mix_hex(PITCH_CELL_EMPTY_START, PITCH_CELL_EMPTY_END, index / (PITCH_GAUGE_SEGMENT_COUNT - 1))
 
 
+def pitch_bar_half_width(paired: bool) -> float:
+    """バー（2列なら2列合わせたフレーム）の半幅（u）。"""
+    return (PITCH_PAIRED_THICKNESS if paired else PITCH_SINGLE_THICKNESS) / 2
+
+
+def diagonal_bar_start(direction_code: str, paired_directions: set[str] | frozenset[str] = frozenset()) -> float:
+    """斜めバーの根元の位置（ボール中心からの距離, u）。2列時は両方の列が同じ位置から始まる。
+    根元の角が隣の横バー・フォークバーに食い込まないよう、自分と隣の太さに応じて外へ下げる。"""
+    geometry = PITCH_GAUGE_GEOMETRY[direction_code]
+    if geometry["kind"] != "diagonal":
+        return PITCH_BAR_START
+    side_code = "1" if geometry["axis"][0] > 0 else "5"
+    paired = direction_code in paired_directions
+    own = pitch_bar_half_width(paired)
+    side_half = pitch_bar_half_width(side_code in paired_directions)
+    fork_half = pitch_bar_half_width("3" in paired_directions)
+    sin45 = math.sqrt(0.5)
+    # 根元の角は軸から own だけ横バー側・フォーク側へ張り出す
+    need_side = own + (side_half + PITCH_BAR_CLEARANCE) / sin45
+    need_fork = own + (fork_half + PITCH_BAR_CLEARANCE) / sin45
+    return max(PITCH_BAR_START, need_side, need_fork)
+
+
 def pitch_bar_shape(
     direction_code: str, lane_index: int = 0, paired: bool = False, movement: int = 0, flip_side: bool = False,
+    start_u: float | None = None,
 ) -> PitchBarShape:
     """右投げ基準の座標でバー1列（フレーム＋7セル）を作る。2列時は列ごとに呼ぶ。
     flip_side は2列の並び順を入れ替える（左投げのフォーク方向を、反転後も1球種目が左になるようにする）。"""
@@ -7286,9 +7311,7 @@ def pitch_bar_shape(
         border = PITCH_SINGLE_BORDER * u
         half = PITCH_SINGLE_THICKNESS * u / 2
         cross_center = 0.0
-    start = PITCH_BAR_START * u
-    if paired and lane_index >= 1 and geometry["kind"] == "diagonal":
-        start += PITCH_CELL_PITCH * u  # 斜め2列は外側の列が1セル先端寄り
+    start = (PITCH_BAR_START if start_u is None else start_u) * u
 
     def point(along: float, cross: float) -> PitchPoint:
         a = start + along
@@ -7530,7 +7553,7 @@ def layout_pitch_chart(balls: list[dict[str, Any]] | None, batting_throwing: str
             lane = lane_by_key.get((code, lane_index))
             # フォーク方向の2列は左投げでも1球種目が左（反転後に左へ来るよう、判定座標では右に置く）
             flip_side = is_left and PITCH_GAUGE_GEOMETRY[code]["kind"] == "down"
-            bars.append(pitch_bar_shape(code, lane_index, paired, lane.movement if lane else 0, flip_side))
+            bars.append(pitch_bar_shape(code, lane_index, paired, lane.movement if lane else 0, flip_side, diagonal_bar_start(code, paired_directions)))
     bar_by_key = {(bar.direction_code, bar.lane_index): bar for bar in bars}
 
     straight_frame, straight_fills = _pitch_straight_shapes(2 if second_fastballs else 1)
