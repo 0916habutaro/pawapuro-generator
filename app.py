@@ -8222,7 +8222,7 @@ BALANCE_TAB_LABELS = ["概要", "整合性チェック", "人物属性", "新分
 
 def render_balance_filters(df_all: pd.DataFrame) -> pd.DataFrame:
     """絞り込み・件数・CSV出力（全タブ共通）。"""
-    st.subheader("絞り込み")
+    render_section_heading("絞り込み")
     filter_col1, filter_col2 = st.columns(2)
     with filter_col1:
         selected_categories = st.multiselect("カテゴリ", CATEGORIES, default=CATEGORIES)
@@ -8358,22 +8358,22 @@ def render_check_metric(column: Any, checks: dict[str, Any], key: str) -> None:
 def render_balance_overview_tab(df: pd.DataFrame, checks: dict[str, Any]) -> None:
     render_balance_check_summary(checks)
     st.metric("総件数", len(df))
-    st.subheader("投手/野手 × カテゴリ別人数")
+    render_section_heading("投手/野手 × カテゴリ別人数")
     role_category = pd.crosstab(df["role"], df["category"], margins=True, margins_name="合計")
     st.dataframe(role_category, use_container_width=True)
     col5, col6 = st.columns(2)
     with col5:
-        st.subheader("野手ポジション別人数")
+        render_sub_heading("野手ポジション別人数")
         fielder_positions = df[df["role"] == "野手"]["position"].value_counts().rename_axis("ポジション").reset_index(name="人数")
         st.dataframe(fielder_positions, use_container_width=True, hide_index=True)
     with col6:
-        st.subheader("投手役割別人数")
+        render_sub_heading("投手役割別人数")
         pitcher_roles = df[df["role"] == "投手"]["position"].value_counts().rename_axis("役割").reset_index(name="人数")
         st.dataframe(pitcher_roles, use_container_width=True, hide_index=True)
 
 
 def render_balance_consistency_tab(df: pd.DataFrame, master: MasterData, checks: dict[str, Any]) -> None:
-    st.subheader("生成品質チェック")
+    render_section_heading("生成品質チェック")
     metric_cols = st.columns(6)
     metric_cols[0].metric("ユニークseed数", checks["unique_seed_count"])
     for column, key in zip(metric_cols[1:], ["seed_duplicate_count", "complete_duplicate_count", "invalid_special_count", "handedness_mismatch_count", "restricted_left_count"]):
@@ -8385,7 +8385,7 @@ def render_balance_consistency_tab(df: pd.DataFrame, master: MasterData, checks:
     for column, key in zip(extra_cols, ["invalid_pitch_count", "left_sub_violation_count", "unknown_special_kind_count"]):
         render_check_metric(column, checks, key)
 
-    st.subheader("名前・国籍・出身地チェック")
+    render_section_heading("名前・国籍・出身地チェック")
     profile_cols = st.columns(5)
     profile_cols[0].metric("ユニーク名前数", checks["unique_name_count"])
     profile_cols[1].metric("名前重複率", f"{checks['name_duplicate_rate']}%")
@@ -8395,50 +8395,50 @@ def render_balance_consistency_tab(df: pd.DataFrame, master: MasterData, checks:
 
     col_profile1, col_profile2 = st.columns(2)
     with col_profile1:
-        st.subheader("国籍 × 名前種別の整合性")
+        render_sub_heading("国籍 × 名前種別の整合性")
         st.dataframe(consistency_table(df, master, "name"), use_container_width=True, hide_index=True)
     with col_profile2:
-        st.subheader("国籍 × 出身地種別の整合性")
+        render_sub_heading("国籍 × 出身地種別の整合性")
         st.dataframe(consistency_table(df, master, "birthplace"), use_container_width=True, hide_index=True)
 
-    st.subheader("右投手/左投手別 不正球種チェック")
+    render_section_heading("右投手/左投手別 不正球種チェック")
     st.dataframe(checks["invalid_pitches"], use_container_width=True, hide_index=True)
 
-    st.subheader("左投げ野手サブポジ違反チェック")
+    render_section_heading("左投げ野手サブポジ違反チェック")
     st.dataframe(checks["left_sub_violation"], use_container_width=True, hide_index=True)
 
 
 def render_balance_profile_tab(df: pd.DataFrame) -> None:
-    st.subheader("国籍別人数")
+    render_section_heading("国籍別人数")
     st.dataframe(df["nationality"].value_counts().rename_axis("国籍").reset_index(name="人数"), use_container_width=True, hide_index=True)
 
-    st.subheader("年齢分布")
+    render_section_heading("年齢分布")
     age_dist = df["age"].value_counts().sort_index().rename_axis("年齢").reset_index(name="人数")
     st.dataframe(age_dist, use_container_width=True, hide_index=True)
 
     career_df = df[df["entry_route"].fillna("").ne("")].copy()
-    st.subheader("プロ経歴分布")
+    render_section_heading("プロ経歴分布")
     if career_df.empty:
         st.info("経歴情報を持つ保存済み選手がありません。")
     else:
         career_df["年齢帯"] = pd.Categorical(career_df["age"].apply(career_age_band), categories=CAREER_AGE_BAND_ORDER, ordered=True)
-        st.subheader("プロ年数分布")
+        render_sub_heading("プロ年数分布")
         st.dataframe(career_df["pro_years"].value_counts().sort_index().rename_axis("プロ年数").reset_index(name="人数"), use_container_width=True, hide_index=True)
-        st.subheader("年齢帯 × プロ年数")
+        render_sub_heading("年齢帯 × プロ年数")
         st.dataframe(pd.crosstab(career_df["年齢帯"], career_df["pro_years"]), use_container_width=True)
         career_col1, career_col2 = st.columns(2)
         with career_col1:
-            st.subheader("年齢帯別プロ年数")
+            render_sub_heading("年齢帯別プロ年数")
             st.dataframe(pro_years_age_band_stats(career_df), use_container_width=True, hide_index=True)
         with career_col2:
-            st.subheader("入団経路分布")
+            render_sub_heading("入団経路分布")
             route_dist = career_df["entry_route"].value_counts().rename_axis("入団経路").reset_index(name="人数")
             route_dist["構成比%"] = (route_dist["人数"] / len(career_df) * 100).round(2)
             st.dataframe(route_dist, use_container_width=True, hide_index=True)
-        st.subheader("入団経路 × 年齢帯")
+        render_sub_heading("入団経路 × 年齢帯")
         st.dataframe(pd.crosstab(career_df["entry_route"], career_df["年齢帯"]), use_container_width=True)
 
-    st.subheader("成長タイプ分布")
+    render_section_heading("成長タイプ分布")
     growth_df = df.copy()
     growth_df["成長タイプ"] = growth_df["growth_type"].apply(growth_type_label)
     growth_total = growth_df["成長タイプ"].value_counts().reindex(GROWTH_TYPE_LABELS.values(), fill_value=0).rename_axis("成長タイプ").reset_index(name="人数")
@@ -8453,7 +8453,7 @@ def render_balance_profile_tab(df: pd.DataFrame) -> None:
 
 
 def render_balance_classification_tab(df: pd.DataFrame) -> None:
-    st.subheader("新分類分布")
+    render_section_heading("新分類分布")
     class_col1, class_col2 = st.columns(2)
     with class_col1:
         st.dataframe(classification_distribution_table(df, ["category"], "player_class").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
@@ -8468,10 +8468,10 @@ def render_balance_classification_tab(df: pd.DataFrame) -> None:
 def render_balance_ability_tab(df: pd.DataFrame) -> None:
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("野手能力 平均値")
+        render_sub_heading("野手能力 平均値")
         st.dataframe(ability_average_table(df, "野手", ["弾道", "ミート", "パワー", "走力", "肩力", "守備力", "捕球"]), use_container_width=True, hide_index=True)
     with col2:
-        st.subheader("投手能力 平均値")
+        render_sub_heading("投手能力 平均値")
         st.dataframe(ability_average_table(df, "投手", ["球速", "コントロール", "スタミナ"]), use_container_width=True, hide_index=True)
 
 
@@ -8484,40 +8484,40 @@ def render_balance_special_tab(df: pd.DataFrame, master: MasterData) -> None:
     special_counts, _ = special_ability_summary(df, master)
     col3, col4 = st.columns(2)
     with col3:
-        st.subheader("特殊能力 種別別出現数")
+        render_sub_heading("特殊能力 種別別出現数")
         st.dataframe(special_kind_table(df, master), use_container_width=True, hide_index=True)
         st.caption("個性系：" + "、".join(sorted(PERSONALITY_SPECIALS)) + "。他の種別と重複して数えます。")
     with col4:
-        st.subheader("特殊能力 出現回数")
+        render_sub_heading("特殊能力 出現回数")
         st.dataframe(special_counts, use_container_width=True, hide_index=True)
 
-    st.subheader("ランク系特殊能力の分布")
+    render_section_heading("ランク系特殊能力の分布")
     st.dataframe(ranked_special_pivot(df), use_container_width=True, hide_index=True)
 
-    st.subheader("特殊能力数の分布")
+    render_section_heading("特殊能力数の分布")
     st.dataframe(special_count_pivot(df), use_container_width=True, hide_index=True)
 
-    st.subheader("選手タイプ別 通常特殊能力平均数")
+    render_section_heading("選手タイプ別 通常特殊能力平均数")
     type_avg = df.assign(通常特殊能力数=special_lengths).groupby(["role", "player_type"])["通常特殊能力数"].mean().round(2).reset_index().rename(columns={"role": "投手/野手", "player_type": "選手タイプ", "通常特殊能力数": "平均数"})
     st.dataframe(type_avg, use_container_width=True, hide_index=True)
 
 
 def render_balance_breaking_tab(df: pd.DataFrame) -> None:
     breaking_tables = breaking_balance_tables(df)
-    st.subheader("変化球バランス")
+    render_section_heading("変化球バランス")
     st.dataframe(breaking_tables["metrics"], use_container_width=True, hide_index=True)
     bcol1, bcol2 = st.columns(2)
     with bcol1:
-        st.subheader("通常変化球数分布")
+        render_sub_heading("通常変化球数分布")
         st.dataframe(breaking_tables["count_dist"], use_container_width=True, hide_index=True)
-        st.subheader("方向別出現数")
+        render_sub_heading("方向別出現数")
         st.dataframe(breaking_tables["direction"], use_container_width=True, hide_index=True)
-        st.subheader("ストレート系第二種 種類別出現数")
+        render_sub_heading("ストレート系第二種 種類別出現数")
         st.dataframe(breaking_tables["second_fastball"], use_container_width=True, hide_index=True)
     with bcol2:
-        st.subheader("総変化量分布")
+        render_sub_heading("総変化量分布")
         st.dataframe(breaking_tables["movement_dist"], use_container_width=True, hide_index=True)
-        st.subheader("球種別出現数")
+        render_sub_heading("球種別出現数")
         st.dataframe(breaking_tables["pitch"], use_container_width=True, hide_index=True)
 
 
@@ -8526,7 +8526,7 @@ def render_balance_defense_tab(df: pd.DataFrame) -> None:
     if not sub_tables:
         st.info("野手のデータがありません。")
         return
-    st.subheader("サブポジ集計")
+    render_section_heading("サブポジ集計")
     st.dataframe(sub_tables["metrics"], use_container_width=True, hide_index=True)
     scol1, scol2 = st.columns(2)
     with scol1:
@@ -8551,8 +8551,13 @@ def render_balance_danger_zone() -> None:
 
 
 def render_balance_check(master: MasterData) -> None:
-    st.header("バランス確認")
-    render_page_description("保存済み選手をSQLiteから読み込み、生成結果の偏りを確認します。")
+    st.markdown(balance_page_css(), unsafe_allow_html=True)
+    with st.container(key="balance_page"):
+        render_balance_page_body(master)
+
+
+def render_balance_page_body(master: MasterData) -> None:
+    render_app_title("バランス確認", "保存済み選手をSQLiteから読み込み、生成結果の偏りを確認します。")
     df_all = load_history_for_balance()
     if df_all.empty:
         st.info("保存済み選手がまだありません。選手を生成すると集計できます。")
@@ -10016,6 +10021,15 @@ UI_COLORS = {
     "sidebar-bg": "#0B2A5B",
     "sidebar-text": "#FFFFFF",
     "sidebar-muted": "#C9D6E8",
+    # バランス確認ページ用（背景・状態色・グラフ色）
+    "bg": "#F4F8FC",
+    "primary-soft": "#E6EEF7",
+    "ok": "#1E8E4E",
+    "warn": "#B7791F",
+    "error": "#E5333F",
+    "pitcher": "#D7193F",
+    "fielder": "#0876C9",
+    "chart-neutral": "#8A9AB5",
 }
 # 能力カードのCSSは st-key-latest_* を前提にしているため、キー接頭辞は "latest" のまま使う。
 DETAIL_KEY_PREFIX = "latest"
@@ -10106,6 +10120,12 @@ def app_chrome_css() -> str:
     :root {/*TOKENS*/}
     .stApp {color:var(--ui-text); background: radial-gradient(circle at 12% 18%, rgba(255,255,255,.28) 0 7%, transparent 8%), radial-gradient(circle at 88% 70%, rgba(255,255,255,.18) 0 10%, transparent 11%), linear-gradient(150deg,#effdff 0%,#b5f3e6 38%,#5fd6e3 72%,#1fa6d6 100%);}
     [data-testid="stHeader"] {background:rgba(244,248,252,.94); backdrop-filter:blur(6px); box-shadow:0 1px 0 var(--ui-border);}
+    /* 上部ナビゲーション：文字を大きくし、現在のページに紺の下線と背景色を付ける */
+    [data-testid="stTopNavLink"] {padding:6px 14px; border-radius:8px 8px 0 0; border-bottom:3px solid transparent;}
+    [data-testid="stTopNavLink"] p {font-size:16px; font-weight:800; color:var(--ui-muted);}
+    [data-testid="stTopNavLink"]:hover {background:var(--ui-primary-soft);}
+    [data-testid="stTopNavLink"][aria-current="page"] {background:var(--ui-primary-soft); border-bottom-color:var(--ui-primary);}
+    [data-testid="stTopNavLink"][aria-current="page"] p {color:var(--ui-primary);}
     @media (max-width: 1439px) {.block-container {padding-left:24px; padding-right:24px;}}
     .pp-title {background:var(--ui-surface); border-left:8px solid var(--ui-accent); border-bottom:3px solid var(--ui-primary); padding:12px 20px; border-radius:4px 16px 16px 4px; color:var(--ui-primary); font-weight:900; font-size:28px; margin-bottom:10px; box-shadow:0 2px 8px rgba(11,42,91,.10);}
     .pp-page-description {color:var(--ui-text); font-size:16px; line-height:1.6; font-weight:650; margin:0 0 14px;}
@@ -10151,6 +10171,52 @@ def inject_app_chrome_css() -> None:
 
 def render_section_heading(text: str) -> None:
     st.markdown(f'<div class="pp-section-heading">{e(text)}</div>', unsafe_allow_html=True)
+
+
+def render_sub_heading(text: str) -> None:
+    """2カラム内の表タイトルなどの小見出し（st.subheader より小さい）。"""
+    st.markdown(f'<div class="pp-sub-heading">{e(text)}</div>', unsafe_allow_html=True)
+
+
+BALANCE_PAGE_SCOPE = 'div[class*="st-key-balance_page"]'
+BALANCE_BODY_FONT = '"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo",sans-serif'
+
+
+def balance_page_css() -> str:
+    """バランス確認ページ専用のCSS。セレクタは st-key-balance_page 配下に限定し、選手生成ページには影響させない。"""
+    css = """
+    <style>
+    @import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800&display=swap");
+    .stApp:has(SCOPE) {background:var(--ui-bg);}
+    SCOPE {font-family:FONT;}
+    SCOPE *:not([data-testid="stIconMaterial"]):not(code) {font-family:inherit;}
+    SCOPE [data-testid="stMetricValue"], SCOPE [data-testid="stMetricValue"] * {font-variant-numeric:tabular-nums; font-weight:800; color:var(--ui-primary);}
+    SCOPE [data-testid="stMetricValue"] {font-size:28px;}
+    SCOPE [data-testid="stMetricLabel"] p {font-size:13px; font-weight:700; color:var(--ui-muted);}
+    SCOPE [data-testid="stCaptionContainer"], SCOPE [data-testid="stCaptionContainer"] p {color:var(--ui-muted); font-size:13px;}
+    /* タイトルを1段にまとめる */
+    SCOPE .pp-title-inline {display:flex; flex-wrap:wrap; align-items:baseline; column-gap:10px; row-gap:2px; font-size:24px; padding:10px 20px; border-left-color:var(--ui-primary);}
+    SCOPE .pp-title-sep {color:var(--ui-border); font-weight:700;}
+    SCOPE .pp-title-desc {margin-left:auto; color:var(--ui-muted); font-size:14px; font-weight:600;}
+    /* 見出し：赤はエラーと生成ボタンだけに使うため、アクセントは紺にする */
+    SCOPE .pp-section-heading {border-left-color:var(--ui-primary); background:var(--ui-surface); box-shadow:0 1px 0 var(--ui-border); margin:22px 0 10px;}
+    SCOPE .pp-sub-heading {color:var(--ui-primary); font-size:15px; font-weight:800; margin:0 0 6px;}
+    /* 白いカード */
+    SCOPE [data-testid="stVerticalBlockBorderWrapper"], SCOPE div[class*="st-key-bcard_"] {background:var(--ui-surface); border-color:var(--ui-border);}
+    /* フィルターのチップ：紺 */
+    SCOPE [data-baseweb="tag"] {background:var(--ui-primary) !important; color:#FFFFFF !important;}
+    SCOPE [data-baseweb="tag"] * {color:#FFFFFF !important; fill:#FFFFFF !important;}
+    /* タブ：文字を大きくし、選択中は紺の下線 */
+    SCOPE [data-testid="stTab"] {padding:6px 12px;}
+    SCOPE [data-testid="stTab"] p {font-size:16px; font-weight:800; color:var(--ui-muted);}
+    SCOPE [data-testid="stTab"]:hover p {color:var(--ui-primary);}
+    SCOPE [data-testid="stTab"][aria-selected="true"] p {color:var(--ui-primary);}
+    SCOPE [data-testid="stTabs"] .react-aria-SelectionIndicator {background:var(--ui-primary) !important; height:3px;}
+    SCOPE [data-testid="stTabs"] [role="tablist"] {gap:6px; border-bottom:2px solid var(--ui-border);}
+    SCOPE [data-testid="stExpander"] details {background:var(--ui-surface);}
+    </style>
+    """
+    return css.replace("SCOPE", BALANCE_PAGE_SCOPE).replace("FONT", BALANCE_BODY_FONT)
 
 
 def player_unique_id(player: dict[str, Any], index: int) -> str:
@@ -10535,8 +10601,13 @@ def render_generation_sidebar() -> tuple[str, str, int, str]:
     return role, category, int(count), seed_text
 
 
-def render_app_title() -> None:
-    st.markdown(f'<div class="pp-title">⚾ {e(APP_NAME)}</div>', unsafe_allow_html=True)
+def render_app_title(subtitle: str | None = None, description: str | None = None) -> None:
+    """subtitle を渡すと、タイトル・ページ名・説明文を1段にまとめて表示する（バランス確認ページ用）。"""
+    if subtitle is None:
+        st.markdown(f'<div class="pp-title">⚾ {e(APP_NAME)}</div>', unsafe_allow_html=True)
+        return
+    description_html = f'<span class="pp-title-desc">{e(description)}</span>' if description else ""
+    st.markdown(f'<div class="pp-title pp-title-inline"><span>⚾ {e(APP_NAME)}</span><span class="pp-title-sep">／</span><span class="pp-title-sub">{e(subtitle)}</span>{description_html}</div>', unsafe_allow_html=True)
 
 
 def generation_page() -> None:
@@ -10570,7 +10641,6 @@ def generation_page() -> None:
 
 
 def balance_page() -> None:
-    render_app_title()
     render_balance_check(load_master_data())
 
 
