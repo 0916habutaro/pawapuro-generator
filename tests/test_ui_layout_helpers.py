@@ -600,6 +600,15 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertEqual(ids(app.filter_history_table(history, [], [], "7日以内", "", today)), [3, 2])
         self.assertEqual(ids(app.filter_history_table(history, [], [], "すべて", "tom", today)), [2])
 
+    def test_player_area_is_limited_to_pre_change_card_width(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertEqual(app.CARD_MAX_WIDTH_PX, 1460)
+        self.assertIn('div[class*="st-key-player_area"] {max-width:1460px; width:100%; margin-left:auto; margin-right:auto;}', app.app_chrome_css())
+        section_source = source[source.index("def render_player_section"):source.index("def seed_copy_html")]
+        area_source = section_source[section_source.index("with st.container(key=PLAYER_AREA_KEY):"):]
+        for part in ["render_section_heading(\"選手を選択\")", "key=\"player_prev\"", "key=PLAYER_SELECT_KEY", "pp-player-count", "key=\"player_next\"", "render_detail_panel("]:
+            self.assertIn(part, area_source)
+
     def test_main_defense_position_has_distinct_emphasis(self):
         source = Path("app.py").read_text(encoding="utf-8")
         block = css_block(source, ".pp-defense-pos.main")

@@ -8021,6 +8021,9 @@ UI_COLORS = {
 }
 # 能力カードのCSSは st-key-latest_* を前提にしているため、キー接頭辞は "latest" のまま使う。
 DETAIL_KEY_PREFIX = "latest"
+# 改修前のコミット（main 8e7e784）を1920px幅で表示したときのカード幅の実測値
+CARD_MAX_WIDTH_PX = 1460
+PLAYER_AREA_KEY = "player_area"
 PLAYER_SELECT_KEY = "selected_player_id"
 PLAYER_OPTION_LIMIT = 300
 HISTORY_TABLE_NONCE_KEY = "history_table_nonce"
@@ -8109,6 +8112,7 @@ def app_chrome_css() -> str:
     .pp-title {background:var(--ui-surface); border-left:8px solid var(--ui-accent); border-bottom:3px solid var(--ui-primary); padding:12px 20px; border-radius:4px 16px 16px 4px; color:var(--ui-primary); font-weight:900; font-size:28px; margin-bottom:10px; box-shadow:0 2px 8px rgba(11,42,91,.10);}
     .pp-page-description {color:var(--ui-text); font-size:16px; line-height:1.6; font-weight:650; margin:0 0 14px;}
     .pp-section-heading {color:var(--ui-primary); background:var(--ui-surface); border-left:5px solid var(--ui-accent); border-radius:4px; padding:7px 12px; font-size:17px; font-weight:900; margin:18px 0 10px;}
+    div[class*="st-key-player_area"] {max-width:/*CARD_MAX_WIDTH*/; width:100%; margin-left:auto; margin-right:auto;}
     .pp-table-count {text-align:right; color:var(--ui-muted); font-size:14px; font-weight:700;}
     .pp-player-count {display:flex; align-items:center; justify-content:center; height:40px; color:var(--ui-muted); font-size:15px; font-weight:800; white-space:nowrap; font-variant-numeric:tabular-nums;}
     /* サイドバー：紺地に白文字。入力欄は白地に本文色 */
@@ -8136,7 +8140,7 @@ def app_chrome_css() -> str:
     div[data-testid="stDownloadButton"] button:hover {background:#EEF3FA; border-color:var(--ui-primary);}
     </style>
     """
-    return css.replace("/*TOKENS*/", tokens)
+    return css.replace("/*TOKENS*/", tokens).replace("/*CARD_MAX_WIDTH*/", f"{CARD_MAX_WIDTH_PX}px")
 
 
 def inject_app_chrome_css() -> None:
@@ -8251,23 +8255,25 @@ def render_player_section(history: pd.DataFrame, master: MasterData) -> None:
         else:
             label_by_id[player_id] = history_row_label(history.iloc[row_position_by_id[player_id]])
     current_index = player_ids.index(st.session_state[PLAYER_SELECT_KEY])
-    render_section_heading("選手を選択")
-    previous_col, select_col, count_col, next_col = st.columns([0.15, 0.6, 0.1, 0.15], gap="small", vertical_alignment="center")
-    with previous_col:
-        st.button("◀ 前の選手", use_container_width=True, disabled=current_index <= 0, key="player_prev", on_click=select_relative_player, kwargs={"player_ids": player_ids, "selected_key": PLAYER_SELECT_KEY, "offset": -1})
-    with select_col:
-        selected_player_id = st.selectbox("選手一覧", player_ids, format_func=lambda player_id: label_by_id[player_id], key=PLAYER_SELECT_KEY, label_visibility="collapsed", on_change=reset_history_table_selection)
-    current_index = player_ids.index(selected_player_id)
-    with count_col:
-        st.markdown(f'<div class="pp-player-count">{current_index + 1} / {len(player_ids)}</div>', unsafe_allow_html=True)
-    with next_col:
-        st.button("次の選手 ▶", use_container_width=True, disabled=current_index >= len(player_ids) - 1, key="player_next", on_click=select_relative_player, kwargs={"player_ids": player_ids, "selected_key": PLAYER_SELECT_KEY, "offset": 1})
-    if selected_player_id in latest_by_id:
-        player = latest_by_id[selected_player_id]
-    else:
-        player = player_from_history_row(history.iloc[row_position_by_id[selected_player_id]])
-    render_seed_copy(player.get("seed"))
-    render_detail_panel(player, master, DETAIL_KEY_PREFIX)
+    # 選手選択欄とカードは改修前のカード幅にそろえて中央に置く（表や出力ボタンは全幅のまま）
+    with st.container(key=PLAYER_AREA_KEY):
+        render_section_heading("選手を選択")
+        previous_col, select_col, count_col, next_col = st.columns([0.15, 0.6, 0.1, 0.15], gap="small", vertical_alignment="center")
+        with previous_col:
+            st.button("◀ 前の選手", use_container_width=True, disabled=current_index <= 0, key="player_prev", on_click=select_relative_player, kwargs={"player_ids": player_ids, "selected_key": PLAYER_SELECT_KEY, "offset": -1})
+        with select_col:
+            selected_player_id = st.selectbox("選手一覧", player_ids, format_func=lambda player_id: label_by_id[player_id], key=PLAYER_SELECT_KEY, label_visibility="collapsed", on_change=reset_history_table_selection)
+        current_index = player_ids.index(selected_player_id)
+        with count_col:
+            st.markdown(f'<div class="pp-player-count">{current_index + 1} / {len(player_ids)}</div>', unsafe_allow_html=True)
+        with next_col:
+            st.button("次の選手 ▶", use_container_width=True, disabled=current_index >= len(player_ids) - 1, key="player_next", on_click=select_relative_player, kwargs={"player_ids": player_ids, "selected_key": PLAYER_SELECT_KEY, "offset": 1})
+        if selected_player_id in latest_by_id:
+            player = latest_by_id[selected_player_id]
+        else:
+            player = player_from_history_row(history.iloc[row_position_by_id[selected_player_id]])
+        render_seed_copy(player.get("seed"))
+        render_detail_panel(player, master, DETAIL_KEY_PREFIX)
 
 
 def seed_copy_html(seed: Any) -> str:
