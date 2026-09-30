@@ -8324,7 +8324,7 @@ def render_balance_table(df: pd.DataFrame, *, height: int | str = "auto", column
     work = prepare_balance_table(df)
     config = {**balance_column_config(work), **(column_config or {})}
     table_height = balance_table_height(len(work)) if height == "auto" else height
-    st.dataframe(work, hide_index=True, use_container_width=True, height=table_height, column_config=config)
+    st.dataframe(work, hide_index=True, width="stretch", height=table_height, column_config=config)
 
 
 def heat_color(value: Any, max_value: float, *, faint: bool = False) -> str:
@@ -8352,7 +8352,7 @@ def render_heatmap_table(df: pd.DataFrame, value_columns: list[str], *, number_f
     formats = {column: number_format for column in value_columns}
     formats.update({column: "{:d}" for column in work.columns if column == "n" or column == "人数"})
     styler = styler.format(formats, na_rep="")
-    st.dataframe(styler, hide_index=True, use_container_width=True, height=balance_table_height(len(work)), column_config=column_config)
+    st.dataframe(styler, hide_index=True, width="stretch", height=balance_table_height(len(work)), column_config=column_config)
 
 
 def balance_bar_chart(
@@ -8394,9 +8394,15 @@ def balance_bar_chart(
     chart = bar.encode(**({"y": category_encoding, "x": value_encoding} if horizontal else {"x": category_encoding, "y": value_encoding}), **encodings)
     groups = work[color_column].nunique() if (color_column and group_offset) else 1
     # 横棒は1本あたりの高さで決める（本数が少なくてもラベルが重ならない）
-    height = alt.Step(16 * groups + 12) if horizontal else 260
+    if not horizontal:
+        height: Any = 260
+    elif groups > 1:
+        # yOffset で並べるときは Step が内側の帯にも効いてしまうため、全体の高さで指定する
+        height = work[category_column].nunique() * (14 * groups + 12) + 30
+    else:
+        height = alt.Step(28)
     chart = chart.properties(height=height).configure_view(strokeWidth=0).configure(background="transparent", font="Yu Gothic UI")
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 
 @contextmanager
@@ -8864,7 +8870,7 @@ def render_balance_ability_tab(df: pd.DataFrame) -> None:
             x=alt.X("球速:Q", scale=alt.Scale(zero=False), axis=alt.Axis(title="球速（km/h）", grid=True, gridColor=UI_COLORS["border"])),
             y=alt.Y("役割:N", sort=role_order, axis=alt.Axis(title=None, labelFontSize=13)),
         ).properties(height=len(role_order) * 50 + 40).configure_view(strokeWidth=0).configure(background="transparent", font="Yu Gothic UI")
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width="stretch")
     with col2, balance_card("役割別の球速"):
         speed_stats = speeds.groupby("役割")["球速"].agg(["count", "mean", "median", "min", "max"]).reindex(role_order).reset_index()
         render_balance_table(speed_stats.rename(columns={"count": "人数", "mean": "平均値", "median": "中央値", "min": "最小", "max": "最大"}))
