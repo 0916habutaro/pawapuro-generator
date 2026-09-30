@@ -8259,6 +8259,7 @@ BALANCE_RATIO_COLUMNS = {"割合", "構成比%", "保有率%", "比率", "割合
 BALANCE_AVERAGE_COLUMNS = {"平均値", "平均", "中央値"}
 BALANCE_FINE_AVERAGE_COLUMNS = {"平均数"}
 PITCHER_ROLE_ORDER = ["先発", "中継ぎ", "抑え"]
+POSITION_STYLE_GROUPS = [("捕手", ["捕手"]), ("内野", ["一塁手", "二塁手", "三塁手", "遊撃手"]), ("外野", ["外野手"]), ("投手", PITCHER_ROLE_ORDER)]
 SUB_POSITION_APTITUDE_ORDER = ["◎", "○", "△"]
 BATTING_THROWING_ORDER = ["右投右打", "右投左打", "右投両打", "左投左打", "左投右打", "左投両打"]
 AGE_BAND_ORDER = ["18-19歳", "20-22歳", "23-26歳", "27-30歳", "31-34歳", "35歳以上"]
@@ -8271,7 +8272,7 @@ PLAYER_CLASS_ORDER = list(dict.fromkeys(name for category in CATEGORIES for name
 
 def category_chart_colors() -> dict[str, str]:
     # UI_COLORS はこの後で定義されるため、呼び出し時に参照する
-    return {"架空球団用": UI_COLORS["primary"], "ドラフト候補用": UI_COLORS["fielder"], "助っ人外国人用": UI_COLORS["warn"]}
+    return {"架空球団用": UI_COLORS["primary"], "ドラフト候補用": UI_COLORS["fielder"], "助っ人外国人用": UI_COLORS["category-foreign"]}
 
 
 def role_chart_colors() -> dict[str, str]:
@@ -8329,7 +8330,7 @@ def render_balance_table(df: pd.DataFrame, *, height: int | str = "auto", column
 
 def heat_color(value: Any, max_value: float, *, faint: bool = False) -> str:
     """白→紺のグラデーション。faint のセルは薄い色にする。"""
-    if not isinstance(value, (int, float)) or pd.isna(value) or max_value <= 0:
+    if isinstance(value, bool) or not pd.api.types.is_number(value) or pd.isna(value) or max_value <= 0:
         return ""
     ratio = max(0.0, min(1.0, float(value) / max_value))
     if faint:
@@ -8345,10 +8346,15 @@ def render_heatmap_table(df: pd.DataFrame, value_columns: list[str], *, number_f
     work = prepare_balance_table(df)
     value_columns = [column for column in value_columns if column in work.columns]
     faint = set(faint_columns or [])
-    max_value = float(work[value_columns].max().max()) if value_columns and not work.empty else 0.0
+    # 薄く表示する列（ランク系の D など）は値が大きくなりやすいので、他の列の色の基準からは外す
+    strong_columns = [column for column in value_columns if column not in faint] or value_columns
+    max_value = float(work[strong_columns].max().max()) if strong_columns and not work.empty else 0.0
+    faint_max = float(work[[column for column in value_columns if column in faint]].max().max()) if faint and not work.empty else 0.0
     styler = work.style
     for column in value_columns:
-        styler = styler.map(lambda value, is_faint=column in faint: heat_color(value, max_value, faint=is_faint), subset=[column])
+        is_faint = column in faint
+        column_max = faint_max if is_faint else max_value
+        styler = styler.map(lambda value, column_max=column_max, is_faint=is_faint: heat_color(value, column_max, faint=is_faint), subset=[column])
     formats = {column: number_format for column in value_columns}
     formats.update({column: "{:d}" for column in work.columns if column == "n" or column == "人数"})
     styler = styler.format(formats, na_rep="")
@@ -8748,10 +8754,10 @@ def classification_pivot(data: pd.DataFrame, label: str, value_order: list[str],
     return pivot.rename_axis(index=label, columns=None).reset_index()
 
 
-def render_classification_block(df: pd.DataFrame, value_column: str, *, group_column: str = "category", group_order: list[str] | None = None, value_order: list[str] | None = None, use_ratio: bool = False, caption: str | None = None) -> None:
+def render_classification_block(df: pd.DataFrame, value_column: str, *, group_column: str = "category", group_order: list[str] | None = None, value_order: list[str] | None = None, use_ratio: bool = False, caption: str | None = None, title: str | None = None) -> None:
     label = CLASSIFICATION_LABELS.get(value_column, value_column)
     data = classification_chart_data(df, group_column, value_column)
-    with balance_card(label, caption):
+    with balance_card(title or label, caption):
         if data.empty:
             st.caption("データがありません。")
             return
@@ -8781,9 +8787,13 @@ def render_balance_classification_tab(df: pd.DataFrame) -> None:
     render_classification_block(df, "player_class", value_order=PLAYER_CLASS_ORDER, caption="格の高い順。カテゴリで色分け")
     render_classification_block(df, "archetype", use_ratio=True, caption="カテゴリ内の構成比（%）")
     render_section_heading("ポジションスタイル")
-    fielders = df[df["role"].eq("野手")]
-    style_order = list(dict.fromkeys(value for position in SUB_POSITION_LABELS for value in fielders.loc[fielders["position"].eq(position), "position_style"].dropna().astype(str) if value))
-    render_classification_block(df, "position_style", group_column="position", group_order=SUB_POSITION_LABELS + PITCHER_ROLE_ORDER, value_order=style_order, caption="ポジション別の人数")
+    group_columns = st.columns(2, gap="large")
+    for index, (group_name, positions) in enumerate(POSITION_STYLE_GROUPS):
+        target = df[df["position"].isin(positions)]
+        # ポジション順に並べ、同じポジション内は人数の多い順
+        style_order = [value for position in positions for value in target.loc[target["position"].eq(position), "position_style"].dropna().astype(str).value_counts().index if value]
+        with group_columns[index % 2]:
+            render_classification_block(target, "position_style", group_column="position", group_order=positions, value_order=list(dict.fromkeys(style_order)), caption="、".join(positions) + "の人数", title=f"ポジションスタイル（{group_name}）")
     render_section_heading("カテゴリ専用の分類")
     col1, col2 = st.columns(2, gap="large")
     with col1:
@@ -9025,7 +9035,8 @@ def render_balance_defense_tab(df: pd.DataFrame) -> None:
         col1, col2 = st.columns(2, gap="large")
         with col1, balance_card("メインポジション × サブポジ", "出現数"):
             main_candidate = sub_tables["main_candidate"].pivot_table(index="メインポジション", columns="サブポジ", values="出現数", aggfunc="sum", fill_value=0)
-            main_candidate = main_candidate.reindex(index=ordered_values(main_candidate.index, SUB_POSITION_LABELS), columns=ordered_values(main_candidate.columns, SUB_POSITION_LABELS), fill_value=0)
+            # 0件のサブポジ（捕手など）も列として出す
+            main_candidate = main_candidate.reindex(index=ordered_values(main_candidate.index, SUB_POSITION_LABELS), columns=ordered_values(list(SUB_POSITION_LABELS) + list(main_candidate.columns), SUB_POSITION_LABELS), fill_value=0)
             render_heatmap_table(main_candidate.rename_axis(columns=None).reset_index(), list(main_candidate.columns))
         with col2, balance_card("サブポジ × 評価", "出現数"):
             pos_apt = sub_tables["pos_apt"].pivot_table(index="サブポジ", columns="評価", values="出現数", aggfunc="sum", fill_value=0)
@@ -10524,6 +10535,7 @@ UI_COLORS = {
     "pitcher": "#D7193F",
     "fielder": "#0876C9",
     "chart-neutral": "#8A9AB5",
+    "category-foreign": "#087D23",
 }
 # 能力カードのCSSは st-key-latest_* を前提にしているため、キー接頭辞は "latest" のまま使う。
 DETAIL_KEY_PREFIX = "latest"
