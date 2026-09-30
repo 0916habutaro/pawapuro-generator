@@ -6633,8 +6633,6 @@ def inject_powerpro_ui_css() -> None:
     st.markdown("""
     <style>
     @import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;800;900&family=Barlow+Condensed:wght@700;800&display=swap");
-    .stApp {background: radial-gradient(circle at 18% 22%, rgba(255,255,255,.48) 0 8%, transparent 9%), linear-gradient(135deg,#dff8f5 0%,#98ded8 42%,#087d91 100%);}
-    .stApp:before {content:""; position:fixed; inset:0; pointer-events:none; background: repeating-linear-gradient(135deg,rgba(255,255,255,.16) 0 2px,transparent 2px 34px); opacity:.5;}
     .block-container {max-width:1680px; padding-top:3.5rem; padding-bottom:2rem;}
     .pp-panel {background:#fff;}
     div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {max-width:1560px; margin:0 auto; background:#fff; border:4px solid var(--pp-tab-color,#0876c9); border-radius:16px; padding:8px; box-shadow:0 7px 0 rgba(0,76,130,.18), inset 0 0 0 5px #e8f8ff; font-family:"Arial Rounded MT Bold","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo",sans-serif;}
@@ -6741,8 +6739,6 @@ def inject_powerpro_ui_css() -> None:
     div[class*="st-key-latest_tab_usage"] button[kind="primary"], div[class*="st-key-history_tab_usage"] button[kind="primary"] {background:#d49a00!important; border-color:#d49a00!important;}
     div[class*="st-key-latest_tab_profile"] button[kind="primary"], div[class*="st-key-history_tab_profile"] button[kind="primary"] {background:#087d23!important; border-color:#087d23!important;}
     /* ===== ゲーム画面寄せ（見た目のみの上書き。上の既存ルールより後に置くことで優先されます） ===== */
-    .stApp {background: radial-gradient(circle at 12% 18%, rgba(255,255,255,.55) 0 7%, transparent 8%), radial-gradient(circle at 88% 70%, rgba(255,255,255,.35) 0 10%, transparent 11%), linear-gradient(150deg,#effdff 0%,#b5f3e6 38%,#5fd6e3 72%,#1fa6d6 100%);}
-    .stApp:before {background: repeating-linear-gradient(135deg,rgba(255,255,255,.22) 0 3px,transparent 3px 46px), radial-gradient(rgba(255,255,255,.55) 1.2px, transparent 1.6px) 0 0/22px 22px; opacity:.55;}
     div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {font-family:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans CJK JP",sans-serif; background:#f4fbfd; border-width:5px; box-shadow:0 8px 0 rgba(0,70,120,.16), inset 0 0 0 4px #ffffff;}
     div[class*="st-key-latest_detail_shell"] .pp-value, div[class*="st-key-history_detail_shell"] .pp-value, .pp-number-box, .pp-defense-num {font-family:"Barlow Condensed","Roboto Condensed","Arial Narrow","M PLUS Rounded 1c","Noto Sans CJK JP",sans-serif;}
     /* ラベル：白いピル型 */
@@ -8106,9 +8102,11 @@ def app_chrome_css() -> str:
     css = """
     <style>
     :root {/*TOKENS*/}
-    .stApp {color:var(--ui-text);}
+    .stApp {color:var(--ui-text); background: radial-gradient(circle at 12% 18%, rgba(255,255,255,.28) 0 7%, transparent 8%), radial-gradient(circle at 88% 70%, rgba(255,255,255,.18) 0 10%, transparent 11%), linear-gradient(150deg,#effdff 0%,#b5f3e6 38%,#5fd6e3 72%,#1fa6d6 100%);}
+    [data-testid="stHeader"] {background:transparent;}
+    @media (max-width: 1439px) {.block-container {padding-left:24px; padding-right:24px;}}
     .pp-title {background:var(--ui-surface); border-left:8px solid var(--ui-accent); border-bottom:3px solid var(--ui-primary); padding:12px 20px; border-radius:4px 16px 16px 4px; color:var(--ui-primary); font-weight:900; font-size:28px; margin-bottom:10px; box-shadow:0 2px 8px rgba(11,42,91,.10);}
-    .pp-page-description {color:var(--ui-text); font-size:15px; line-height:1.6; font-weight:650; margin:0 0 14px;}
+    .pp-page-description {color:var(--ui-text); font-size:16px; line-height:1.6; font-weight:650; margin:0 0 14px;}
     .pp-section-heading {color:var(--ui-primary); background:var(--ui-surface); border-left:5px solid var(--ui-accent); border-radius:4px; padding:7px 12px; font-size:17px; font-weight:900; margin:18px 0 10px;}
     .pp-player-count {display:flex; align-items:center; justify-content:center; height:40px; color:var(--ui-muted); font-size:15px; font-weight:800; white-space:nowrap; font-variant-numeric:tabular-nums;}
     /* サイドバー：紺地に白文字。入力欄は白地に本文色 */
@@ -8116,7 +8114,9 @@ def app_chrome_css() -> str:
     [data-testid="stSidebar"] [data-testid="stCaptionContainer"], [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {color:var(--ui-sidebar-muted);}
     [data-testid="stSidebar"] input {background:var(--ui-surface); color:var(--ui-text); -webkit-text-fill-color:var(--ui-text);}
     [data-testid="stSidebar"] [data-testid="stSelectbox"] div:has(> input), [data-testid="stSidebar"] [data-testid="stSelectbox"] button, [data-testid="stSidebar"] [data-testid="stSelectbox"] svg {color:var(--ui-text);}
-    [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] button {background:#EEF3FA; color:var(--ui-text);}
+    [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] {height:40px;}
+    [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] input {height:100%;}
+    [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] button {background:#EEF3FA; color:var(--ui-text); height:100%; min-width:40px;}
     [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] button svg {fill:var(--ui-text);}
     div[class*="st-key-generate_button"] button {background:var(--ui-accent); border:2px solid #FFFFFF; min-height:46px; box-shadow:0 3px 0 var(--ui-accent-dark);}
     div[class*="st-key-generate_button"] button p {font-size:17px; font-weight:900; letter-spacing:.08em;}
@@ -8327,34 +8327,51 @@ def generate_and_save_players(role: str, category: str, count: int, master: Mast
     st.toast(f"{len(players)}人の選手を生成しました", icon="✅")
 
 
-def main() -> None:
-    st.set_page_config(page_title=APP_NAME, page_icon="⚾", layout="wide")
-    init_db()
-    master = load_master_data()
-    inject_powerpro_ui_css()
-    inject_app_chrome_css()
-    st.markdown(f'<div class="pp-title">⚾ {e(APP_NAME)}</div>', unsafe_allow_html=True)
-    render_page_description("投手/野手、カテゴリ、生成人数だけを選ぶと、ゲーム風の能力詳細画面で確認できます。")
+def render_generation_sidebar() -> tuple[str, str, int, bool]:
     with st.sidebar:
-        st.header("画面")
-        page = st.radio("表示する画面", ["選手生成", "バランス確認"], label_visibility="collapsed")
         st.header("生成条件")
         role = st.radio("投手 / 野手", ["投手", "野手"], horizontal=True)
         category = st.selectbox("カテゴリ", CATEGORIES)
         count = st.number_input("生成人数", min_value=1, max_value=1000, value=3, step=1)
         generate = st.button("生成する", type="primary", use_container_width=True, key="generate_button")
         st.caption(f"Version {APP_VERSION}")
-    if page == "バランス確認":
-        render_balance_check(master)
-        return
+    return role, category, int(count), generate
+
+
+def render_app_title() -> None:
+    st.markdown(f'<div class="pp-title">⚾ {e(APP_NAME)}</div>', unsafe_allow_html=True)
+
+
+def generation_page() -> None:
+    master = load_master_data()
+    render_app_title()
+    render_page_description("投手/野手、カテゴリ、生成人数だけを選ぶと、ゲーム風の能力詳細画面で確認できます。")
+    role, category, count, generate = render_generation_sidebar()
     if generate:
-        generate_and_save_players(role, category, int(count), master)
+        generate_and_save_players(role, category, count, master)
     if st.session_state.get("save_error"):
         st.error(st.session_state["save_error"])
     history = load_history()
     render_player_section(history, master)
     st.divider()
     render_history_section(history)
+
+
+def balance_page() -> None:
+    render_app_title()
+    render_balance_check(load_master_data())
+
+
+def main() -> None:
+    st.set_page_config(page_title=APP_NAME, page_icon="⚾", layout="wide")
+    init_db()
+    inject_powerpro_ui_css()
+    inject_app_chrome_css()
+    pages = [
+        st.Page(generation_page, title="選手生成", icon="⚾", url_path="generate", default=True),
+        st.Page(balance_page, title="バランス確認", icon="📊", url_path="balance"),
+    ]
+    st.navigation(pages, position="top").run()
 
 
 if __name__ == "__main__":

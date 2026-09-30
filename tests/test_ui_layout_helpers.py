@@ -541,6 +541,25 @@ class UiLayoutHelpersTest(unittest.TestCase):
         for column in app.HISTORY_DEFAULT_COLUMNS:
             self.assertTrue(any(ord(char) > 127 for char in app.HISTORY_COLUMN_LABELS[column]))
 
+    def test_page_switch_uses_top_navigation_and_sidebar_only_has_conditions(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertIn('st.navigation(pages, position="top")', source)
+        self.assertNotIn("表示する画面", source)
+        sidebar_source = source[source.index("def render_generation_sidebar"):source.index("def render_app_title")]
+        for label in ["生成条件", "投手 / 野手", "カテゴリ", "生成人数", "生成する", "Version"]:
+            self.assertIn(label, sidebar_source)
+
+    def test_app_name_is_unified(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertEqual(app.APP_NAME, "パワプロ風 架空選手生成")
+        self.assertNotIn("選手能力詳細ジェネレーター", source)
+        self.assertIn("page_title=APP_NAME", source)
+
+    def test_background_has_no_diagonal_stripes(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertNotIn("repeating-linear-gradient(135deg", source)
+        self.assertNotIn(".stApp:before", source)
+
     def test_main_defense_position_has_distinct_emphasis(self):
         source = Path("app.py").read_text(encoding="utf-8")
         block = css_block(source, ".pp-defense-pos.main")
