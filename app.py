@@ -8756,7 +8756,7 @@ def render_balance_classification_tab(df: pd.DataFrame) -> None:
     render_classification_block(df[df["category"].eq("助っ人外国人用")], "weakness_profile", caption="助っ人外国人用のみ")
 
 
-def ability_values(df: pd.DataFrame, key: str) -> pd.Series:
+def balance_ability_series(df: pd.DataFrame, key: str) -> pd.Series:
     return pd.to_numeric(df["abilities"].apply(lambda abilities: ability_numeric_value(abilities, key)), errors="coerce")
 
 
@@ -8765,7 +8765,7 @@ def ability_stats_table(df: pd.DataFrame, role: str, keys: list[str]) -> pd.Data
     target = df[df["role"] == role]
     rows = []
     for key in keys:
-        values = ability_values(target, key).dropna()
+        values = balance_ability_series(target, key).dropna()
         rows.append({"能力": key, "人数": len(values), "平均値": values.mean() if len(values) else None, "中央値": values.median() if len(values) else None, "最小": values.min() if len(values) else None, "最大": values.max() if len(values) else None})
     return pd.DataFrame(rows)
 
@@ -8777,7 +8777,7 @@ def ability_rank_table(df: pd.DataFrame, role: str, keys: list[str]) -> pd.DataF
     for key in keys:
         if key in {"球速", "弾道"}:
             continue
-        values = ability_values(target, key).dropna()
+        values = balance_ability_series(target, key).dropna()
         counts = values.astype(int).apply(rank).value_counts()
         rows.append({"能力": key, **{grade: int(counts.get(grade, 0)) for grade in ABILITY_RANK_ORDER}})
     return pd.DataFrame(rows, columns=["能力", *ABILITY_RANK_ORDER])
@@ -8791,7 +8791,7 @@ def ability_category_average_table(df: pd.DataFrame, role: str, keys: list[str])
     for key in keys:
         row = {"能力": key}
         for category in categories:
-            values = ability_values(target[target["category"].eq(category)], key).dropna()
+            values = balance_ability_series(target[target["category"].eq(category)], key).dropna()
             row[category] = round(values.mean(), 1) if len(values) else None
         rows.append(row)
     return pd.DataFrame(rows)
@@ -8823,7 +8823,7 @@ def render_balance_ability_tab(df: pd.DataFrame) -> None:
     if pitchers.empty:
         return
     render_section_heading("役割別の球速分布")
-    speeds = pd.DataFrame({"役割": pitchers["position"].astype(str), "球速": ability_values(pitchers, "球速")}).dropna()
+    speeds = pd.DataFrame({"役割": pitchers["position"].astype(str), "球速": balance_ability_series(pitchers, "球速")}).dropna()
     col1, col2 = st.columns(2, gap="large")
     with col1, balance_card("役割別の球速（箱ひげ図）", "箱＝中央50%、線＝最小〜最大（外れ値を除く）"):
         import altair as alt
