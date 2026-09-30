@@ -73,3 +73,6 @@ reports/phase4_final_integration/*
 
 # Claude Code のローカル設定（プレビュー用の起動設定）
 .claude/launch.json
+
+# 確認用スクリーンショット（ローカルにのみ保存）
+docs/screenshots/
