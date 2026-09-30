@@ -65,7 +65,6 @@ class UiLayoutHelpersTest(unittest.TestCase):
             abilities=[
                 {"name": "速球中心", "kind": "green", "target_role": "投手"},
                 {"name": "テンポ○", "kind": "green", "target_role": "投手"},
-                {"name": "調子次第", "kind": "green", "target_role": "共通"},
                 {"name": "フル出場", "kind": "green", "target_role": "共通"},
                 {"name": "人気者", "kind": "green", "target_role": "共通"},
                 {"name": "ミート多用", "kind": "green", "target_role": "野手"},
@@ -111,12 +110,22 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertNotIn("速球中心", str(categories))
 
     def test_usage_categories_render_as_four_column_grid(self):
-        player = {"role": "投手", "special_abilities": ["調子次第", "速球中心", "テンポ○", "人気者"]}
+        player = {"role": "投手", "special_abilities": ["フル出場", "速球中心", "テンポ○", "人気者"]}
         html = app.render_usage_categories_html(player, self.master)
         self.assertIn('class="pp-usage-grid"', html)
         self.assertEqual(html.count('pp-usage-cell'), 32)
         self.assertIn('pp-usage-label">起用法', html)
         self.assertIn('pp-usage-value">速球中心', html)
+
+    def test_usage_category_with_only_full_game(self):
+        # 起用法の分類は「フル出場」だけになったので、それ単独でも欄が正しく出ることを確認する。
+        for role in ("投手", "野手"):
+            player = {"role": role, "special_abilities": ["フル出場"]}
+            self.assertEqual(app.usage_special_categories(player, self.master), {"起用法": ["フル出場"]})
+            html = app.render_usage_categories_html(player, self.master)
+            self.assertIn('pp-usage-label">起用法', html)
+            self.assertIn('pp-usage-value">フル出場', html)
+            self.assertEqual(html.count('pp-usage-cell'), 32)
 
     def test_empty_usage_categories_show_32_cells_without_setting_none(self):
         player = {"role": "野手", "special_abilities": []}
