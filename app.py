@@ -8217,71 +8217,84 @@ def breaking_balance_tables(df: pd.DataFrame) -> dict[str, Any]:
     movement_dist = per_pitcher["総変化量"].value_counts().sort_index().rename_axis("総変化量").reset_index(name="投手数") if not per_pitcher.empty else pd.DataFrame(columns=["総変化量", "投手数"])
     return {"metrics": metrics, "count_dist": count_dist, "movement_dist": movement_dist, "direction": breaking["方向"].value_counts().rename_axis("方向").reset_index(name="出現数") if not breaking.empty else pd.DataFrame(columns=["方向", "出現数"]), "pitch": breaking["球種"].value_counts().rename_axis("球種").reset_index(name="出現数") if not breaking.empty else pd.DataFrame(columns=["球種", "出現数"]), "second_fastball": second["球種"].value_counts().rename_axis("球種").reset_index(name="出現数") if not second.empty else pd.DataFrame(columns=["球種", "出現数"]), "invalid": pd.DataFrame(invalid)}
 
-def render_balance_check(master: MasterData) -> None:
-    st.header("バランス確認")
-    render_page_description("保存済み選手をSQLiteから読み込み、生成結果の偏りを確認します。")
-    df = load_history_for_balance()
-    total_saved_count = len(df)
-    if df.empty:
-        st.info("保存済み選手がまだありません。選手を生成すると集計できます。")
-        return
+BALANCE_TAB_LABELS = ["概要", "整合性チェック", "人物属性", "新分類", "基礎能力", "特殊能力", "変化球", "守備・サブポジ"]
 
-    st.subheader("履歴管理")
-    confirm_delete = st.checkbox("保存済み選手を全削除することを確認しました")
-    if st.button("保存済み選手を全削除", type="secondary", disabled=not confirm_delete):
-        deleted_count = delete_all_players()
-        st.session_state.pop("latest_players", None)
-        render_success_message(f"保存済み選手を{deleted_count}件削除しました。")
-        st.rerun()
 
+def render_balance_filters(df_all: pd.DataFrame) -> pd.DataFrame:
+    """絞り込み・件数・CSV出力（全タブ共通）。"""
     st.subheader("絞り込み")
     filter_col1, filter_col2 = st.columns(2)
     with filter_col1:
         selected_categories = st.multiselect("カテゴリ", CATEGORIES, default=CATEGORIES)
     with filter_col2:
         selected_roles = st.multiselect("投手 / 野手", ["投手", "野手"], default=["投手", "野手"])
-    df = apply_history_filters(df, selected_categories, selected_roles)
-    st.caption(f"フィルター適用後: {len(df)}件 / 全保存件数: {total_saved_count}件")
-    if df.empty:
-        st.info("条件に一致する保存済み選手がありません。")
-        return
+    df = apply_history_filters(df_all, selected_categories, selected_roles)
+    count_col1, count_col2, export_col = st.columns([1, 1, 2])
+    count_col1.metric("表示中", f"{len(df)}件")
+    count_col2.metric("全保存件数", f"{len(df_all)}件")
+    with export_col:
+        if not df.empty:
+            st.download_button("フィルター後CSV出力", data=df.to_csv(index=False).encode("utf-8-sig"), file_name="pawapuro_players_filtered.csv", mime="text/csv")
+    return df
 
-    st.download_button("フィルター後CSV出力", data=df.to_csv(index=False).encode("utf-8-sig"), file_name="pawapuro_players_filtered.csv", mime="text/csv")
 
-    unique_seed_count = int(df["seed"].nunique())
-    seed_duplicate_count = int(len(df) - unique_seed_count)
-    complete_duplicate_count = int(len(df) - df.apply(player_fingerprint, axis=1).nunique())
-    invalid_special_count = inappropriate_special_count(df, master)
-    handedness_mismatch_count = handedness_batting_mismatch_count(df)
+def collect_balance_checks(df: pd.DataFrame, master: MasterData) -> dict[str, Any]:
+    """整合性チェックの件数をまとめて算出する。"""
     restricted_table = restricted_left_throwing_positions(df)
-    restricted_left_count = int(restricted_table["人数"].sum())
-    special_lengths = df["special_abilities"].apply(len)
-    avg_special_count = round(special_lengths.mean(), 2)
-    six_plus_special_count = int((special_lengths >= 6).sum())
+    breaking_tables = breaking_balance_tables(df)
+    sub_tables = sub_position_summary_tables(df)
+    unique_seed_count = int(df["seed"].nunique())
     unique_name_count = int(df["name"].nunique())
-    name_duplicate_rate = round((len(df) - unique_name_count) / len(df) * 100, 2)
-    name_inconsistency_count = inconsistency_count(df, master, "name")
-    birthplace_inconsistency_count = inconsistency_count(df, master, "birthplace")
+    return {
+        "unique_seed_count": unique_seed_count,
+        "seed_duplicate_count": int(len(df) - unique_seed_count),
+        "complete_duplicate_count": int(len(df) - df.apply(player_fingerprint, axis=1).nunique()),
+        "invalid_special_count": inappropriate_special_count(df, master),
+        "handedness_mismatch_count": handedness_batting_mismatch_count(df),
+        "restricted_table": restricted_table,
+        "restricted_left_count": int(restricted_table["人数"].sum()),
+        "unique_name_count": unique_name_count,
+        "name_duplicate_rate": round((len(df) - unique_name_count) / len(df) * 100, 2),
+        "name_inconsistency_count": inconsistency_count(df, master, "name"),
+        "birthplace_inconsistency_count": inconsistency_count(df, master, "birthplace"),
+        "breaking_tables": breaking_tables,
+        "sub_tables": sub_tables,
+    }
+
+
+def render_balance_overview_tab(df: pd.DataFrame, checks: dict[str, Any]) -> None:
+    st.metric("総件数", len(df))
+    st.subheader("投手/野手 × カテゴリ別人数")
+    role_category = pd.crosstab(df["role"], df["category"], margins=True, margins_name="合計")
+    st.dataframe(role_category, use_container_width=True)
+    col5, col6 = st.columns(2)
+    with col5:
+        st.subheader("野手ポジション別人数")
+        fielder_positions = df[df["role"] == "野手"]["position"].value_counts().rename_axis("ポジション").reset_index(name="人数")
+        st.dataframe(fielder_positions, use_container_width=True, hide_index=True)
+    with col6:
+        st.subheader("投手役割別人数")
+        pitcher_roles = df[df["role"] == "投手"]["position"].value_counts().rename_axis("役割").reset_index(name="人数")
+        st.dataframe(pitcher_roles, use_container_width=True, hide_index=True)
+
+
+def render_balance_consistency_tab(df: pd.DataFrame, master: MasterData, checks: dict[str, Any]) -> None:
     st.subheader("生成品質チェック")
-    metric_cols = st.columns(7)
-    metric_cols[0].metric("総件数", len(df))
-    metric_cols[1].metric("ユニークseed数", unique_seed_count)
-    metric_cols[2].metric("seed重複数", seed_duplicate_count)
-    metric_cols[3].metric("完全重複選手数", complete_duplicate_count)
-    metric_cols[4].metric("不適切な特殊能力件数", invalid_special_count)
-    metric_cols[5].metric("利き腕/投打 不一致件数", handedness_mismatch_count)
-    metric_cols[6].metric("左投げの捕手/内野手", restricted_left_count)
+    metric_cols = st.columns(6)
+    metric_cols[0].metric("ユニークseed数", checks["unique_seed_count"])
+    metric_cols[1].metric("seed重複数", checks["seed_duplicate_count"])
+    metric_cols[2].metric("完全重複選手数", checks["complete_duplicate_count"])
+    metric_cols[3].metric("不適切な特殊能力件数", checks["invalid_special_count"])
+    metric_cols[4].metric("利き腕/投打 不一致件数", checks["handedness_mismatch_count"])
+    metric_cols[5].metric("左投げの捕手/内野手", checks["restricted_left_count"])
 
     st.subheader("名前・国籍・出身地チェック")
     profile_cols = st.columns(5)
-    profile_cols[0].metric("ユニーク名前数", unique_name_count)
-    profile_cols[1].metric("名前重複率", f"{name_duplicate_rate}%")
+    profile_cols[0].metric("ユニーク名前数", checks["unique_name_count"])
+    profile_cols[1].metric("名前重複率", f"{checks['name_duplicate_rate']}%")
     profile_cols[2].metric("国籍数", int(df["nationality"].nunique()))
-    profile_cols[3].metric("国籍×名前 不整合", name_inconsistency_count)
-    profile_cols[4].metric("国籍×出身地 不整合", birthplace_inconsistency_count)
-
-    st.subheader("国籍別人数")
-    st.dataframe(df["nationality"].value_counts().rename_axis("国籍").reset_index(name="人数"), use_container_width=True, hide_index=True)
+    profile_cols[3].metric("国籍×名前 不整合", checks["name_inconsistency_count"])
+    profile_cols[4].metric("国籍×出身地 不整合", checks["birthplace_inconsistency_count"])
 
     col_profile1, col_profile2 = st.columns(2)
     with col_profile1:
@@ -8292,28 +8305,45 @@ def render_balance_check(master: MasterData) -> None:
         st.dataframe(consistency_table(df, master, "birthplace"), use_container_width=True, hide_index=True)
 
     st.subheader("利き腕診断")
-    st.dataframe(restricted_table, use_container_width=True, hide_index=True)
+    st.dataframe(checks["restricted_table"], use_container_width=True, hide_index=True)
 
-    st.subheader("投手/野手別人数")
-    st.dataframe(df["role"].value_counts().rename_axis("投手/野手").reset_index(name="人数"), use_container_width=True, hide_index=True)
+    st.subheader("右投手/左投手別 不正球種チェック")
+    st.dataframe(checks["breaking_tables"]["invalid"], use_container_width=True, hide_index=True)
 
-    st.subheader("カテゴリ別人数")
-    st.dataframe(df["category"].value_counts().rename_axis("カテゴリ").reset_index(name="人数"), use_container_width=True, hide_index=True)
+    if checks["sub_tables"]:
+        st.subheader("左投げ野手サブポジ違反チェック")
+        st.dataframe(checks["sub_tables"]["left_violation"], use_container_width=True, hide_index=True)
 
-    st.subheader("投手/野手 × カテゴリ別人数")
-    role_category = pd.crosstab(df["role"], df["category"], margins=True, margins_name="合計")
-    st.dataframe(role_category, use_container_width=True)
 
-    st.subheader("新分類分布")
-    class_col1, class_col2 = st.columns(2)
-    with class_col1:
-        st.dataframe(classification_distribution_table(df, ["category"], "player_class").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
-        st.dataframe(classification_distribution_table(df, ["position"], "position_style").rename(columns={"position": "ポジション"}), use_container_width=True, hide_index=True)
-        st.dataframe(classification_distribution_table(df[df["category"].eq("助っ人外国人用")], ["category"], "weakness_profile").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
-    with class_col2:
-        st.dataframe(classification_distribution_table(df, ["category"], "archetype").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
-        st.dataframe(classification_distribution_table(df[df["category"].eq("ドラフト候補用")], ["category"], "development_stage").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
-        st.dataframe(classification_distribution_table(df[df["category"].eq("助っ人外国人用")], ["category"], "acquisition_role").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
+def render_balance_profile_tab(df: pd.DataFrame) -> None:
+    st.subheader("国籍別人数")
+    st.dataframe(df["nationality"].value_counts().rename_axis("国籍").reset_index(name="人数"), use_container_width=True, hide_index=True)
+
+    st.subheader("年齢分布")
+    age_dist = df["age"].value_counts().sort_index().rename_axis("年齢").reset_index(name="人数")
+    st.dataframe(age_dist, use_container_width=True, hide_index=True)
+
+    career_df = df[df["entry_route"].fillna("").ne("")].copy()
+    st.subheader("プロ経歴分布")
+    if career_df.empty:
+        st.info("経歴情報を持つ保存済み選手がありません。")
+    else:
+        career_df["年齢帯"] = pd.Categorical(career_df["age"].apply(career_age_band), categories=CAREER_AGE_BAND_ORDER, ordered=True)
+        st.subheader("プロ年数分布")
+        st.dataframe(career_df["pro_years"].value_counts().sort_index().rename_axis("プロ年数").reset_index(name="人数"), use_container_width=True, hide_index=True)
+        st.subheader("年齢帯 × プロ年数")
+        st.dataframe(pd.crosstab(career_df["年齢帯"], career_df["pro_years"]), use_container_width=True)
+        career_col1, career_col2 = st.columns(2)
+        with career_col1:
+            st.subheader("年齢帯別プロ年数")
+            st.dataframe(pro_years_age_band_stats(career_df), use_container_width=True, hide_index=True)
+        with career_col2:
+            st.subheader("入団経路分布")
+            route_dist = career_df["entry_route"].value_counts().rename_axis("入団経路").reset_index(name="人数")
+            route_dist["構成比%"] = (route_dist["人数"] / len(career_df) * 100).round(2)
+            st.dataframe(route_dist, use_container_width=True, hide_index=True)
+        st.subheader("入団経路 × 年齢帯")
+        st.dataframe(pd.crosstab(career_df["entry_route"], career_df["年齢帯"]), use_container_width=True)
 
     st.subheader("成長タイプ分布")
     growth_df = df.copy()
@@ -8328,32 +8358,21 @@ def render_balance_check(master: MasterData) -> None:
         st.dataframe(pd.crosstab(growth_df["role"], growth_df["成長タイプ"], normalize="index").mul(100).round(1), use_container_width=True)
         st.dataframe(pd.crosstab(growth_df["age"].apply(lambda age: age_band(int(age))), growth_df["成長タイプ"], normalize="index").mul(100).round(1), use_container_width=True)
 
-    st.subheader("年齢分布")
-    age_dist = df["age"].value_counts().sort_index().rename_axis("年齢").reset_index(name="人数")
-    st.dataframe(age_dist, use_container_width=True, hide_index=True)
 
-    career_df = df[df["entry_route"].fillna("").ne("")].copy()
-    with st.expander("プロ経歴分布", expanded=False):
-        if career_df.empty:
-            st.info("経歴情報を持つ保存済み選手がありません。")
-        else:
-            career_df["年齢帯"] = pd.Categorical(career_df["age"].apply(career_age_band), categories=CAREER_AGE_BAND_ORDER, ordered=True)
-            st.subheader("プロ年数分布")
-            st.dataframe(career_df["pro_years"].value_counts().sort_index().rename_axis("プロ年数").reset_index(name="人数"), use_container_width=True, hide_index=True)
-            st.subheader("年齢帯 × プロ年数")
-            st.dataframe(pd.crosstab(career_df["年齢帯"], career_df["pro_years"]), use_container_width=True)
-            career_col1, career_col2 = st.columns(2)
-            with career_col1:
-                st.subheader("年齢帯別プロ年数")
-                st.dataframe(pro_years_age_band_stats(career_df), use_container_width=True, hide_index=True)
-            with career_col2:
-                st.subheader("入団経路分布")
-                route_dist = career_df["entry_route"].value_counts().rename_axis("入団経路").reset_index(name="人数")
-                route_dist["構成比%"] = (route_dist["人数"] / len(career_df) * 100).round(2)
-                st.dataframe(route_dist, use_container_width=True, hide_index=True)
-            st.subheader("入団経路 × 年齢帯")
-            st.dataframe(pd.crosstab(career_df["entry_route"], career_df["年齢帯"]), use_container_width=True)
+def render_balance_classification_tab(df: pd.DataFrame) -> None:
+    st.subheader("新分類分布")
+    class_col1, class_col2 = st.columns(2)
+    with class_col1:
+        st.dataframe(classification_distribution_table(df, ["category"], "player_class").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
+        st.dataframe(classification_distribution_table(df, ["position"], "position_style").rename(columns={"position": "ポジション"}), use_container_width=True, hide_index=True)
+        st.dataframe(classification_distribution_table(df[df["category"].eq("助っ人外国人用")], ["category"], "weakness_profile").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
+    with class_col2:
+        st.dataframe(classification_distribution_table(df, ["category"], "archetype").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
+        st.dataframe(classification_distribution_table(df[df["category"].eq("ドラフト候補用")], ["category"], "development_stage").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
+        st.dataframe(classification_distribution_table(df[df["category"].eq("助っ人外国人用")], ["category"], "acquisition_role").rename(columns={"category": "カテゴリ"}), use_container_width=True, hide_index=True)
 
+
+def render_balance_ability_tab(df: pd.DataFrame) -> None:
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("野手能力 平均値")
@@ -8362,6 +8381,9 @@ def render_balance_check(master: MasterData) -> None:
         st.subheader("投手能力 平均値")
         st.dataframe(ability_average_table(df, "投手", ["球速", "コントロール", "スタミナ"]), use_container_width=True, hide_index=True)
 
+
+def render_balance_special_tab(df: pd.DataFrame, master: MasterData) -> None:
+    special_lengths = df["special_abilities"].apply(len)
     ranked_dist = ranked_special_distribution(df)
     key_ranked_dist = ranked_special_distribution(df, RANKED_SPECIAL_DISPLAY_GROUPS)
     special_counts, kind_counts = special_ability_summary(df, master)
@@ -8372,8 +8394,8 @@ def render_balance_check(master: MasterData) -> None:
     with col4:
         st.subheader("特殊能力 種別別出現数")
         st.dataframe(kind_counts, use_container_width=True, hide_index=True)
-        st.metric("1人あたり平均特殊能力数", avg_special_count)
-        st.metric("6個以上の選手数", six_plus_special_count)
+        st.metric("1人あたり平均特殊能力数", round(special_lengths.mean(), 2))
+        st.metric("6個以上の選手数", int((special_lengths >= 6).sum()))
 
     st.subheader("ランク系特殊能力の分布")
     st.dataframe(ranked_dist, use_container_width=True, hide_index=True)
@@ -8406,6 +8428,8 @@ def render_balance_check(master: MasterData) -> None:
     with col_personality2:
         st.metric("個性系特殊能力の出現数", sum(1 for name in all_specials if name in PERSONALITY_SPECIALS))
 
+
+def render_balance_breaking_tab(df: pd.DataFrame) -> None:
     breaking_tables = breaking_balance_tables(df)
     st.subheader("変化球バランス")
     st.dataframe(breaking_tables["metrics"], use_container_width=True, hide_index=True)
@@ -8422,34 +8446,68 @@ def render_balance_check(master: MasterData) -> None:
         st.dataframe(breaking_tables["movement_dist"], use_container_width=True, hide_index=True)
         st.subheader("球種別出現数")
         st.dataframe(breaking_tables["pitch"], use_container_width=True, hide_index=True)
-        st.subheader("右投手/左投手別 不正球種チェック")
-        st.dataframe(breaking_tables["invalid"], use_container_width=True, hide_index=True)
 
+
+def render_balance_defense_tab(df: pd.DataFrame) -> None:
     sub_tables = sub_position_summary_tables(df)
-    if sub_tables:
-        st.subheader("サブポジ集計")
-        st.dataframe(sub_tables["metrics"], use_container_width=True, hide_index=True)
-        scol1, scol2 = st.columns(2)
-        with scol1:
-            st.dataframe(sub_tables["count_dist"], use_container_width=True, hide_index=True)
-            st.dataframe(sub_tables["main_has_rate"], use_container_width=True, hide_index=True)
-            st.dataframe(sub_tables["sub_counts"], use_container_width=True, hide_index=True)
-        with scol2:
-            st.dataframe(sub_tables["main_candidate"], use_container_width=True, hide_index=True)
-            st.dataframe(sub_tables["apt_counts"], use_container_width=True, hide_index=True)
-            st.dataframe(sub_tables["pos_apt"], use_container_width=True, hide_index=True)
-        st.subheader("左投げ野手サブポジ違反チェック")
-        st.dataframe(sub_tables["left_violation"], use_container_width=True, hide_index=True)
+    if not sub_tables:
+        st.info("野手のデータがありません。")
+        return
+    st.subheader("サブポジ集計")
+    st.dataframe(sub_tables["metrics"], use_container_width=True, hide_index=True)
+    scol1, scol2 = st.columns(2)
+    with scol1:
+        st.dataframe(sub_tables["count_dist"], use_container_width=True, hide_index=True)
+        st.dataframe(sub_tables["main_has_rate"], use_container_width=True, hide_index=True)
+        st.dataframe(sub_tables["sub_counts"], use_container_width=True, hide_index=True)
+    with scol2:
+        st.dataframe(sub_tables["main_candidate"], use_container_width=True, hide_index=True)
+        st.dataframe(sub_tables["apt_counts"], use_container_width=True, hide_index=True)
+        st.dataframe(sub_tables["pos_apt"], use_container_width=True, hide_index=True)
 
-    col5, col6 = st.columns(2)
-    with col5:
-        st.subheader("野手ポジション別人数")
-        fielder_positions = df[df["role"] == "野手"]["position"].value_counts().rename_axis("ポジション").reset_index(name="人数")
-        st.dataframe(fielder_positions, use_container_width=True, hide_index=True)
-    with col6:
-        st.subheader("投手役割別人数")
-        pitcher_roles = df[df["role"] == "投手"]["position"].value_counts().rename_axis("役割").reset_index(name="人数")
-        st.dataframe(pitcher_roles, use_container_width=True, hide_index=True)
+
+def render_balance_danger_zone() -> None:
+    """全削除（ページ最下部）。確認チェックを入れたときだけ押せる。"""
+    with st.expander("⚠️ 危険な操作", expanded=False):
+        confirm_delete = st.checkbox("保存済み選手を全削除することを確認しました")
+        if st.button("保存済み選手を全削除", type="secondary", disabled=not confirm_delete):
+            deleted_count = delete_all_players()
+            st.session_state.pop("latest_players", None)
+            render_success_message(f"保存済み選手を{deleted_count}件削除しました。")
+            st.rerun()
+
+
+def render_balance_check(master: MasterData) -> None:
+    st.header("バランス確認")
+    render_page_description("保存済み選手をSQLiteから読み込み、生成結果の偏りを確認します。")
+    df_all = load_history_for_balance()
+    if df_all.empty:
+        st.info("保存済み選手がまだありません。選手を生成すると集計できます。")
+        return
+
+    df = render_balance_filters(df_all)
+    if df.empty:
+        st.info("条件に一致する保存済み選手がありません。")
+    else:
+        checks = collect_balance_checks(df, master)
+        tabs = st.tabs(BALANCE_TAB_LABELS)
+        with tabs[0]:
+            render_balance_overview_tab(df, checks)
+        with tabs[1]:
+            render_balance_consistency_tab(df, master, checks)
+        with tabs[2]:
+            render_balance_profile_tab(df)
+        with tabs[3]:
+            render_balance_classification_tab(df)
+        with tabs[4]:
+            render_balance_ability_tab(df)
+        with tabs[5]:
+            render_balance_special_tab(df, master)
+        with tabs[6]:
+            render_balance_breaking_tab(df)
+        with tabs[7]:
+            render_balance_defense_tab(df)
+    render_balance_danger_zone()
 
 
 def sub_position_summary_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
