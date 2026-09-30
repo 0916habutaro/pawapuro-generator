@@ -513,7 +513,8 @@ class UiLayoutHelpersTest(unittest.TestCase):
 
     def test_generation_message_is_toast_without_sqlite_wording(self):
         source = Path("app.py").read_text(encoding="utf-8")
-        self.assertIn('st.toast(f"{len(players)}人の選手を生成しました"', source)
+        self.assertIn('st.session_state["pending_toast"] = f"{len(players)}人の選手を生成しました"', source)
+        self.assertIn('st.toast(st.session_state.pop("pending_toast"), icon="✅")', source)
         self.assertNotIn("SQLiteに", source)
         self.assertNotIn("pp-success-message", source)
         self.assertNotIn("同じseedを使うことで", source)
@@ -559,6 +560,45 @@ class UiLayoutHelpersTest(unittest.TestCase):
         source = Path("app.py").read_text(encoding="utf-8")
         self.assertNotIn("repeating-linear-gradient(135deg", source)
         self.assertNotIn(".stApp:before", source)
+
+    def test_parse_seed_text(self):
+        self.assertIsNone(app.parse_seed_text(""))
+        self.assertIsNone(app.parse_seed_text("   "))
+        self.assertEqual(app.parse_seed_text(" 12345 "), 12345)
+        for invalid in ["abc", "1.5", "-1", str(2**63)]:
+            with self.assertRaises(ValueError):
+                app.parse_seed_text(invalid)
+
+    def test_seed_generation_is_single_player_and_reproducible(self):
+        source = Path("app.py").read_text(encoding="utf-8")
+        generation_source = source[source.index("def generate_and_save_players"):source.index("def start_generation")]
+        self.assertIn("players.append(generate_player(role, category, master, seed=seed, used_names=set()))", generation_source)
+        sidebar_source = source[source.index("def render_generation_sidebar"):source.index("def render_app_title")]
+        self.assertIn("disabled=seed_given", sidebar_source)
+        self.assertIn("seed指定時は1人だけ生成します", sidebar_source)
+        self.assertIn('disabled=bool(st.session_state.get("generating"))', sidebar_source)
+        self.assertIn('st.spinner("選手を生成中です...")', generation_source)
+
+    def test_seed_copy_html_escapes_seed(self):
+        html = app.seed_copy_html('1<2>"3')
+        self.assertIn("seedをコピー", html)
+        self.assertIn("1&lt;2&gt;&quot;3", html)
+        self.assertIn('const seed = "1<2>\\"3";', html)
+
+    def test_filter_history_table(self):
+        history = pd.DataFrame([
+            {"id": 3, "created_at": "2026-09-30 10:00:00", "name": "山田 太郎", "category": "架空球団用", "position": "先発"},
+            {"id": 2, "created_at": "2026-09-26 10:00:00", "name": "Tom Sutton", "category": "助っ人外国人用", "position": "捕手"},
+            {"id": 1, "created_at": "2026-08-01 10:00:00", "name": "佐藤 次郎", "category": "架空球団用", "position": "捕手"},
+        ])
+        today = "2026-09-30 18:00:00"
+        ids = lambda frame: frame["id"].tolist()
+        self.assertEqual(ids(app.filter_history_table(history, [], [], "すべて", "", today)), [3, 2, 1])
+        self.assertEqual(ids(app.filter_history_table(history, ["架空球団用"], [], "すべて", "", today)), [3, 1])
+        self.assertEqual(ids(app.filter_history_table(history, [], ["捕手"], "すべて", "", today)), [2, 1])
+        self.assertEqual(ids(app.filter_history_table(history, [], [], "今日", "", today)), [3])
+        self.assertEqual(ids(app.filter_history_table(history, [], [], "7日以内", "", today)), [3, 2])
+        self.assertEqual(ids(app.filter_history_table(history, [], [], "すべて", "tom", today)), [2])
 
     def test_main_defense_position_has_distinct_emphasis(self):
         source = Path("app.py").read_text(encoding="utf-8")

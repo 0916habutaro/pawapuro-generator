@@ -17,6 +17,7 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from generator.foreign_names import generate_foreign_profile
 
@@ -8103,16 +8104,18 @@ def app_chrome_css() -> str:
     <style>
     :root {/*TOKENS*/}
     .stApp {color:var(--ui-text); background: radial-gradient(circle at 12% 18%, rgba(255,255,255,.28) 0 7%, transparent 8%), radial-gradient(circle at 88% 70%, rgba(255,255,255,.18) 0 10%, transparent 11%), linear-gradient(150deg,#effdff 0%,#b5f3e6 38%,#5fd6e3 72%,#1fa6d6 100%);}
-    [data-testid="stHeader"] {background:transparent;}
+    [data-testid="stHeader"] {background:rgba(244,248,252,.94); backdrop-filter:blur(6px); box-shadow:0 1px 0 var(--ui-border);}
     @media (max-width: 1439px) {.block-container {padding-left:24px; padding-right:24px;}}
     .pp-title {background:var(--ui-surface); border-left:8px solid var(--ui-accent); border-bottom:3px solid var(--ui-primary); padding:12px 20px; border-radius:4px 16px 16px 4px; color:var(--ui-primary); font-weight:900; font-size:28px; margin-bottom:10px; box-shadow:0 2px 8px rgba(11,42,91,.10);}
     .pp-page-description {color:var(--ui-text); font-size:16px; line-height:1.6; font-weight:650; margin:0 0 14px;}
     .pp-section-heading {color:var(--ui-primary); background:var(--ui-surface); border-left:5px solid var(--ui-accent); border-radius:4px; padding:7px 12px; font-size:17px; font-weight:900; margin:18px 0 10px;}
+    .pp-table-count {text-align:right; color:var(--ui-muted); font-size:14px; font-weight:700;}
     .pp-player-count {display:flex; align-items:center; justify-content:center; height:40px; color:var(--ui-muted); font-size:15px; font-weight:800; white-space:nowrap; font-variant-numeric:tabular-nums;}
     /* サイドバー：紺地に白文字。入力欄は白地に本文色 */
     [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] label, [data-testid="stSidebar"] label p {color:var(--ui-sidebar-text);}
     [data-testid="stSidebar"] [data-testid="stCaptionContainer"], [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {color:var(--ui-sidebar-muted);}
     [data-testid="stSidebar"] input {background:var(--ui-surface); color:var(--ui-text); -webkit-text-fill-color:var(--ui-text);}
+    [data-testid="stSidebar"] input:disabled {background:#DCE5F0; color:var(--ui-muted); -webkit-text-fill-color:var(--ui-muted); cursor:not-allowed;}
     [data-testid="stSidebar"] [data-testid="stSelectbox"] div:has(> input), [data-testid="stSidebar"] [data-testid="stSelectbox"] button, [data-testid="stSidebar"] [data-testid="stSelectbox"] svg {color:var(--ui-text);}
     [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] {height:40px;}
     [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] input {height:100%;}
@@ -8263,7 +8266,43 @@ def render_player_section(history: pd.DataFrame, master: MasterData) -> None:
         player = latest_by_id[selected_player_id]
     else:
         player = player_from_history_row(history.iloc[row_position_by_id[selected_player_id]])
+    render_seed_copy(player.get("seed"))
     render_detail_panel(player, master, DETAIL_KEY_PREFIX)
+
+
+def seed_copy_html(seed: Any) -> str:
+    seed_text = json.dumps(str(seed))
+    return f"""
+    <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;font-family:'Source Sans Pro',sans-serif;font-size:14px;color:{UI_COLORS['muted']};">
+      <span>seed: <b style="color:{UI_COLORS['text']};">{e(seed)}</b></span>
+      <button id="copy" style="cursor:pointer;border:1.5px solid {UI_COLORS['primary']};background:#fff;color:{UI_COLORS['primary']};border-radius:8px;padding:4px 12px;font-size:14px;font-weight:700;">seedをコピー</button>
+      <span id="msg" aria-live="polite"></span>
+    </div>
+    <script>
+    const seed = {seed_text};
+    document.getElementById("copy").addEventListener("click", async () => {{
+      const msg = document.getElementById("msg");
+      try {{
+        await navigator.clipboard.writeText(seed);
+      }} catch (error) {{
+        const area = document.createElement("textarea");
+        area.value = seed;
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        area.remove();
+      }}
+      msg.textContent = "コピーしました";
+      setTimeout(() => {{ msg.textContent = ""; }}, 2000);
+    }});
+    </script>
+    """
+
+
+def render_seed_copy(seed: Any) -> None:
+    if seed in (None, ""):
+        return
+    components.html(seed_copy_html(seed), height=40)
 
 
 def history_excel_bytes(history: pd.DataFrame) -> bytes:
@@ -8273,19 +8312,64 @@ def history_excel_bytes(history: pd.DataFrame) -> bytes:
     return excel_buffer.getvalue()
 
 
+HISTORY_PERIOD_OPTIONS = ["すべて", "今日", "7日以内"]
+HISTORY_TABLE_HEIGHT = 420
+SEED_INPUT_KEY = "seed_input"
+SQLITE_INTEGER_MAX = 2**63 - 1
+
+
+def filter_history_table(history: pd.DataFrame, categories: list[str], positions: list[str], period: str, name_query: str, today: Any = None) -> pd.DataFrame:
+    """過去生成選手の表の絞り込み。選択肢が空の項目は絞り込まない。"""
+    filtered = history
+    if categories:
+        filtered = filtered[filtered["category"].isin(categories)]
+    if positions:
+        filtered = filtered[filtered["position"].isin(positions)]
+    if period in ("今日", "7日以内"):
+        today = pd.Timestamp(today if today is not None else pd.Timestamp.now()).normalize()
+        start = today if period == "今日" else today - pd.Timedelta(days=6)
+        created = pd.to_datetime(filtered["created_at"], errors="coerce")
+        filtered = filtered[created >= start]
+    query = name_query.strip()
+    if query:
+        filtered = filtered[filtered["name"].astype(str).str.contains(query, case=False, regex=False)]
+    return filtered
+
+
+def history_position_options(history: pd.DataFrame) -> list[str]:
+    order = POSITIONS["投手"] + POSITIONS["野手"]
+    present = set(history["position"].dropna().astype(str)) if "position" in history.columns else set()
+    return [position for position in order if position in present] + sorted(present - set(order))
+
+
 def render_history_section(history: pd.DataFrame) -> None:
     render_section_heading("過去生成選手")
     if history.empty:
         st.caption("保存済みの選手はまだありません。")
         return
-    show_details = st.toggle("詳細列を表示", key="history_show_details")
-    display, columns = history_display_frame(history, show_details)
-    st.session_state[HISTORY_TABLE_IDS_KEY] = history_ids_from_frame(history)
+    category_col, position_col, period_col, name_col = st.columns([0.28, 0.28, 0.2, 0.24], gap="small")
+    with category_col:
+        categories = st.multiselect("カテゴリ", CATEGORIES, key="history_filter_categories", placeholder="すべて")
+    with position_col:
+        positions = st.multiselect("起用", history_position_options(history), key="history_filter_positions", placeholder="すべて")
+    with period_col:
+        period = st.segmented_control("生成日", HISTORY_PERIOD_OPTIONS, default="すべて", key="history_filter_period") or "すべて"
+    with name_col:
+        name_query = st.text_input("名前で検索", key="history_filter_name", placeholder="名前の一部")
+    filtered = filter_history_table(history, categories, positions, period, name_query)
+    detail_col, count_col = st.columns([0.5, 0.5], vertical_alignment="center")
+    with detail_col:
+        show_details = st.toggle("詳細列を表示", key="history_show_details")
+    with count_col:
+        st.markdown(f'<div class="pp-table-count">{len(filtered)}件を表示（全{len(history)}件）</div>', unsafe_allow_html=True)
+    display, columns = history_display_frame(filtered, show_details)
+    st.session_state[HISTORY_TABLE_IDS_KEY] = history_ids_from_frame(filtered)
     table_key = f"history_table_{st.session_state.get(HISTORY_TABLE_NONCE_KEY, 0)}"
     st.dataframe(
         display,
         use_container_width=True,
         hide_index=True,
+        height=HISTORY_TABLE_HEIGHT if len(display) > 10 else "auto",
         column_order=columns,
         column_config=history_column_config(columns),
         on_select=partial(select_player_from_history_table, table_key),
@@ -8299,43 +8383,66 @@ def render_history_section(history: pd.DataFrame) -> None:
         st.download_button(f"Excelで保存（全{len(history)}件）", data=history_excel_bytes(history), file_name="pawapuro_players.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
 
 
-def generate_and_save_players(role: str, category: str, count: int, master: MasterData) -> None:
-    progress = st.progress(0, text="選手を生成中です...")
+def parse_seed_text(text: str) -> int | None:
+    """seed入力欄の値を整数にする。空欄は None、整数として解釈できない値は ValueError。"""
+    value = str(text or "").strip()
+    if not value:
+        return None
+    seed = int(value)
+    if not 0 <= seed <= SQLITE_INTEGER_MAX:
+        raise ValueError(value)
+    return seed
+
+
+def generate_and_save_players(role: str, category: str, count: int, master: MasterData, seed: int | None = None) -> None:
     players = []
-    used_names: set[str] = set()
-    seeds = generate_batch_seeds(count)
-    for index, seed in enumerate(seeds):
-        players.append(generate_player(role, category, master, seed=seed, used_names=used_names))
-        progress.progress((index + 1) / count, text=f"選手を生成中です... {index + 1}/{count}")
-    progress.empty()
-    saved_ids: list[int] = []
-    try:
-        # 新しい順（id降順）で並べたときに生成順になるよう、末尾から保存する
-        save_players(players[::-1], saved_ids)
-        saved_ids.reverse()
-    except sqlite3.Error as error:
-        st.session_state["save_error"] = f"選手の保存に失敗しました（{error}）。生成した選手は画面にだけ表示しています。"
-        saved_ids = []
-    else:
-        st.session_state.pop("save_error", None)
+    with st.spinner("選手を生成中です..."):
+        if seed is not None:
+            players.append(generate_player(role, category, master, seed=seed, used_names=set()))
+        else:
+            progress = st.progress(0, text="選手を生成中です...")
+            used_names: set[str] = set()
+            for index, batch_seed in enumerate(generate_batch_seeds(count)):
+                players.append(generate_player(role, category, master, seed=batch_seed, used_names=used_names))
+                progress.progress((index + 1) / count, text=f"選手を生成中です... {index + 1}/{count}")
+            progress.empty()
+        saved_ids: list[int] = []
+        try:
+            # 新しい順（id降順）で並べたときに生成順になるよう、末尾から保存する
+            save_players(players[::-1], saved_ids)
+            saved_ids.reverse()
+        except sqlite3.Error as error:
+            st.session_state["save_error"] = f"選手の保存に失敗しました（{error}）。生成した選手は画面にだけ表示しています。"
+            saved_ids = []
+        else:
+            st.session_state.pop("save_error", None)
     if len(saved_ids) == len(players):
         players = [{**player, "id": player_id} for player, player_id in zip(players, saved_ids)]
     st.session_state["latest_players"] = players
     st.session_state[PLAYER_SELECT_KEY] = player_unique_id(players[0], 0) if players else None
     st.session_state[f"{DETAIL_KEY_PREFIX}_selected_player_tab"] = "投手能力" if role == "投手" else "野手能力"
     reset_history_table_selection()
-    st.toast(f"{len(players)}人の選手を生成しました", icon="✅")
+    st.session_state["pending_toast"] = f"{len(players)}人の選手を生成しました"
 
 
-def render_generation_sidebar() -> tuple[str, str, int, bool]:
+def start_generation() -> None:
+    st.session_state["generating"] = True
+
+
+def render_generation_sidebar() -> tuple[str, str, int, str]:
+    seed_text = str(st.session_state.get(SEED_INPUT_KEY, "") or "")
+    seed_given = bool(seed_text.strip())
     with st.sidebar:
         st.header("生成条件")
         role = st.radio("投手 / 野手", ["投手", "野手"], horizontal=True)
         category = st.selectbox("カテゴリ", CATEGORIES)
-        count = st.number_input("生成人数", min_value=1, max_value=1000, value=3, step=1)
-        generate = st.button("生成する", type="primary", use_container_width=True, key="generate_button")
+        count = st.number_input("生成人数", min_value=1, max_value=1000, value=3, step=1, disabled=seed_given)
+        if seed_given:
+            st.caption("seed指定時は1人だけ生成します")
+        st.text_input("seed（任意）", key=SEED_INPUT_KEY, placeholder="空欄ならランダム")
+        st.button("生成する", type="primary", use_container_width=True, key="generate_button", disabled=bool(st.session_state.get("generating")), on_click=start_generation)
         st.caption(f"Version {APP_VERSION}")
-    return role, category, int(count), generate
+    return role, category, int(count), seed_text
 
 
 def render_app_title() -> None:
@@ -8346,9 +8453,21 @@ def generation_page() -> None:
     master = load_master_data()
     render_app_title()
     render_page_description("投手/野手、カテゴリ、生成人数だけを選ぶと、ゲーム風の能力詳細画面で確認できます。")
-    role, category, count, generate = render_generation_sidebar()
-    if generate:
-        generate_and_save_players(role, category, count, master)
+    role, category, count, seed_text = render_generation_sidebar()
+    if st.session_state.get("generating"):
+        try:
+            seed = parse_seed_text(seed_text)
+        except ValueError:
+            st.session_state["seed_error"] = f"seed「{seed_text.strip()}」を整数として読み取れません。0以上の整数を入力してください。"
+        else:
+            st.session_state.pop("seed_error", None)
+            generate_and_save_players(role, category, count, master, seed)
+        st.session_state["generating"] = False
+        st.rerun()
+    if st.session_state.get("pending_toast"):
+        st.toast(st.session_state.pop("pending_toast"), icon="✅")
+    if st.session_state.get("seed_error"):
+        st.error(st.session_state["seed_error"])
     if st.session_state.get("save_error"):
         st.error(st.session_state["save_error"])
     history = load_history()
