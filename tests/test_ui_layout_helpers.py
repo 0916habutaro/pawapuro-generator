@@ -770,15 +770,17 @@ class PitchBlockChartTest(unittest.TestCase):
                 self.assertEqual(len(lane0.cells), 7)
                 self.assertEqual(len(lane1.cells), 7)
 
-    def test_diagonal_outer_lane_is_shifted_one_cell_toward_tip(self):
-        u = self.U
+    def test_paired_lanes_are_not_staggered_in_any_direction(self):
+        # 2列は根元・先端・セル境界がそろう（斜めも段違いにしない）
         for direction in "12345":
             lane0 = app.pitch_bar_shape(direction, 0, True)
             lane1 = app.pitch_bar_shape(direction, 1, True)
             ax, ay = app.PITCH_GAUGE_GEOMETRY[direction]["axis"]
-            shift = (lane1.frame[2][0] * ax + lane1.frame[2][1] * ay) - (lane0.frame[2][0] * ax + lane0.frame[2][1] * ay)
-            expected = u if app.PITCH_GAUGE_GEOMETRY[direction]["kind"] == "diagonal" else 0
-            self.assertAlmostEqual(shift, expected, delta=0.05, msg=direction)
+            along = lambda point: point[0] * ax + point[1] * ay
+            self.assertAlmostEqual(along(lane1.frame[2]), along(lane0.frame[2]), delta=0.05, msg=direction)
+            self.assertAlmostEqual(along(lane1.frame[0]), along(lane0.frame[0]), delta=0.05, msg=direction)
+            for index in range(7):
+                self.assertAlmostEqual(along(lane1.cells[index][0]), along(lane0.cells[index][0]), delta=0.05, msg=direction)
 
     def test_empty_cells_brighten_toward_tip(self):
         svg = app.render_pitch_chart_svg([])
@@ -1024,6 +1026,40 @@ class PitchBlockChartTest(unittest.TestCase):
                             self.assertFalse(app._convex_polygons_overlap(polygon, app._rect_polygon(other)), context)
                         # 横圧縮しすぎて読めない幅にはしない
                         self.assertGreaterEqual(layout.labels[index].width / layout.labels[index].natural_width, 0.5, context)
+
+    def test_bars_never_overlap_other_directions(self):
+        # 斜めバーの根元が隣の横バー・フォークバーに食い込まない（全組み合わせ・左右両投げ）
+        for counts in itertools.product((0, 1, 2), repeat=5):
+            balls = [
+                self.breaking(1, code, "球種", is_second_pitch=lane == 1, slot=lane + 1)
+                for code, count in zip("12345", counts) for lane in range(count)
+            ]
+            for hand in ("右投右打", "左投左打"):
+                bars = app.layout_pitch_chart(balls, hand).bars
+                for first, second in itertools.combinations(bars, 2):
+                    if first.direction_code == second.direction_code:
+                        continue
+                    self.assertFalse(
+                        app._convex_polygons_overlap(first.frame, second.frame),
+                        f"{counts} {hand} {first.direction_code}-{first.lane_index} / {second.direction_code}-{second.lane_index}",
+                    )
+
+    def test_diagonal_root_moves_out_only_when_crowded(self):
+        u = self.U
+        cx, cy = app.PITCH_CHART_CENTER
+        self.assertEqual(app.diagonal_bar_start("2", set()), app.PITCH_BAR_START)
+        for direction in ("2", "4"):
+            self.assertGreater(app.diagonal_bar_start(direction, {direction}), app.PITCH_BAR_START)
+            layout = app.layout_pitch_chart([
+                self.breaking(3, direction, "球種A"), self.breaking(2, direction, "球種B", is_second_pitch=True),
+            ])
+            lanes = [bar for bar in layout.bars if bar.direction_code == direction]
+            roots = [math.dist((cx, cy), ((bar.frame[0][0] + bar.frame[4][0]) / 2, (bar.frame[0][1] + bar.frame[4][1]) / 2)) for bar in lanes]
+            # 2列の根元は、2列の中心線上でボールから同じ距離にある
+            ax, ay = app.PITCH_GAUGE_GEOMETRY[direction]["axis"]
+            alongs = [(bar.frame[0][0] - cx) * ax + (bar.frame[0][1] - cy) * ay for bar in lanes]
+            self.assertAlmostEqual(alongs[0], alongs[1], delta=0.05)
+            self.assertAlmostEqual(alongs[0], app.diagonal_bar_start(direction, {direction}) * u, delta=0.05)
 
 
 if __name__ == "__main__":
