@@ -8232,8 +8232,8 @@ SUB_POSITION_APTITUDE_ORDER = ["◎", "○", "△"]
 BATTING_THROWING_ORDER = ["右投右打", "右投左打", "右投両打", "左投左打", "左投右打", "左投両打"]
 AGE_BAND_ORDER = ["18-19歳", "20-22歳", "23-26歳", "27-30歳", "31-34歳", "35歳以上"]
 ABILITY_RANK_ORDER = ["S", "A", "B", "C", "D", "E", "F", "G"]
-FIELDER_ABILITY_KEYS = ["弾道", "ミート", "パワー", "走力", "肩力", "守備力", "捕球"]
-PITCHER_ABILITY_KEYS = ["球速", "コントロール", "スタミナ"]
+BALANCE_FIELDER_ABILITY_KEYS = ["弾道", "ミート", "パワー", "走力", "肩力", "守備力", "捕球"]
+BALANCE_PITCHER_ABILITY_KEYS = ["球速", "コントロール", "スタミナ"]
 # 格の高い順。PLAYER_CLASS_WEIGHTS の並び（カテゴリ順）をつなげたもの
 PLAYER_CLASS_ORDER = list(dict.fromkeys(name for category in CATEGORIES for name, _weight in PLAYER_CLASS_WEIGHTS.get(category, [])))
 
@@ -8401,7 +8401,7 @@ def crosstab_table(rows: pd.Series, columns: pd.Series, *, row_label: str, row_o
     return table
 
 
-def format_sub_positions(values: Any) -> str:
+def sub_positions_display_text(values: Any) -> str:
     return "、".join(f"{item['position']}{item['aptitude']}" for item in normalize_sub_positions(values))
 
 
@@ -8580,7 +8580,7 @@ def invalid_pitch_display_table(invalid: pd.DataFrame) -> pd.DataFrame:
 def left_violation_display_table(violations: pd.DataFrame) -> pd.DataFrame:
     work = violations.copy()
     sub_column = "sub_positions" if "sub_positions" in work.columns else "サブポジ"
-    work[sub_column] = work[sub_column].apply(format_sub_positions)
+    work[sub_column] = work[sub_column].apply(sub_positions_display_text)
     return work.rename(columns={"name": "名前", "position": "ポジション", "batting_throwing": "投打", sub_column: "サブポジ"})[["名前", "ポジション", "投打", "サブポジ"]]
 
 
@@ -8815,10 +8815,10 @@ def render_balance_ability_tab(df: pd.DataFrame) -> None:
     col1, col2 = st.columns(2, gap="large")
     with col1:
         render_section_heading("野手能力")
-        render_ability_role_block(df, "野手", FIELDER_ABILITY_KEYS)
+        render_ability_role_block(df, "野手", BALANCE_FIELDER_ABILITY_KEYS)
     with col2:
         render_section_heading("投手能力")
-        render_ability_role_block(df, "投手", PITCHER_ABILITY_KEYS)
+        render_ability_role_block(df, "投手", BALANCE_PITCHER_ABILITY_KEYS)
     pitchers = df[df["role"].eq("投手")]
     if pitchers.empty:
         return
