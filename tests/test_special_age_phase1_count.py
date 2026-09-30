@@ -124,7 +124,9 @@ def test_generated_special_constraints_and_restrictions_remain_valid() -> None:
                 is_special_allowed_for_player(name, role, player["position"], player.get("sub_positions", []), aptitudes)
                 for name in names
             )
-            low, high = special_count_bounds("架空球団用", player["player_class"])
+            # 外国人補強枠は助っ人外国人用の選手格で生成されるので、その上下限で判定する。
+            bounds_category = "助っ人外国人用" if player.get("roster_origin") == "foreign_import" else "架空球団用"
+            low, high = special_count_bounds(bounds_category, player["player_class"])
             count = sum(is_countable_special(name) for name in names)
             assert low <= count <= high
 

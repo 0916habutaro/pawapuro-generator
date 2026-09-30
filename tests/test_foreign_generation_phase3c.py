@@ -56,7 +56,8 @@ def test_returnee_year_invariants_and_rate_parameter():
 
 def test_existing_foreign_import_seed_regression():
     expected = {
-        ("投手", 2026092803): "e31f52610544e1582057a655ea1ac039a227987217f1c4223d8050092f6ef1c9",
+        # 外国人投手は実在準拠バランス（apply_foreign_pitcher_balance）で再調整した値
+        ("投手", 2026092803): "b187eed3b172d4990556b6ca9afca28dc3548e85be1176398e943f50be22c8f9",
         ("野手", 2026092804): "0e32b366d9e4cc8cf1b2d10ba04f195045e95a89a39e0267d4e2ccd7003893d4",
     }
     master = app.load_master_data()
