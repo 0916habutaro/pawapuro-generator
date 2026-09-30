@@ -8138,6 +8138,8 @@ def app_chrome_css() -> str:
     div[data-testid="stDownloadButton"] button {background:var(--ui-surface); border:1.5px solid var(--ui-primary); color:var(--ui-primary);}
     div[data-testid="stDownloadButton"] button p {color:var(--ui-primary); font-weight:800;}
     div[data-testid="stDownloadButton"] button:hover {background:#EEF3FA; border-color:var(--ui-primary);}
+    div[class*="st-key-export_all_"] button {border-width:1px; border-color:var(--ui-border); min-height:2rem;}
+    div[class*="st-key-export_all_"] button p {color:var(--ui-muted); font-weight:600; font-size:13px;}
     </style>
     """
     return css.replace("/*TOKENS*/", tokens).replace("/*CARD_MAX_WIDTH*/", f"{CARD_MAX_WIDTH_PX}px")
@@ -8317,15 +8319,37 @@ def render_seed_copy(player: dict[str, Any]) -> None:
     components.html(seed_copy_html(seed_copy_text(player)), height=40)
 
 
-def history_excel_bytes(history: pd.DataFrame) -> bytes:
+def history_excel_bytes(history: pd.DataFrame, sheet_name: str = "players") -> bytes:
     excel_buffer = BytesIO()
     with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-        history.to_excel(writer, sheet_name="players", index=False)
+        history.to_excel(writer, sheet_name=sheet_name, index=False)
     return excel_buffer.getvalue()
+
+
+def history_csv_bytes(frame: pd.DataFrame) -> bytes:
+    return frame.to_csv(index=False).encode("utf-8-sig")
+
+
+def history_view_export_frame(display: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """「表示中の内容」の出力用。表と同じ行・列・日本語の列名にする。"""
+    labels: list[str] = []
+    for column in columns:
+        label = HISTORY_COLUMN_LABELS.get(column, column)
+        # 日本語名が既存の列名と重なる場合は内部名を添えて区別する
+        labels.append(label if label not in labels else f"{label}（{column}）")
+    exported = display[columns].copy()
+    exported.columns = labels
+    return exported
+
+
+def export_file_name(kind: str, extension: str, now: Any = None) -> str:
+    stamp = pd.Timestamp(now if now is not None else pd.Timestamp.now()).strftime("%Y%m%d_%H%M")
+    return f"players_{kind}_{stamp}.{extension}"
 
 
 HISTORY_PERIOD_OPTIONS = ["すべて", "今日", "7日以内"]
 HISTORY_TABLE_HEIGHT = 420
+EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 SEED_INPUT_KEY = "seed_input"
 ROLE_INPUT_KEY = "role_input"
 CATEGORY_INPUT_KEY = "category_input"
@@ -8392,11 +8416,23 @@ def render_history_section(history: pd.DataFrame) -> None:
         selection_mode="single-row",
         key=table_key,
     )
+    render_history_exports(history, history_view_export_frame(display, columns))
+
+
+def render_history_exports(history: pd.DataFrame, view: pd.DataFrame) -> None:
+    now = pd.Timestamp.now()
     csv_col, excel_col, _spacer = st.columns([0.22, 0.22, 0.56], gap="small")
     with csv_col:
-        st.download_button(f"CSVで保存（全{len(history)}件）", data=history.to_csv(index=False).encode("utf-8-sig"), file_name="pawapuro_players.csv", mime="text/csv", use_container_width=True)
+        st.download_button(f"CSVで保存（表示中 {len(view)}件）", data=history_csv_bytes(view), file_name=export_file_name("view", "csv", now), mime="text/csv", use_container_width=True, key="export_view_csv")
     with excel_col:
-        st.download_button(f"Excelで保存（全{len(history)}件）", data=history_excel_bytes(history), file_name="pawapuro_players.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+        st.download_button(f"Excelで保存（表示中 {len(view)}件）", data=history_excel_bytes(view, sheet_name="表示中"), file_name=export_file_name("view", "xlsx", now), mime=EXCEL_MIME, use_container_width=True, key="export_view_excel")
+    with st.expander("全データを出力（内部の列名・値のまま）"):
+        st.caption("絞り込みや表示列に関係なく、保存済みの全選手・全列を出力します。")
+        all_csv_col, all_excel_col, _all_spacer = st.columns([0.26, 0.26, 0.48], gap="small")
+        with all_csv_col:
+            st.download_button(f"全データをCSVで保存（全 {len(history)}件）", data=history_csv_bytes(history), file_name=export_file_name("all", "csv", now), mime="text/csv", use_container_width=True, key="export_all_csv")
+        with all_excel_col:
+            st.download_button(f"全データをExcelで保存（全 {len(history)}件）", data=history_excel_bytes(history), file_name=export_file_name("all", "xlsx", now), mime=EXCEL_MIME, use_container_width=True, key="export_all_excel")
 
 
 class SeedSpecError(ValueError):

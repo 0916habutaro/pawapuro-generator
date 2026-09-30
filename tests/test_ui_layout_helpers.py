@@ -632,6 +632,29 @@ class UiLayoutHelpersTest(unittest.TestCase):
         for part in ["render_section_heading(\"選手を選択\")", "key=\"player_prev\"", "key=PLAYER_SELECT_KEY", "pp-player-count", "key=\"player_next\"", "render_detail_panel("]:
             self.assertIn(part, area_source)
 
+    def test_view_export_matches_table_rows_columns_and_labels(self):
+        history = pd.DataFrame([
+            {"id": 3, "created_at": "2026-09-30 10:52:41", "seed": 5, "name": "山田", "category": "助っ人外国人用", "position": "先発", "player_type": "本格派", "age": 28, "batting_throwing": "右投右打", "entry_route": "海外プロ経由", "roster_origin": "foreign_import"},
+            {"id": 2, "created_at": "2026-09-29 08:01:00", "seed": 6, "name": "佐藤", "category": "架空球団用", "position": "捕手", "player_type": "巧打", "age": 22, "batting_throwing": "右投左打", "entry_route": "高卒", "roster_origin": "domestic"},
+        ])
+        filtered = app.filter_history_table(history, ["架空球団用"], [], "すべて", "")
+        display, columns = app.history_display_frame(filtered)
+        view = app.history_view_export_frame(display, columns)
+        self.assertEqual(list(view.columns), ["名前", "カテゴリ", "起用", "タイプ", "年齢", "投打", "入団経路", "生成日時"])
+        self.assertEqual(view["名前"].tolist(), ["佐藤"])
+        self.assertEqual(view.loc[view.index[0], "生成日時"], "2026/09/29 08:01")
+        detail_display, detail_columns = app.history_display_frame(filtered, show_details=True)
+        detail_view = app.history_view_export_frame(detail_display, detail_columns)
+        self.assertIn("所属区分", detail_view.columns)
+        self.assertEqual(detail_view.loc[detail_view.index[0], "所属区分"], "国内")
+        self.assertEqual(len(set(detail_view.columns)), len(detail_view.columns))
+        csv_text = app.history_csv_bytes(view)
+        self.assertEqual(csv_text[:3], bytes([0xEF, 0xBB, 0xBF]))
+
+    def test_export_file_names_have_kind_and_timestamp(self):
+        self.assertEqual(app.export_file_name("view", "csv", "2026-09-30 11:44:59"), "players_view_20260930_1144.csv")
+        self.assertEqual(app.export_file_name("all", "xlsx", "2026-09-30 11:44:59"), "players_all_20260930_1144.xlsx")
+
     def test_main_defense_position_has_distinct_emphasis(self):
         source = Path("app.py").read_text(encoding="utf-8")
         block = css_block(source, ".pp-defense-pos.main")
