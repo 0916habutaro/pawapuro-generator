@@ -8131,6 +8131,8 @@ def app_chrome_css() -> str:
     [data-testid="stSidebar"] input {background:var(--ui-surface); color:var(--ui-text); -webkit-text-fill-color:var(--ui-text);}
     [data-testid="stSidebar"] input:disabled {background:#DCE5F0; color:var(--ui-muted); -webkit-text-fill-color:var(--ui-muted); cursor:not-allowed;}
     [data-testid="stSidebar"] [data-testid="stSelectbox"] div:has(> input), [data-testid="stSidebar"] [data-testid="stSelectbox"] button, [data-testid="stSidebar"] [data-testid="stSelectbox"] svg {color:var(--ui-text);}
+    /* 選択肢リストは body 直下に出るが、サイドバーのテーマ（白文字）を引き継いで白地に白文字になるため本文色にする */
+    [data-testid="stSelectboxVirtualDropdown"] [role="option"] {color:var(--ui-text);}
     [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] {height:40px;}
     [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] input {height:100%;}
     [data-testid="stSidebar"] [data-testid="stNumberInputContainer"] button {background:#EEF3FA; color:var(--ui-text); height:100%; min-width:40px;}
