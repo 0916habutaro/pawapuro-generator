@@ -793,7 +793,24 @@ class UiLayoutHelpersTest(unittest.TestCase):
             finally:
                 app.DB_PATH = original_db_path
                 app.clear_history_cache()
-        self.assertTrue(hasattr(app.load_master_data, "clear"))
+        self.assertTrue(hasattr(app._load_master_data_cached, "clear"))
+
+    def test_ranked_specials_survive_streamlit_rerun_with_cached_master(self):
+        # Streamlitの再実行ではモジュールの変数が初期値（空）に戻り、キャッシュ済みの読み込み関数は再実行されない。
+        # その状態でもランク特能の判定表が復元され、ランク特能が通常の特殊能力に混ざらないこと。
+        app.load_master_data()
+        original = app._CURRENT_ABILITIES_FOR_RANK_CHECK
+        try:
+            app._CURRENT_ABILITIES_FOR_RANK_CHECK = []
+            master = app.load_master_data()
+            for role in ("投手", "野手"):
+                player = app.generate_player(role, "架空球団用", master, seed=3596389192, used_names=set())
+                self.assertTrue(player["abilities"]["ranked_specials"])
+                for name in player["special_abilities"]:
+                    row = next(row for row in master.abilities if row["name"] == name)
+                    self.assertFalse(app.is_ranked_special(row), name)
+        finally:
+            app._CURRENT_ABILITIES_FOR_RANK_CHECK = original
 
     def test_player_area_is_limited_to_pre_change_card_width(self):
         source = Path("app.py").read_text(encoding="utf-8")
