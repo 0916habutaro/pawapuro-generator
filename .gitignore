@@ -79,3 +79,7 @@ reports/phase4_final_integration/*
 
 # 確認用スクリーンショット（ローカルにのみ保存）
 docs/screenshots/
+!reports/team_mode/
+reports/team_mode/*
+!reports/team_mode/summary.md
+!reports/team_mode/calibration.md

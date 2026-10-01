@@ -8,6 +8,7 @@ import random
 import re
 import sqlite3
 import math
+import time
 import unicodedata
 from contextlib import contextmanager
 from functools import lru_cache, partial
@@ -15,7 +16,7 @@ from html import escape
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 import streamlit as st
@@ -23,6 +24,23 @@ import streamlit.components.v1 as components
 
 from generator.foreign_names import generate_foreign_profile, name_group_display_nationalities, nation_name_orders
 from generator.rating import player_rating
+from generator.team import (
+    COMPOSITION_ITEMS,
+    PITCHER_ROLE_ORDER,
+    POSITION_COLUMNS,
+    UNIFORM_NUMBERS,
+    TeamProfile,
+    age_band_of,
+    age_band_targets,
+    assign_uniform_numbers,
+    average_age,
+    build_team_profile,
+    build_team_targets,
+    real_composition_range,
+    team_composition_counts,
+    team_rating_metrics,
+    uniform_number_sort_key,
+)
 
 APP_VERSION = "1.0.0"
 APP_NAME = "パワプロ風 架空選手生成"
@@ -543,122 +561,168 @@ def init_db() -> None:
     history, CSV/Excel export, and audit scripts can read old and new DBs.
     """
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS players (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-                seed INTEGER NOT NULL DEFAULT 0,
-                role TEXT NOT NULL DEFAULT '',
-                category TEXT NOT NULL DEFAULT '',
-                name TEXT NOT NULL DEFAULT '',
-                age INTEGER NOT NULL DEFAULT 0,
-                roster_origin TEXT NOT NULL DEFAULT '',
-                foreign_route TEXT NOT NULL DEFAULT '',
-                entry_route TEXT NOT NULL DEFAULT '',
-                pro_entry_age INTEGER NOT NULL DEFAULT 0,
-                pro_years INTEGER NOT NULL DEFAULT 0,
-                npb_years INTEGER NOT NULL DEFAULT 0,
-                npb_first_entry_year INTEGER NOT NULL DEFAULT 0,
-                npb_stint_start_year INTEGER NOT NULL DEFAULT 0,
-                is_returnee INTEGER NOT NULL DEFAULT 0,
-                nationality TEXT NOT NULL DEFAULT '',
-                actual_nationality TEXT NOT NULL DEFAULT '',
-                nationality_code TEXT NOT NULL DEFAULT '',
-                name_group_id INTEGER NOT NULL DEFAULT 0,
-                name_group_name TEXT NOT NULL DEFAULT '',
-                skin_color INTEGER NOT NULL DEFAULT 0,
-                birthplace TEXT NOT NULL DEFAULT '',
-                region TEXT NOT NULL DEFAULT '',
-                position TEXT NOT NULL DEFAULT '',
-                player_type TEXT NOT NULL DEFAULT '',
-                player_class TEXT NOT NULL DEFAULT '',
-                growth_type TEXT NOT NULL DEFAULT 'normal',
-                archetype TEXT NOT NULL DEFAULT '',
-                position_style TEXT NOT NULL DEFAULT '',
-                development_stage TEXT NOT NULL DEFAULT '',
-                acquisition_role TEXT NOT NULL DEFAULT '',
-                weakness_profile TEXT NOT NULL DEFAULT '',
-                handedness TEXT NOT NULL DEFAULT '',
-                batting_throwing TEXT NOT NULL DEFAULT '',
-                height INTEGER NOT NULL DEFAULT 0,
-                weight INTEGER NOT NULL DEFAULT 0,
-                height_cm INTEGER,
-                weight_kg INTEGER,
-                abilities_json TEXT NOT NULL DEFAULT '{}',
-                special_abilities_json TEXT NOT NULL DEFAULT '[]',
-                ranked_special_abilities_json TEXT NOT NULL DEFAULT '{}',
-                breaking_balls_json TEXT NOT NULL DEFAULT '[]',
-                pitcher_aptitudes_json TEXT NOT NULL DEFAULT '{}',
-                sub_positions_json TEXT NOT NULL DEFAULT '[]'
-            )
-        """)
-        existing = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
-        migrations = {
-            "created_at": "TEXT NOT NULL DEFAULT ''",
-            "seed": "INTEGER NOT NULL DEFAULT 0",
-            "role": "TEXT NOT NULL DEFAULT ''",
-            "category": "TEXT NOT NULL DEFAULT ''",
-            "name": "TEXT NOT NULL DEFAULT ''",
-            "age": "INTEGER NOT NULL DEFAULT 0",
-            "roster_origin": "TEXT NOT NULL DEFAULT ''",
-            "foreign_route": "TEXT NOT NULL DEFAULT ''",
-            "entry_route": "TEXT NOT NULL DEFAULT ''",
-            "pro_entry_age": "INTEGER NOT NULL DEFAULT 0",
-            "pro_years": "INTEGER NOT NULL DEFAULT 0",
-            "npb_years": "INTEGER NOT NULL DEFAULT 0",
-            "npb_first_entry_year": "INTEGER NOT NULL DEFAULT 0",
-            "npb_stint_start_year": "INTEGER NOT NULL DEFAULT 0",
-            "is_returnee": "INTEGER NOT NULL DEFAULT 0",
-            "nationality": "TEXT NOT NULL DEFAULT ''",
-            "actual_nationality": "TEXT NOT NULL DEFAULT ''",
-            "nationality_code": "TEXT NOT NULL DEFAULT ''",
-            "name_group_id": "INTEGER NOT NULL DEFAULT 0",
-            "name_group_name": "TEXT NOT NULL DEFAULT ''",
-            "skin_color": "INTEGER NOT NULL DEFAULT 0",
-            "birthplace": "TEXT NOT NULL DEFAULT ''",
-            "region": "TEXT NOT NULL DEFAULT ''",
-            "position": "TEXT NOT NULL DEFAULT ''",
-            "player_type": "TEXT NOT NULL DEFAULT ''",
-            "player_class": "TEXT NOT NULL DEFAULT ''",
-            "growth_type": "TEXT NOT NULL DEFAULT 'normal'",
-            "archetype": "TEXT NOT NULL DEFAULT ''",
-            "position_style": "TEXT NOT NULL DEFAULT ''",
-            "development_stage": "TEXT NOT NULL DEFAULT ''",
-            "acquisition_role": "TEXT NOT NULL DEFAULT ''",
-            "weakness_profile": "TEXT NOT NULL DEFAULT ''",
-            "handedness": "TEXT NOT NULL DEFAULT ''",
-            "batting_throwing": "TEXT NOT NULL DEFAULT ''",
-            "height": "INTEGER NOT NULL DEFAULT 0",
-            "weight": "INTEGER NOT NULL DEFAULT 0",
-            "height_cm": "INTEGER",
-            "weight_kg": "INTEGER",
-            "abilities_json": "TEXT NOT NULL DEFAULT '{}'",
-            "special_abilities_json": "TEXT NOT NULL DEFAULT '[]'",
-            "ranked_special_abilities_json": "TEXT NOT NULL DEFAULT '{}'",
-            "breaking_balls_json": "TEXT NOT NULL DEFAULT '[]'",
-            "pitcher_aptitudes_json": "TEXT NOT NULL DEFAULT '{}'",
-            "sub_positions_json": "TEXT NOT NULL DEFAULT '[]'",
-            "birth_month": "INTEGER NOT NULL DEFAULT 0",
-            "birth_day": "INTEGER NOT NULL DEFAULT 0",
-            "pitching_form_type": "TEXT NOT NULL DEFAULT ''",
-            "pitching_form_number": "INTEGER NOT NULL DEFAULT 0",
-            "pitching_form_is_generic": "INTEGER NOT NULL DEFAULT 1",
-            "batting_form_type": "TEXT NOT NULL DEFAULT ''",
-            "batting_form_number": "INTEGER NOT NULL DEFAULT 0",
-            "batting_form_is_generic": "INTEGER NOT NULL DEFAULT 1",
-            "bat_color": "TEXT NOT NULL DEFAULT ''",
-            "glove_color": "TEXT NOT NULL DEFAULT ''",
-            "wristband_left_enabled": "INTEGER NOT NULL DEFAULT 0",
-            "wristband_left_color": "TEXT NOT NULL DEFAULT ''",
-            "wristband_right_enabled": "INTEGER NOT NULL DEFAULT 0",
-            "wristband_right_color": "TEXT NOT NULL DEFAULT ''",
-            "draft_source_type": "TEXT NOT NULL DEFAULT ''",
-        }
-        for column, definition in migrations.items():
-            if column not in existing:
-                conn.execute(f"ALTER TABLE players ADD COLUMN {column} {definition}")
-        conn.execute("UPDATE players SET region = birthplace WHERE (region IS NULL OR region = '') AND birthplace IS NOT NULL")
-        conn.execute("UPDATE players SET growth_type = 'normal' WHERE growth_type IS NULL OR growth_type = ''")
+        ensure_db_schema(conn)
+
+
+def ensure_db_schema(conn: sqlite3.Connection) -> None:
+    """players・teams テーブルを作り、足りない列を追加する（球団出力用のメモリ上のDBでも使う）。"""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS players (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            seed INTEGER NOT NULL DEFAULT 0,
+            role TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL DEFAULT '',
+            age INTEGER NOT NULL DEFAULT 0,
+            roster_origin TEXT NOT NULL DEFAULT '',
+            foreign_route TEXT NOT NULL DEFAULT '',
+            entry_route TEXT NOT NULL DEFAULT '',
+            pro_entry_age INTEGER NOT NULL DEFAULT 0,
+            pro_years INTEGER NOT NULL DEFAULT 0,
+            npb_years INTEGER NOT NULL DEFAULT 0,
+            npb_first_entry_year INTEGER NOT NULL DEFAULT 0,
+            npb_stint_start_year INTEGER NOT NULL DEFAULT 0,
+            is_returnee INTEGER NOT NULL DEFAULT 0,
+            nationality TEXT NOT NULL DEFAULT '',
+            actual_nationality TEXT NOT NULL DEFAULT '',
+            nationality_code TEXT NOT NULL DEFAULT '',
+            name_group_id INTEGER NOT NULL DEFAULT 0,
+            name_group_name TEXT NOT NULL DEFAULT '',
+            skin_color INTEGER NOT NULL DEFAULT 0,
+            birthplace TEXT NOT NULL DEFAULT '',
+            region TEXT NOT NULL DEFAULT '',
+            position TEXT NOT NULL DEFAULT '',
+            player_type TEXT NOT NULL DEFAULT '',
+            player_class TEXT NOT NULL DEFAULT '',
+            growth_type TEXT NOT NULL DEFAULT 'normal',
+            archetype TEXT NOT NULL DEFAULT '',
+            position_style TEXT NOT NULL DEFAULT '',
+            development_stage TEXT NOT NULL DEFAULT '',
+            acquisition_role TEXT NOT NULL DEFAULT '',
+            weakness_profile TEXT NOT NULL DEFAULT '',
+            handedness TEXT NOT NULL DEFAULT '',
+            batting_throwing TEXT NOT NULL DEFAULT '',
+            height INTEGER NOT NULL DEFAULT 0,
+            weight INTEGER NOT NULL DEFAULT 0,
+            height_cm INTEGER,
+            weight_kg INTEGER,
+            abilities_json TEXT NOT NULL DEFAULT '{}',
+            special_abilities_json TEXT NOT NULL DEFAULT '[]',
+            ranked_special_abilities_json TEXT NOT NULL DEFAULT '{}',
+            breaking_balls_json TEXT NOT NULL DEFAULT '[]',
+            pitcher_aptitudes_json TEXT NOT NULL DEFAULT '{}',
+            sub_positions_json TEXT NOT NULL DEFAULT '[]'
+        )
+    """)
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
+    migrations = {
+        "created_at": "TEXT NOT NULL DEFAULT ''",
+        "seed": "INTEGER NOT NULL DEFAULT 0",
+        "role": "TEXT NOT NULL DEFAULT ''",
+        "category": "TEXT NOT NULL DEFAULT ''",
+        "name": "TEXT NOT NULL DEFAULT ''",
+        "age": "INTEGER NOT NULL DEFAULT 0",
+        "roster_origin": "TEXT NOT NULL DEFAULT ''",
+        "foreign_route": "TEXT NOT NULL DEFAULT ''",
+        "entry_route": "TEXT NOT NULL DEFAULT ''",
+        "pro_entry_age": "INTEGER NOT NULL DEFAULT 0",
+        "pro_years": "INTEGER NOT NULL DEFAULT 0",
+        "npb_years": "INTEGER NOT NULL DEFAULT 0",
+        "npb_first_entry_year": "INTEGER NOT NULL DEFAULT 0",
+        "npb_stint_start_year": "INTEGER NOT NULL DEFAULT 0",
+        "is_returnee": "INTEGER NOT NULL DEFAULT 0",
+        "nationality": "TEXT NOT NULL DEFAULT ''",
+        "actual_nationality": "TEXT NOT NULL DEFAULT ''",
+        "nationality_code": "TEXT NOT NULL DEFAULT ''",
+        "name_group_id": "INTEGER NOT NULL DEFAULT 0",
+        "name_group_name": "TEXT NOT NULL DEFAULT ''",
+        "skin_color": "INTEGER NOT NULL DEFAULT 0",
+        "birthplace": "TEXT NOT NULL DEFAULT ''",
+        "region": "TEXT NOT NULL DEFAULT ''",
+        "position": "TEXT NOT NULL DEFAULT ''",
+        "player_type": "TEXT NOT NULL DEFAULT ''",
+        "player_class": "TEXT NOT NULL DEFAULT ''",
+        "growth_type": "TEXT NOT NULL DEFAULT 'normal'",
+        "archetype": "TEXT NOT NULL DEFAULT ''",
+        "position_style": "TEXT NOT NULL DEFAULT ''",
+        "development_stage": "TEXT NOT NULL DEFAULT ''",
+        "acquisition_role": "TEXT NOT NULL DEFAULT ''",
+        "weakness_profile": "TEXT NOT NULL DEFAULT ''",
+        "handedness": "TEXT NOT NULL DEFAULT ''",
+        "batting_throwing": "TEXT NOT NULL DEFAULT ''",
+        "height": "INTEGER NOT NULL DEFAULT 0",
+        "weight": "INTEGER NOT NULL DEFAULT 0",
+        "height_cm": "INTEGER",
+        "weight_kg": "INTEGER",
+        "abilities_json": "TEXT NOT NULL DEFAULT '{}'",
+        "special_abilities_json": "TEXT NOT NULL DEFAULT '[]'",
+        "ranked_special_abilities_json": "TEXT NOT NULL DEFAULT '{}'",
+        "breaking_balls_json": "TEXT NOT NULL DEFAULT '[]'",
+        "pitcher_aptitudes_json": "TEXT NOT NULL DEFAULT '{}'",
+        "sub_positions_json": "TEXT NOT NULL DEFAULT '[]'",
+        "birth_month": "INTEGER NOT NULL DEFAULT 0",
+        "birth_day": "INTEGER NOT NULL DEFAULT 0",
+        "pitching_form_type": "TEXT NOT NULL DEFAULT ''",
+        "pitching_form_number": "INTEGER NOT NULL DEFAULT 0",
+        "pitching_form_is_generic": "INTEGER NOT NULL DEFAULT 1",
+        "batting_form_type": "TEXT NOT NULL DEFAULT ''",
+        "batting_form_number": "INTEGER NOT NULL DEFAULT 0",
+        "batting_form_is_generic": "INTEGER NOT NULL DEFAULT 1",
+        "bat_color": "TEXT NOT NULL DEFAULT ''",
+        "glove_color": "TEXT NOT NULL DEFAULT ''",
+        "wristband_left_enabled": "INTEGER NOT NULL DEFAULT 0",
+        "wristband_left_color": "TEXT NOT NULL DEFAULT ''",
+        "wristband_right_enabled": "INTEGER NOT NULL DEFAULT 0",
+        "wristband_right_color": "TEXT NOT NULL DEFAULT ''",
+        "draft_source_type": "TEXT NOT NULL DEFAULT ''",
+        # 球団生成モード（球団に属さない選手は 0 / 空欄）。背番号は "0" と "00" を区別するため文字列
+        "team_id": "INTEGER NOT NULL DEFAULT 0",
+        "roster_index": "INTEGER NOT NULL DEFAULT 0",
+        "uniform_number": "TEXT NOT NULL DEFAULT ''",
+    }
+    for column, definition in migrations.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE players ADD COLUMN {column} {definition}")
+    conn.execute("UPDATE players SET region = birthplace WHERE (region IS NULL OR region = '') AND birthplace IS NOT NULL")
+    conn.execute("UPDATE players SET growth_type = 'normal' WHERE growth_type IS NULL OR growth_type = ''")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS teams (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            team_seed INTEGER NOT NULL DEFAULT 0,
+            team_name TEXT NOT NULL DEFAULT '',
+            strength TEXT NOT NULL DEFAULT '',
+            strength_index REAL NOT NULL DEFAULT 0,
+            color TEXT NOT NULL DEFAULT '',
+            sub_color TEXT NOT NULL DEFAULT '',
+            profile_json TEXT NOT NULL DEFAULT '{}',
+            pitcher_count INTEGER NOT NULL DEFAULT 0,
+            fielder_count INTEGER NOT NULL DEFAULT 0,
+            foreign_count INTEGER NOT NULL DEFAULT 0,
+            retired_numbers_json TEXT NOT NULL DEFAULT '[]',
+            summary_json TEXT NOT NULL DEFAULT '{}'
+        )
+    """)
+    existing_team_columns = {row[1] for row in conn.execute("PRAGMA table_info(teams)")}
+    team_migrations = {
+        "created_at": "TEXT NOT NULL DEFAULT ''",
+        "team_seed": "INTEGER NOT NULL DEFAULT 0",
+        "team_name": "TEXT NOT NULL DEFAULT ''",
+        "strength": "TEXT NOT NULL DEFAULT ''",
+        "strength_index": "REAL NOT NULL DEFAULT 0",
+        "color": "TEXT NOT NULL DEFAULT ''",
+        "sub_color": "TEXT NOT NULL DEFAULT ''",
+        "profile_json": "TEXT NOT NULL DEFAULT '{}'",
+        "pitcher_count": "INTEGER NOT NULL DEFAULT 0",
+        "fielder_count": "INTEGER NOT NULL DEFAULT 0",
+        "foreign_count": "INTEGER NOT NULL DEFAULT 0",
+        "retired_numbers_json": "TEXT NOT NULL DEFAULT '[]'",
+        "summary_json": "TEXT NOT NULL DEFAULT '{}'",
+    }
+    for column, definition in team_migrations.items():
+        if column not in existing_team_columns:
+            conn.execute(f"ALTER TABLE teams ADD COLUMN {column} {definition}")
 
 
 def weighted_choice(rng: random.Random, items: list[tuple[Any, int | float]]) -> Any:
@@ -977,7 +1041,7 @@ def multiply_weight_items(items: list[tuple[str, int | float]], multipliers: dic
     return [(label, max(1, round(weight * multipliers.get(label, 1.0)))) for label, weight in items]
 
 
-def choose_player_class(rng: random.Random, category: str, age: int, npb_years: int = 0, foreign_route: str = "") -> str:
+def choose_player_class(rng: random.Random, category: str, age: int, npb_years: int = 0, foreign_route: str = "", multipliers: dict[str, float] | None = None) -> str:
     items = list(PLAYER_CLASS_WEIGHTS.get(category, []))
     adjusted: list[tuple[str, int]] = []
     for label, weight in items:
@@ -1010,6 +1074,9 @@ def choose_player_class(rng: random.Random, category: str, age: int, npb_years: 
     if category == "助っ人外国人用" and npb_years:
         adjusted = multiply_weight_items(adjusted, FOREIGN_PLAYER_CLASS_TENURE_MULTIPLIERS[foreign_tenure_band(npb_years)])
         adjusted = multiply_weight_items(adjusted, FOREIGN_PLAYER_CLASS_ROUTE_MULTIPLIERS.get(foreign_route_group(foreign_route), {}))
+    if multipliers:
+        # 球団生成モードの倍率。重みが小さい（スター級 3）ので、丸めで倍率が消えないよう100倍してからかける
+        adjusted = multiply_weight_items([(label, weight * 100) for label, weight in adjusted], multipliers)
     return weighted_choice(rng, positive_weight_items(adjusted))
 
 
@@ -1037,7 +1104,7 @@ def choose_development_stage(rng: random.Random, category: str, age: int, player
     return weighted_choice(rng, positive_weight_items(items))
 
 
-def choose_archetype(rng: random.Random, role: str, category: str, age: int | None = None, player_class: str = "", npb_years: int = 0, foreign_route: str = "") -> str:
+def choose_archetype(rng: random.Random, role: str, category: str, age: int | None = None, player_class: str = "", npb_years: int = 0, foreign_route: str = "", multipliers: dict[str, float] | None = None) -> str:
     weights = list(FOREIGN_ARCHETYPE_WEIGHTS[role] if category == "助っ人外国人用" else ARCHETYPE_WEIGHTS[role])
     if category == "助っ人外国人用" and npb_years:
         weights = multiply_weight_items(weights, FOREIGN_ARCHETYPE_TENURE_MULTIPLIERS[role][foreign_tenure_band(npb_years)])
@@ -1046,6 +1113,8 @@ def choose_archetype(rng: random.Random, role: str, category: str, age: int | No
     if category == "架空球団用" and role == "投手" and age is not None and age >= 35:
         veteran_multipliers = {"総合": 1.0, "制球": 1.50, "速球": 0.45, "変化球": 1.50, "スタミナ": 1.10}
         weights = [(label, max(1, round(weight * veteran_multipliers[label]))) for label, weight in weights]
+    if multipliers:
+        weights = multiply_weight_items([(label, weight * 100) for label, weight in weights], multipliers)
     return weighted_choice(rng, weights)
 
 
@@ -7467,7 +7536,14 @@ def apply_draft_fielder_balance(player: dict[str, Any], seed: int, master: Maste
     return player
 
 
-def generate_player(role: str, category: str, master: MasterData, seed: int | None = None, used_names: set[str] | None = None, apply_age_special_tail: bool = True, apply_individual_age_profile: bool = True, apply_ranked_age_profile: bool = True, apply_pro_year_profile: bool = True, apply_physique: bool = True, include_physique_baseline: bool = False) -> dict[str, Any]:
+def generate_player(role: str, category: str, master: MasterData, seed: int | None = None, used_names: set[str] | None = None, apply_age_special_tail: bool = True, apply_individual_age_profile: bool = True, apply_ranked_age_profile: bool = True, apply_pro_year_profile: bool = True, apply_physique: bool = True, include_physique_baseline: bool = False, team_profile: TeamProfile | None = None, accept: Callable[[dict[str, Any]], bool] | None = None) -> dict[str, Any] | None:
+    """選手を1人作る。
+
+    team_profile: 球団生成モードの戦力・カラー。架空球団用の国内選手にだけ、年齢・選手格・型の重みの倍率として効く。
+    accept: 球団生成モードの棄却サンプリング用。役割・ポジション・投打が決まった時点で呼び、False ならその場で None を返す
+    （条件に合わない選手の能力を作らずに済ませるため。合格した選手の結果は accept なしと同じ）。
+    どちらも None のときは乱数の消費順を含めて従来と完全に同じ結果になる。
+    """
     seed = seed if seed is not None else random.SystemRandom().randrange(SEED_MAX)
     rng = random.Random(seed)
     draft_source_type = choose_draft_source_type(rng) if category == "ドラフト候補用" else ""
@@ -7481,8 +7557,14 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         model_category = "助っ人外国人用"
         foreign_profile = generate_foreign_profile(rng, category, display_nationality=nationality, used_names=used_names)
     else:
-        age = age_for(rng, category, draft_source_type)
-        player_class = choose_player_class(rng, category, age)
+        team_mode = team_profile is not None and category == "架空球団用"
+        if team_mode:
+            # 重みを変えても weighted_choice の乱数消費は1回で変わらない
+            age = weighted_choice(rng, team_profile.age_weight_items(FICTIONAL_ROSTER_AGE_WEIGHTS))
+        else:
+            age = age_for(rng, category, draft_source_type)
+        role_class_multipliers = team_profile.player_class_multipliers.get(role) if team_mode else None
+        player_class = choose_player_class(rng, category, age, multipliers=role_class_multipliers)
         career_history = generate_career_history(
             category=category,
             age=age,
@@ -7526,13 +7608,19 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
             position_weights = [("捕手", 12), ("一塁手", 14), ("二塁手", 14), ("三塁手", 14), ("遊撃手", 16), ("外野手", 30)]
         position = weighted_choice(rng, position_weights)
     batting_throwing = generate_batting_throwing(rng, role, position, model_category)
+    if accept is not None and not accept({
+        "role": role, "position": position, "batting_throwing": batting_throwing, "age": age,
+        "roster_origin": roster_context.get("roster_origin"), **pitcher_aptitudes,
+    }):
+        return None
     foreign_npby = int(roster_context.get("npb_years", 0)) if roster_context.get("roster_origin") == "foreign_import" else 0
     foreign_route = str(roster_context.get("foreign_route", ""))
     acquisition_role = choose_acquisition_role(rng, model_category, role, player_class, position, pitcher_aptitudes, batting_throwing, foreign_npby, foreign_route)
-    archetype = choose_archetype(rng, role, model_category, age=age, player_class=player_class, npb_years=foreign_npby, foreign_route=foreign_route)
+    archetype_multipliers = team_profile.archetype_multipliers.get(role) if team_profile is not None and model_category == "架空球団用" else None
+    archetype = choose_archetype(rng, role, model_category, age=age, player_class=player_class, npb_years=foreign_npby, foreign_route=foreign_route, multipliers=archetype_multipliers)
     if role == "投手" and position == "抑え" and archetype == "スタミナ":
         for _ in range(4):
-            archetype = choose_archetype(rng, role, model_category, age=age, player_class=player_class, npb_years=foreign_npby, foreign_route=foreign_route)
+            archetype = choose_archetype(rng, role, model_category, age=age, player_class=player_class, npb_years=foreign_npby, foreign_route=foreign_route, multipliers=archetype_multipliers)
             if archetype != "スタミナ":
                 break
         if archetype == "スタミナ":
@@ -7730,10 +7818,14 @@ def generate_foreign_import_roster(
     seed: int,
     master: MasterData | None = None,
     used_names: set[str] | None = None,
+    composition: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Generate only the foreign-import portion of one fictional NPB team roster."""
+    """Generate only the foreign-import portion of one fictional NPB team roster.
+
+    composition（{"投手": n, "野手": m}）を渡すとその人数で作る。未指定なら従来どおり抽選する。
+    """
     master = master or load_master_data()
-    composition = choose_foreign_team_composition(seed)
+    composition = composition if composition is not None else choose_foreign_team_composition(seed)
     seed_rng = make_sub_rng(seed, "foreign_phase3c_roster_players_v1")
     used_names = used_names if used_names is not None else set()
     players: list[dict[str, Any]] = []
@@ -7892,6 +7984,184 @@ def advance_foreign_import_roster_year(
     return next_players
 
 
+# ---------------------------------------------------------------------------
+# 球団生成モード（1球団分の支配下ロスター）
+# 人数構成は実在60チームのテンプレート、戦力レベル・チームカラーは generator/team.py で決める。
+# ---------------------------------------------------------------------------
+TEAM_MODE_DOMESTIC_NAMESPACE = "team_mode_domestic_players_v1"
+TEAM_MODE_AGE_BAND_NAMESPACE = "team_mode_age_band_v1"
+# 条件をゆるめる段階（0: すべての条件、1: 左右をゆるめる、2: 年齢帯もゆるめる、3: 役割・ポジションもゆるめる）
+TEAM_MODE_RELAX_LABELS = {1: "左右の条件", 2: "年齢帯の条件", 3: "役割・ポジションの条件"}
+
+
+@dataclass
+class TeamSlot:
+    role: str
+    # 投手は「先発」「救援」、野手はメインポジション
+    group: str
+
+
+def team_pitcher_group(position: Any) -> str:
+    return "先発" if position == "先発" else "救援"
+
+
+def subtract_foreign_from_targets(targets: dict[str, Any], foreign_players: list[dict[str, Any]]) -> tuple[dict[str, int], int, dict[str, int]]:
+    """外国人が埋めた分を目標から引き、国内で作る投手枠（先発・救援）・左投手数・野手枠を返す。"""
+    foreign_pitchers = [p for p in foreign_players if p.get("role") == "投手"]
+    foreign_fielders = [p for p in foreign_players if p.get("role") == "野手"]
+    domestic_pitchers = targets["pitchers"] - len(foreign_pitchers)
+    domestic_fielders = targets["fielders"] - len(foreign_fielders)
+
+    pitcher_slots = {"先発": targets["pitcher_targets"]["先発"], "救援": targets["pitcher_targets"]["救援"]}
+    for player in foreign_pitchers:
+        pitcher_slots[team_pitcher_group(player.get("position"))] -= 1
+    pitcher_slots = {key: max(0, value) for key, value in pitcher_slots.items()}
+    while sum(pitcher_slots.values()) > domestic_pitchers:
+        key = max(pitcher_slots, key=lambda k: pitcher_slots[k])
+        pitcher_slots[key] -= 1
+    foreign_left = sum(str(p.get("batting_throwing", "")).startswith("左投") for p in foreign_pitchers)
+    left = min(max(0, targets["pitcher_targets"]["左投"] - foreign_left), domestic_pitchers)
+
+    fielder_slots = dict(targets["fielder_targets"])
+    for player in foreign_fielders:
+        position = str(player.get("position", ""))
+        if position in fielder_slots:
+            fielder_slots[position] -= 1
+    fielder_slots = {key: max(0, value) for key, value in fielder_slots.items()}
+    # マイナスを0にして超えた人数は、外野手 → 三塁手の順で減らして野手の合計を保つ
+    while sum(fielder_slots.values()) > domestic_fielders:
+        key = next((position for position in ("外野手", "三塁手") if fielder_slots[position] > 0), None)
+        key = key or max(fielder_slots, key=lambda k: fielder_slots[k])
+        fielder_slots[key] -= 1
+    return pitcher_slots, left, fielder_slots
+
+
+def generate_team(team_seed: int | None = None, team_name: str = "", master: MasterData | None = None, profile: TeamProfile | None = None) -> dict[str, Any]:
+    """実在NPB球団に近い人数構成の1球団分（支配下ロスター）を作る。
+
+    profile は検証スクリプトで戦力・カラーを固定するときだけ渡す（画面からは渡さない）。
+    """
+    started = time.perf_counter()
+    master = master or load_master_data()
+    team_seed = int(team_seed) if team_seed is not None else random.SystemRandom().randrange(SEED_MAX)
+    targets = build_team_targets(team_seed)
+    profile = profile or build_team_profile(team_seed)
+    used_names: set[str] = set()
+
+    # 1. 外国人選手を先に作る（ポジション・役割は固定しない）
+    foreign_players = generate_foreign_import_roster(team_seed, master, used_names=used_names, composition=targets["foreign_targets"])
+
+    # 2. 外国人の分を目標から引く
+    pitcher_slots, left_target, fielder_slots = subtract_foreign_from_targets(targets, foreign_players)
+    domestic_count = sum(pitcher_slots.values()) + sum(fielder_slots.values())
+    age_rng = make_sub_rng(team_seed, TEAM_MODE_AGE_BAND_NAMESPACE)
+    age_targets = age_band_targets(
+        domestic_count, team_composition_counts(foreign_players),
+        FICTIONAL_ROSTER_AGE_WEIGHTS, profile.age_weight_items(FICTIONAL_ROSTER_AGE_WEIGHTS), age_rng,
+    )
+
+    # 3. 国内の選手を、作りにくい条件から順に棄却サンプリングで作る
+    slots = [TeamSlot("野手", position) for position in POSITIONS["野手"] for _ in range(fielder_slots[position])]
+    slots += [TeamSlot("投手", group) for group in ("先発", "救援") for _ in range(pitcher_slots[group])]
+    seed_rng = make_sub_rng(team_seed, TEAM_MODE_DOMESTIC_NAMESPACE)
+    age_remaining = dict(age_targets)
+    left_remaining = left_target
+    pitchers_remaining = sum(pitcher_slots.values())
+    relaxed = {level: 0 for level in TEAM_MODE_RELAX_LABELS}
+    domestic_players: list[dict[str, Any]] = []
+
+    def slot_accepts(info: dict[str, Any], slot: TeamSlot, level: int) -> bool:
+        if info.get("roster_origin") != "domestic" or info.get("role") != slot.role:
+            return False
+        if level < 3:
+            group = team_pitcher_group(info.get("position")) if slot.role == "投手" else info.get("position")
+            if group != slot.group:
+                return False
+        if level < 2 and age_remaining.get(age_band_of(int(info.get("age") or 0)), 0) <= 0:
+            return False
+        if level < 1 and slot.role == "投手":
+            is_left = str(info.get("batting_throwing", "")).startswith("左投")
+            # 残りの左投手枠が残りの投手枠と同じなら左投げに、左投手が目標に達したら右投げに限定する
+            if left_remaining >= pitchers_remaining and not is_left:
+                return False
+            if left_remaining <= 0 and is_left:
+                return False
+        return True
+
+    for slot in slots:
+        chosen = None
+        chosen_level = 0
+        for level in range(4):
+            for _attempt in range(TEAM_ROSTER_DOMESTIC_MAX_ATTEMPTS):
+                candidate = generate_player(
+                    slot.role, "架空球団用", master,
+                    seed=seed_rng.randrange(SEED_MAX),
+                    used_names=set(used_names),
+                    team_profile=profile,
+                    accept=partial(slot_accepts, slot=slot, level=level),
+                )
+                if candidate is None or str(candidate["name"]) in used_names:
+                    continue
+                # 能力の調整後にポジションなどが変わっていないか、完成した選手でも確かめる
+                if not slot_accepts(candidate, slot, level):
+                    continue
+                chosen, chosen_level = candidate, level
+                break
+            if chosen is not None:
+                break
+        if chosen is None:
+            raise RuntimeError(f"球団の{slot.group}を生成できませんでした。")
+        if chosen_level:
+            relaxed[chosen_level] += 1
+        used_names.add(str(chosen["name"]))
+        band = age_band_of(int(chosen.get("age") or 0))
+        age_remaining[band] = age_remaining.get(band, 0) - 1
+        if slot.role == "投手":
+            pitchers_remaining -= 1
+            if str(chosen.get("batting_throwing", "")).startswith("左投"):
+                left_remaining -= 1
+        domestic_players.append(chosen)
+
+    players = domestic_players + foreign_players
+    for roster_index, player in enumerate(players, start=1):
+        player["team_seed"] = team_seed
+        player["roster_index"] = roster_index
+        player["roster_group"] = str(player.get("roster_origin", ""))
+        player["roster_year"] = NPB_CURRENT_YEAR
+    retired_numbers = assign_uniform_numbers(players, team_seed)
+
+    foreign_counts = team_composition_counts(foreign_players)
+    effective_targets = {
+        "total": targets["total"],
+        "pitchers": targets["pitchers"],
+        "fielders": targets["fielders"],
+        "main_starter": pitcher_slots["先発"] + foreign_counts["main_starter"],
+        "main_reliever": pitcher_slots["救援"] + foreign_counts["main_reliever"],
+        "left_pitchers": left_target + foreign_counts["left_pitchers"],
+        "foreign_pitchers": targets["foreign_targets"]["投手"],
+        "foreign_fielders": targets["foreign_targets"]["野手"],
+        **{POSITION_COLUMNS[position]: fielder_slots[position] + foreign_counts[POSITION_COLUMNS[position]] for position in POSITIONS["野手"]},
+        **{band: age_targets[band] + foreign_counts[band] for band in age_targets},
+    }
+    warnings = [f"{TEAM_MODE_RELAX_LABELS[level]}をゆるめて採用: {count}人" for level, count in relaxed.items() if count]
+    return {
+        "team_seed": team_seed,
+        "team_name": team_name,
+        "strength": profile.strength,
+        "color": profile.color,
+        "sub_color": profile.sub_color,
+        "profile": profile,
+        "template": targets["template"],
+        "targets": effective_targets,
+        "actual": team_composition_counts(players),
+        "retired_numbers": retired_numbers,
+        "warnings": warnings,
+        "relaxed": {TEAM_MODE_RELAX_LABELS[level]: count for level, count in relaxed.items()},
+        "elapsed_seconds": round(time.perf_counter() - started, 3),
+        "players": players,
+    }
+
+
 def save_players(players: list[dict[str, Any]], saved_ids: list[int] | None = None) -> int:
     init_db()
     try:
@@ -7902,21 +8172,92 @@ def save_players(players: list[dict[str, Any]], saved_ids: list[int] | None = No
 
 def _insert_players(players: list[dict[str, Any]], saved_ids: list[int] | None) -> int:
     with sqlite3.connect(DB_PATH) as conn:
-        for p in players:
-            abilities = dict(p.get("abilities", {}))
-            ranked_specials = abilities.get("ranked_specials", {}) if isinstance(abilities, dict) else {}
-            pitcher_aptitudes = {key: p.get(key) for key in PITCHER_APTITUDE_KEYS if p.get(key) is not None}
-            birthplace = p.get("birthplace") or p.get("region") or ""
-            region = p.get("region") or birthplace
-            if p.get("nationality") == "日本":
-                birthplace = normalize_japanese_prefecture_name(birthplace)
-                region = normalize_japanese_prefecture_name(region)
-            cursor = conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, roster_origin, foreign_route, entry_route, pro_entry_age, pro_years, npb_years, npb_first_entry_year, npb_stint_start_year, is_returnee, nationality, actual_nationality, nationality_code, name_group_id, name_group_name, skin_color, birthplace, region, position, player_type, player_class, growth_type, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, height_cm, weight_kg, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json, birth_month, birth_day, pitching_form_type, pitching_form_number, pitching_form_is_generic, batting_form_type, batting_form_number, batting_form_is_generic, bat_color, glove_color, wristband_left_enabled, wristband_left_color, wristband_right_enabled, wristband_right_color, draft_source_type)
-                          VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                         (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("roster_origin", ""), p.get("foreign_route", ""), p.get("entry_route", ""), p.get("pro_entry_age", 0), p.get("pro_years", 0), p.get("npb_years", p.get("pro_years", 0)), p.get("npb_first_entry_year", 0), p.get("npb_stint_start_year", 0), int(bool(p.get("is_returnee", False))), p.get("nationality", ""), p.get("actual_nationality", ""), p.get("nationality_code", ""), p.get("name_group_id", 0), p.get("name_group_name", ""), p.get("skin_color", 0), birthplace, region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), normalize_growth_type(p.get("growth_type")), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), p.get("height_cm"), p.get("weight_kg"), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False), p.get("birth_month", 0), p.get("birth_day", 0), p.get("pitching_form_type", ""), p.get("pitching_form_number", 0), p.get("pitching_form_is_generic", 1), p.get("batting_form_type", ""), p.get("batting_form_number", 0), p.get("batting_form_is_generic", 1), p.get("bat_color", ""), p.get("glove_color", ""), p.get("wristband_left_enabled", 0), p.get("wristband_left_color", ""), p.get("wristband_right_enabled", 0), p.get("wristband_right_color", ""), p.get("draft_source_type", "")))
-            if saved_ids is not None:
-                saved_ids.append(int(cursor.lastrowid))
-        return len(players)
+        return _insert_players_conn(conn, players, saved_ids)
+
+
+def _insert_players_conn(conn: sqlite3.Connection, players: list[dict[str, Any]], saved_ids: list[int] | None = None, team_id: int = 0) -> int:
+    for p in players:
+        abilities = dict(p.get("abilities", {}))
+        ranked_specials = abilities.get("ranked_specials", {}) if isinstance(abilities, dict) else {}
+        pitcher_aptitudes = {key: p.get(key) for key in PITCHER_APTITUDE_KEYS if p.get(key) is not None}
+        birthplace = p.get("birthplace") or p.get("region") or ""
+        region = p.get("region") or birthplace
+        if p.get("nationality") == "日本":
+            birthplace = normalize_japanese_prefecture_name(birthplace)
+            region = normalize_japanese_prefecture_name(region)
+        cursor = conn.execute("""INSERT INTO players (created_at, seed, role, category, name, age, roster_origin, foreign_route, entry_route, pro_entry_age, pro_years, npb_years, npb_first_entry_year, npb_stint_start_year, is_returnee, nationality, actual_nationality, nationality_code, name_group_id, name_group_name, skin_color, birthplace, region, position, player_type, player_class, growth_type, archetype, position_style, development_stage, acquisition_role, weakness_profile, handedness, batting_throwing, height, weight, height_cm, weight_kg, abilities_json, special_abilities_json, ranked_special_abilities_json, breaking_balls_json, pitcher_aptitudes_json, sub_positions_json, birth_month, birth_day, pitching_form_type, pitching_form_number, pitching_form_is_generic, batting_form_type, batting_form_number, batting_form_is_generic, bat_color, glove_color, wristband_left_enabled, wristband_left_color, wristband_right_enabled, wristband_right_color, draft_source_type, team_id, roster_index, uniform_number)
+                      VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     (p.get("seed", 0), p.get("role", ""), p.get("category", ""), p.get("name", ""), p.get("age", 0), p.get("roster_origin", ""), p.get("foreign_route", ""), p.get("entry_route", ""), p.get("pro_entry_age", 0), p.get("pro_years", 0), p.get("npb_years", p.get("pro_years", 0)), p.get("npb_first_entry_year", 0), p.get("npb_stint_start_year", 0), int(bool(p.get("is_returnee", False))), p.get("nationality", ""), p.get("actual_nationality", ""), p.get("nationality_code", ""), p.get("name_group_id", 0), p.get("name_group_name", ""), p.get("skin_color", 0), birthplace, region, p.get("position", ""), p.get("player_type", ""), p.get("player_class", ""), normalize_growth_type(p.get("growth_type")), p.get("archetype", ""), p.get("position_style", ""), p.get("development_stage", ""), p.get("acquisition_role", ""), p.get("weakness_profile", ""), p.get("handedness", ""), p.get("batting_throwing", ""), p.get("height", 0), p.get("weight", 0), p.get("height_cm"), p.get("weight_kg"), json.dumps(abilities, ensure_ascii=False), json.dumps(p.get("special_abilities", []), ensure_ascii=False), json.dumps(ranked_specials, ensure_ascii=False), json.dumps(p.get("breaking_balls", []), ensure_ascii=False), json.dumps(pitcher_aptitudes, ensure_ascii=False), json.dumps(normalize_sub_positions(p.get("sub_positions", [])), ensure_ascii=False), p.get("birth_month", 0), p.get("birth_day", 0), p.get("pitching_form_type", ""), p.get("pitching_form_number", 0), p.get("pitching_form_is_generic", 1), p.get("batting_form_type", ""), p.get("batting_form_number", 0), p.get("batting_form_is_generic", 1), p.get("bat_color", ""), p.get("glove_color", ""), p.get("wristband_left_enabled", 0), p.get("wristband_left_color", ""), p.get("wristband_right_enabled", 0), p.get("wristband_right_color", ""), p.get("draft_source_type", ""), int(team_id or p.get("team_id") or 0), int(p.get("roster_index") or 0), str(p.get("uniform_number") or "")))
+        if saved_ids is not None:
+            saved_ids.append(int(cursor.lastrowid))
+    return len(players)
+
+
+def team_summary(team: dict[str, Any]) -> dict[str, Any]:
+    """概要に出す集計（teams.summary_json にも保存する）。"""
+    players = team["players"]
+    metrics = team_rating_metrics(players)
+    return {
+        "targets": team["targets"],
+        "actual": team["actual"],
+        "average_age": round(average_age(players), 2),
+        "rating_top28": round(metrics["top28"], 1),
+        "rating_all": round(metrics["all"], 1),
+        "rating_pitcher_top": round(metrics["pitcher_top"], 1),
+        "rating_fielder_top": round(metrics["fielder_top"], 1),
+        "warnings": team["warnings"],
+    }
+
+
+def team_profile_dict(team: dict[str, Any]) -> dict[str, Any]:
+    profile = team["profile"]
+    return profile.to_dict() if isinstance(profile, TeamProfile) else dict(profile or {})
+
+
+def save_team(team: dict[str, Any]) -> int:
+    """球団と所属選手を1つのトランザクションで保存し、球団IDを返す。"""
+    init_db()
+    players = team["players"]
+    profile = team_profile_dict(team)
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.execute(
+                """INSERT INTO teams (created_at, team_seed, team_name, strength, strength_index, color, sub_color, profile_json,
+                   pitcher_count, fielder_count, foreign_count, retired_numbers_json, summary_json)
+                   VALUES (datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    int(team["team_seed"]), str(team.get("team_name", "")), str(team.get("strength", "")),
+                    float(profile.get("strength_index", 0.0)), str(team.get("color", "")), str(team.get("sub_color", "")),
+                    json.dumps(profile, ensure_ascii=False),
+                    sum(p.get("role") == "投手" for p in players), sum(p.get("role") != "投手" for p in players),
+                    sum(p.get("roster_origin") == "foreign_import" for p in players),
+                    json.dumps(list(team.get("retired_numbers", [])), ensure_ascii=False),
+                    json.dumps(team_summary(team), ensure_ascii=False),
+                ),
+            )
+            team_id = int(cursor.lastrowid)
+            _insert_players_conn(conn, sorted(players, key=lambda p: int(p.get("roster_index") or 0)), team_id=team_id)
+        return team_id
+    finally:
+        clear_history_cache()
+
+
+def next_team_number() -> int:
+    """次に保存する球団のID（球団名を空欄にしたときの「架空球団{n}」に使う）。"""
+    init_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute("SELECT seq FROM sqlite_sequence WHERE name = 'teams'").fetchone()
+        if row is not None:
+            return int(row[0]) + 1
+        return int(conn.execute("SELECT COALESCE(MAX(id), 0) FROM teams").fetchone()[0]) + 1
+
+
+def load_team_row(team_id: int) -> dict[str, Any] | None:
+    init_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM teams WHERE id = ?", (int(team_id),)).fetchone()
+    return dict(row) if row is not None else None
 
 
 def delete_all_players() -> int:
@@ -7957,10 +8298,15 @@ def clear_history_cache() -> None:
 def _load_history_cached(db_path: str, modified_ns: int) -> pd.DataFrame:
     init_db()
     with sqlite3.connect(db_path) as conn:
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
-        wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "roster_origin", "foreign_route", "entry_route", "pro_entry_age", "pro_years", "npb_years", "npb_first_entry_year", "npb_stint_start_year", "is_returnee", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "region", "position", "player_type", "growth_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "height_cm", "weight_kg", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json", "birth_month", "birth_day", "pitching_form_type", "pitching_form_number", "pitching_form_is_generic", "batting_form_type", "batting_form_number", "batting_form_is_generic", "bat_color", "glove_color", "wristband_left_enabled", "wristband_left_color", "wristband_right_enabled", "wristband_right_color", "draft_source_type"]
-        selected = [column for column in wanted if column in columns]
-        history = pd.read_sql_query(f"SELECT {', '.join(selected)} FROM players ORDER BY id DESC", conn)
+        return read_history_frame(conn)
+
+
+def read_history_frame(conn: sqlite3.Connection) -> pd.DataFrame:
+    """players テーブルを、過去生成選手の表・出力と同じ列構成の DataFrame にする。"""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
+    wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "roster_origin", "foreign_route", "entry_route", "pro_entry_age", "pro_years", "npb_years", "npb_first_entry_year", "npb_stint_start_year", "is_returnee", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "region", "position", "player_type", "growth_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "height_cm", "weight_kg", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json", "birth_month", "birth_day", "pitching_form_type", "pitching_form_number", "pitching_form_is_generic", "batting_form_type", "batting_form_number", "batting_form_is_generic", "bat_color", "glove_color", "wristband_left_enabled", "wristband_left_color", "wristband_right_enabled", "wristband_right_color", "draft_source_type", "team_id", "roster_index", "uniform_number"]
+    selected = [column for column in wanted if column in columns]
+    history = pd.read_sql_query(f"SELECT {', '.join(selected)} FROM players ORDER BY id DESC", conn)
     if not history.empty:
         if "region" not in history.columns:
             history["region"] = history.get("birthplace", "")
@@ -10403,8 +10749,12 @@ def render_generation_info_html(player: dict[str, Any]) -> str:
 
 
 # ===== ヘッダー =====
-def player_uniform_number(player: dict[str, Any]) -> int:
-    return random.Random(f"number:{player.get('seed', 0)}:{player.get('name', '')}").randint(0, 99)
+def player_uniform_number(player: dict[str, Any]) -> str:
+    """カードの背番号。球団生成モードで付けた背番号があればそれを、なければ従来どおり表示用の番号を出す。"""
+    number = player.get("uniform_number")
+    if number is not None and not (isinstance(number, float) and pd.isna(number)) and str(number).strip():
+        return str(number).strip()
+    return str(random.Random(f"number:{player.get('seed', 0)}:{player.get('name', '')}").randint(0, 99))
 
 
 def header_stats_kind(player: dict[str, Any], tab: str | None) -> str:
@@ -11289,6 +11639,397 @@ def generation_page() -> None:
     render_history_section(history)
 
 
+# ===== 球団生成ページ =====
+TEAM_RESULT_KEY = "team_result"
+TEAM_SAVED_ID_KEY = "team_saved_id"
+TEAM_NAME_INPUT_KEY = "team_name_input"
+TEAM_SEED_INPUT_KEY = "team_seed_input"
+TEAM_GENERATING_KEY = "team_generating"
+TEAM_SELECTED_KEY = "team_selected_roster_index"
+TEAM_TABLE_NONCE_KEY = "team_table_nonce"
+TEAM_DETAIL_KEY_PREFIX = "team"
+TEAM_FOREIGN_MARK = "（外）"
+TEAM_OUT_OF_RANGE_COLOR = "#FFF1DC"
+TEAM_EXPORT_SHEETS = ("概要", "投手", "野手")
+
+
+def team_player_display_name(player: dict[str, Any]) -> str:
+    """表に出す名前。外国人選手は名前の後ろに目印を付ける。"""
+    name = str(player.get("name", ""))
+    return f"{name}{TEAM_FOREIGN_MARK}" if player.get("roster_origin") == "foreign_import" else name
+
+
+def team_breaking_text(player: dict[str, Any]) -> str:
+    parts = []
+    for ball in player.get("breaking_balls") or []:
+        if not isinstance(ball, dict):
+            continue
+        if ball.get("kind") == "second_fastball":
+            parts.append(str(ball.get("name", "")))
+        else:
+            parts.append(f"{ball.get('name', '')}{pitch_movement(ball)}")
+    return " ".join(part for part in parts if part)
+
+
+def team_role_text(player: dict[str, Any]) -> str:
+    """表の「役割」。適性の表記を短くしたもの（例: 先◎ 中○ 抑-）。"""
+    return " ".join(f"{PITCHER_APTITUDE_LABELS[key][:1]}{player.get(key) or '-'}" for key in PITCHER_APTITUDE_KEYS)
+
+
+def team_table_column_config(frame: pd.DataFrame) -> dict[str, Any]:
+    """数値の列は狭くして、表全体が横スクロールなしで収まりやすくする。"""
+    widths = {"背番号": 52, "名前": 130, "年齢": 44, "投打": 72, "役割": 110, "変化球": 250, "守備": 190, "弾道": 44, "査定": 52}
+    return {column: st.column_config.Column(column, width=widths.get(column, 58)) for column in frame.columns}
+
+
+def team_role_order(player: dict[str, Any]) -> int:
+    position = str(player.get("position", ""))
+    order = list(PITCHER_ROLE_ORDER) if player.get("role") == "投手" else list(POSITIONS["野手"])
+    return order.index(position) if position in order else len(order)
+
+
+def team_sorted_players(players: list[dict[str, Any]], role: str) -> list[dict[str, Any]]:
+    """投手は先発 → 中継ぎ → 抑え、野手は捕手 → … → 外野手の順。同じ役割の中は査定の高い順。"""
+    members = [p for p in players if (p.get("role") == "投手") == (role == "投手")]
+    return sorted(members, key=lambda p: (team_role_order(p), -player_rating(p), int(p.get("roster_index") or 0)))
+
+
+def team_pitcher_frame(players: list[dict[str, Any]]) -> pd.DataFrame:
+    rows = []
+    for p in players:
+        abilities = p.get("abilities") or {}
+        rows.append({
+            "背番号": str(p.get("uniform_number", "")),
+            "名前": team_player_display_name(p),
+            "年齢": int(p.get("age") or 0),
+            "投打": p.get("batting_throwing", ""),
+            "役割": team_role_text(p),
+            "球速": pitcher_speed_value(abilities),
+            "コントロール": ability_numeric_value(abilities, "コントロール"),
+            "スタミナ": ability_numeric_value(abilities, "スタミナ"),
+            "変化球": team_breaking_text(p),
+            "査定": player_rating(p),
+        })
+    return pd.DataFrame(rows)
+
+
+def team_fielder_frame(players: list[dict[str, Any]]) -> pd.DataFrame:
+    rows = []
+    for p in players:
+        abilities = p.get("abilities") or {}
+        subs = normalize_sub_positions(p.get("sub_positions", []))
+        defense = str(p.get("position", "")) + (f"（{format_sub_positions(subs)}）" if subs else "")
+        rows.append({
+            "背番号": str(p.get("uniform_number", "")),
+            "名前": team_player_display_name(p),
+            "年齢": int(p.get("age") or 0),
+            "投打": p.get("batting_throwing", ""),
+            "守備": defense,
+            "弾道": ability_numeric_value(abilities, "弾道"),
+            **{key: ability_numeric_value(abilities, key) for key in ("ミート", "パワー", "走力", "肩力", "守備力", "捕球")},
+            "査定": player_rating(p),
+        })
+    return pd.DataFrame(rows)
+
+
+def team_composition_frame(team: dict[str, Any]) -> pd.DataFrame:
+    """構成チェック表。この球団の人数と、実在（2022〜2026年版）の範囲を並べる。"""
+    actual = team["actual"]
+    rows = []
+    for column, label in COMPOSITION_ITEMS:
+        low, high = real_composition_range(column)
+        value = int(actual.get(column, 0))
+        rows.append({"項目": label, "この球団": value, "実在の範囲": f"{int(low)}〜{int(high)}", "範囲内": "○" if low <= value <= high else "範囲外"})
+    return pd.DataFrame(rows)
+
+
+def team_composition_styler(frame: pd.DataFrame) -> Any:
+    def highlight(row: pd.Series) -> list[str]:
+        color = f"background-color: {TEAM_OUT_OF_RANGE_COLOR}" if row["範囲内"] != "○" else ""
+        return [color] * len(row)
+    return frame.style.apply(highlight, axis=1)
+
+
+def team_retired_text(team: dict[str, Any]) -> str:
+    retired = list(team.get("retired_numbers") or [])
+    return ", ".join(retired) if retired else "なし"
+
+
+def team_overview_rows(team: dict[str, Any]) -> list[tuple[str, Any]]:
+    players = team["players"]
+    actual = team["actual"]
+    metrics = team_rating_metrics(players)
+    profile = team["profile"]
+    color = profile.color_display if isinstance(profile, TeamProfile) else team.get("color", "")
+    return [
+        ("球団名", team.get("team_name", "")),
+        ("球団seed", str(team.get("team_seed", ""))),
+        ("戦力レベル", team.get("strength", "")),
+        ("チームカラー", color),
+        ("総数（投手／野手）", f"{actual['total']}（{actual['pitchers']}／{actual['fielders']}）"),
+        ("外国人（投手／野手）", f"{actual['foreign']}（{actual['foreign_pitchers']}／{actual['foreign_fielders']}）"),
+        ("左投手", f"{actual['left_pitchers']}人"),
+        ("平均年齢", f"{average_age(players):.1f}歳"),
+        ("査定 上位28人平均", f"{metrics['top28']:.1f}"),
+        ("欠番", team_retired_text(team)),
+    ]
+
+
+def team_export_frame(team: dict[str, Any]) -> pd.DataFrame:
+    """球団の選手を、過去生成選手の「全データ」出力と同じ列構成にする（球団名・登録順・背番号を足す）。
+
+    同じ列にするため、メモリ上のDBに保存して読み戻す。背番号は文字列のまま（"00" を保つ）。
+    """
+    players = sorted(team["players"], key=lambda p: int(p.get("roster_index") or 0))
+    with sqlite3.connect(":memory:") as conn:
+        ensure_db_schema(conn)
+        _insert_players_conn(conn, players)
+        frame = read_history_frame(conn)
+    frame = frame.drop(columns=[RATING_COLUMN, "id"], errors="ignore").sort_values("roster_index", kind="stable").reset_index(drop=True)
+    frame.insert(0, "team_name", str(team.get("team_name", "")))
+    frame["uniform_number"] = frame["uniform_number"].astype(str)
+    return frame
+
+
+def team_excel_bytes(team: dict[str, Any]) -> bytes:
+    frame = team_export_frame(team)
+    overview = pd.DataFrame(team_overview_rows(team), columns=["項目", "値"])
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        overview.to_excel(writer, sheet_name=TEAM_EXPORT_SHEETS[0], index=False)
+        frame[frame["role"] == "投手"].to_excel(writer, sheet_name=TEAM_EXPORT_SHEETS[1], index=False)
+        frame[frame["role"] != "投手"].to_excel(writer, sheet_name=TEAM_EXPORT_SHEETS[2], index=False)
+    return buffer.getvalue()
+
+
+def team_csv_bytes(team: dict[str, Any]) -> bytes:
+    return history_csv_bytes(team_export_frame(team))
+
+
+def team_file_kind(team_name: str) -> str:
+    safe = re.sub(r'[\\/:*?"<>|\s]+', "_", str(team_name or "")).strip("_")
+    return f"team_{safe}" if safe else "team"
+
+
+def team_uniform_grid_html(team: dict[str, Any]) -> str:
+    """0〜99と00のマス。使用中は選手名、欠番は「欠番」、空き番号は薄く表示する。"""
+    by_number = {str(p.get("uniform_number")): p for p in team["players"]}
+    retired = set(team.get("retired_numbers") or [])
+    cells = []
+    for number in sorted(UNIFORM_NUMBERS, key=uniform_number_sort_key):
+        if number in by_number:
+            player = by_number[number]
+            role = "投" if player.get("role") == "投手" else str(player.get("position", ""))[:1]
+            cells.append(f'<div class="pp-uni-cell pp-uni-used"><b>{e(number)}</b><span>{e(team_player_display_name(player))}</span><small>{e(role)}</small></div>')
+        elif number in retired:
+            cells.append(f'<div class="pp-uni-cell pp-uni-retired"><b>{e(number)}</b><span>欠番</span></div>')
+        else:
+            cells.append(f'<div class="pp-uni-cell pp-uni-empty"><b>{e(number)}</b><span>空き</span></div>')
+    style = """
+    <style>
+    .pp-uni-grid {display:grid; grid-template-columns:repeat(auto-fill, minmax(104px, 1fr)); gap:6px;}
+    .pp-uni-cell {background:var(--ui-surface); border:1px solid var(--ui-border); border-radius:6px; padding:4px 6px; display:flex; flex-direction:column; min-height:54px;}
+    .pp-uni-cell b {color:var(--ui-primary); font-size:15px;}
+    .pp-uni-cell span {font-size:12px; font-weight:700; color:var(--ui-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-uni-cell small {font-size:11px; color:var(--ui-muted);}
+    .pp-uni-retired {background:#E2E7EE;}
+    .pp-uni-retired span {color:var(--ui-muted);}
+    .pp-uni-empty {opacity:.45; border-style:dashed;}
+    </style>
+    """
+    return style + '<div class="pp-uni-grid">' + "".join(cells) + "</div>"
+
+
+def team_profile_frames(team: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    profile = team["profile"]
+    params = pd.DataFrame([
+        ("戦力指数（全体）", f"{profile.strength_index:+.3f}"),
+        ("戦力指数（投手）", f"{profile.strength_index_pitcher:+.3f}"),
+        ("戦力指数（野手）", f"{profile.strength_index_fielder:+.3f}"),
+        ("チームカラーの効き具合", f"{profile.color}：{profile.color_intensity:.2f}"),
+        ("サブカラーの効き具合", f"{profile.sub_color}：{profile.sub_color_intensity:.2f}" if profile.sub_color else "なし"),
+        ("年齢の傾き", f"{profile.age_slope:+.4f}"),
+    ], columns=["項目", "値"])
+    rows = []
+    for kind, label in (("player_class_multipliers", "選手格"), ("archetype_multipliers", "型")):
+        for role, values in getattr(profile, kind).items():
+            for name, value in values.items():
+                rows.append({"種類": label, "役割": role, "名前": name, "倍率": round(float(value), 3)})
+    return params, pd.DataFrame(rows)
+
+
+def team_classification_frame(team: dict[str, Any]) -> pd.DataFrame:
+    rows = []
+    for p in sorted(team["players"], key=lambda p: uniform_number_sort_key(p.get("uniform_number"))):
+        rows.append({
+            "背番号": str(p.get("uniform_number", "")),
+            "名前": team_player_display_name(p),
+            "区分": "外国人" if p.get("roster_origin") == "foreign_import" else "国内",
+            "起用": p.get("position", ""),
+            **{CLASSIFICATION_LABELS[column]: p.get(column, "") for column in CLASSIFICATION_COLUMNS},
+            "成長タイプ": growth_type_label(p.get("growth_type")),
+            "プロ年数": int(p.get("pro_years") or 0),
+        })
+    return pd.DataFrame(rows)
+
+
+def select_team_player(table_key: str, roster_indexes: list[int]) -> None:
+    rows = st.session_state[table_key].selection.rows
+    if rows and rows[0] < len(roster_indexes):
+        st.session_state[TEAM_SELECTED_KEY] = roster_indexes[rows[0]]
+        st.session_state[f"{TEAM_DETAIL_KEY_PREFIX}_selected_player_tab"] = None
+
+
+def start_team_generation() -> None:
+    st.session_state[TEAM_GENERATING_KEY] = True
+
+
+def parse_team_seed(text: str) -> int | None:
+    """球団seedの入力。既存のseed入力と同じ読み取り・範囲チェックを使い、数字だけを受け付ける。"""
+    value = unicodedata.normalize("NFKC", str(text or "")).strip()
+    if SEED_SPEC_SEPARATOR in value:
+        raise SeedSpecError("球団seedは数字だけを入力してください。")
+    spec = parse_seed_spec(value)
+    return spec.seed if spec else None
+
+
+def run_team_generation(master: MasterData) -> None:
+    try:
+        team_seed = parse_team_seed(st.session_state.get(TEAM_SEED_INPUT_KEY, ""))
+    except SeedSpecError as error:
+        st.session_state["team_seed_error"] = str(error)
+        return
+    st.session_state.pop("team_seed_error", None)
+    team_name = str(st.session_state.get(TEAM_NAME_INPUT_KEY, "") or "").strip() or f"架空球団{next_team_number()}"
+    with st.spinner("球団を生成中です..."):
+        team = generate_team(team_seed, team_name=team_name, master=master)
+    st.session_state[TEAM_RESULT_KEY] = team
+    st.session_state.pop(TEAM_SAVED_ID_KEY, None)
+    st.session_state.pop(TEAM_SELECTED_KEY, None)
+    st.session_state[TEAM_TABLE_NONCE_KEY] = st.session_state.get(TEAM_TABLE_NONCE_KEY, 0) + 1
+    st.session_state["pending_toast"] = f"{team_name}（{len(team['players'])}人）を生成しました（{team['elapsed_seconds']:.1f}秒）"
+
+
+def render_team_sidebar() -> None:
+    with st.sidebar:
+        st.header("球団生成")
+        st.text_input("球団名（任意）", key=TEAM_NAME_INPUT_KEY, placeholder="空欄なら「架空球団＋番号」")
+        st.text_input("球団seed（任意）", key=TEAM_SEED_INPUT_KEY, placeholder="空欄ならランダム", help="同じseedなら同じ球団（構成・選手・背番号）を作ります。")
+        st.caption("人数構成は実在球団（2022〜2026年版）を基準に、戦力レベルとチームカラーはランダムに決まります")
+        st.button("球団を生成", type="primary", use_container_width=True, key="team_generate_button", disabled=bool(st.session_state.get(TEAM_GENERATING_KEY)), on_click=start_team_generation)
+        st.caption(f"Version {APP_VERSION}")
+
+
+def render_team_summary(team: dict[str, Any]) -> None:
+    rows = dict(team_overview_rows(team))
+    st.markdown('<style>div[class*="st-key-team_summary"] [data-testid="stMetricValue"] {font-size:28px; font-weight:800; color:var(--ui-primary);}</style>', unsafe_allow_html=True)
+    with st.container(key="team_summary"):
+        render_team_metrics(rows)
+    for warning in team.get("warnings") or []:
+        st.caption(f"⚠ {warning}")
+
+
+def render_team_metrics(rows: dict[str, Any]) -> None:
+    first = st.columns(4)
+    for col, label in zip(first, ("戦力レベル", "チームカラー", "総数（投手／野手）", "外国人（投手／野手）")):
+        col.metric(label, rows[label])
+    second = st.columns(4)
+    for col, label in zip(second, ("左投手", "平均年齢", "査定 上位28人平均", "欠番")):
+        col.metric(label, rows[label])
+
+
+def render_team_save_and_exports(team: dict[str, Any]) -> None:
+    saved_id = st.session_state.get(TEAM_SAVED_ID_KEY)
+    now = pd.Timestamp.now()
+    kind = team_file_kind(team.get("team_name", ""))
+    save_col, csv_col, excel_col, status_col = st.columns([0.2, 0.2, 0.2, 0.4], gap="small", vertical_alignment="center")
+    with save_col:
+        if st.button("この球団を保存", type="primary", use_container_width=True, disabled=saved_id is not None, key="team_save_button"):
+            try:
+                st.session_state[TEAM_SAVED_ID_KEY] = save_team(team)
+            except sqlite3.Error as error:
+                st.error(f"球団の保存に失敗しました（{error}）。")
+            else:
+                st.session_state["pending_toast"] = "球団を保存しました"
+                st.rerun()
+    with csv_col:
+        st.download_button("CSVで保存", data=team_csv_bytes(team), file_name=export_file_name(kind, "csv", now), mime="text/csv", use_container_width=True, key="team_export_csv")
+    with excel_col:
+        st.download_button("Excelで保存", data=team_excel_bytes(team), file_name=export_file_name(kind, "xlsx", now), mime=EXCEL_MIME, use_container_width=True, key="team_export_excel")
+    with status_col:
+        if saved_id is not None:
+            st.markdown(f'<div class="pp-table-count">保存済み（球団ID: {int(saved_id)}）</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="pp-table-count">まだ保存していません（作り直すと、この球団は破棄されます）</div>', unsafe_allow_html=True)
+
+
+def render_team_roster_table(team: dict[str, Any], role: str, master: MasterData) -> None:
+    players = team_sorted_players(team["players"], role)
+    frame = team_pitcher_frame(players) if role == "投手" else team_fielder_frame(players)
+    roster_indexes = [int(p.get("roster_index") or 0) for p in players]
+    table_key = f"team_table_{role}_{st.session_state.get(TEAM_TABLE_NONCE_KEY, 0)}"
+    st.dataframe(
+        frame,
+        use_container_width=True,
+        hide_index=True,
+        height=min(35 * (len(frame) + 1) + 3, 640),
+        column_config=team_table_column_config(frame),
+        on_select=partial(select_team_player, table_key, roster_indexes),
+        selection_mode="single-row",
+        key=table_key,
+    )
+    selected = st.session_state.get(TEAM_SELECTED_KEY)
+    if selected in roster_indexes:
+        player = players[roster_indexes.index(selected)]
+        with st.container(key=f"team_player_area_{role}"):
+            render_detail_panel(player, master, TEAM_DETAIL_KEY_PREFIX)
+    else:
+        st.caption("行を選ぶと、その選手の能力カードを表示します。")
+
+
+def render_team_result(team: dict[str, Any], master: MasterData) -> None:
+    render_section_heading(f"{team.get('team_name', '')}　概要")
+    render_team_summary(team)
+    render_team_save_and_exports(team)
+    render_section_heading("構成チェック")
+    st.caption("この球団の人数と、実在球団（2022〜2026年版、60チーム）の範囲です。範囲外の項目は色が付きます。抑え・先発の適性は2022〜2025年版、年齢帯は2026年版の範囲です。")
+    st.dataframe(team_composition_styler(team_composition_frame(team)), use_container_width=True, hide_index=True, height=35 * (len(COMPOSITION_ITEMS) + 1) + 3)
+    render_section_heading("投手一覧")
+    render_team_roster_table(team, "投手", master)
+    render_section_heading("野手一覧")
+    render_team_roster_table(team, "野手", master)
+    with st.expander("背番号一覧"):
+        st.markdown(team_uniform_grid_html(team), unsafe_allow_html=True)
+    with st.expander("選手の内部分類"):
+        st.dataframe(team_classification_frame(team), use_container_width=True, hide_index=True)
+    with st.expander("球団の内部パラメータ"):
+        params, multipliers = team_profile_frames(team)
+        st.dataframe(params, use_container_width=True, hide_index=True)
+        st.dataframe(multipliers, use_container_width=True, hide_index=True)
+
+
+def team_page() -> None:
+    master = load_master_data()
+    render_app_title()
+    render_page_description("実在球団に近い人数構成で、1球団分の選手をまとめて作ります。戦力レベルとチームカラーはランダムに決まります。")
+    render_team_sidebar()
+    if st.session_state.get(TEAM_GENERATING_KEY):
+        try:
+            run_team_generation(master)
+        finally:
+            st.session_state[TEAM_GENERATING_KEY] = False
+        st.rerun()
+    if st.session_state.get("pending_toast"):
+        st.toast(st.session_state.pop("pending_toast"), icon="✅")
+    if st.session_state.get("team_seed_error"):
+        st.error(st.session_state["team_seed_error"])
+    team = st.session_state.get(TEAM_RESULT_KEY)
+    if not team:
+        st.info("左の「球団を生成」で、1球団分（約63〜70人）の選手を作ります。生成した球団は「この球団を保存」を押すまで保存されません。")
+        return
+    render_team_result(team, master)
+
+
 def balance_page() -> None:
     render_balance_check(load_master_data())
 
@@ -11300,6 +12041,7 @@ def main() -> None:
     inject_app_chrome_css()
     pages = [
         st.Page(generation_page, title="選手生成", icon="⚾", url_path="generate", default=True),
+        st.Page(team_page, title="球団生成", icon="🏟️", url_path="team"),
         st.Page(balance_page, title="バランス確認", icon="📊", url_path="balance"),
     ]
     st.navigation(pages, position="top").run()
