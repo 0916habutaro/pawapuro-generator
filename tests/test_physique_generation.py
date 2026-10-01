@@ -101,8 +101,9 @@ def test_legacy_sqlite_rows_can_have_null_physique(tmp_path, monkeypatch):
     assert row == (None, None)
 
 
-def test_profile_uses_new_physique_and_handles_legacy_nulls():
-    html = app.render_profile_right({"name": "選手", "height_cm": 184, "weight_kg": 91})
+def test_generation_info_uses_new_physique_and_handles_legacy_nulls():
+    # 身長・体重はプロフィールから生成情報へ移した（C-2）
+    html = app.render_generation_info_html({"name": "選手", "height_cm": 184, "weight_kg": 91})
     assert "184cm" in html and "91kg" in html
-    legacy_html = app.render_profile_right({"name": "旧選手", "height_cm": None, "weight_kg": None, "height": 180, "weight": 80})
-    assert legacy_html.count(">-</div>") == 2
+    legacy_html = app.render_generation_info_html({"name": "旧選手", "height_cm": None, "weight_kg": None, "height": 180, "weight": 80})
+    assert legacy_html.count('<span class="pp-generation-value">-</span>') == 2

@@ -21,6 +21,9 @@ players.sqlite3
 data/imported/
 local_data/
 
+# 表示設定（ゲーム内の年など。利用者ごとのローカル設定）
+data/config/display_settings.json
+
 # Locally supplied OOTP source XML
 data/external/ootp/*.xml
 

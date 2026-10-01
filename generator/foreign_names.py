@@ -267,6 +267,23 @@ def generate_foreign_profile(
 
 
 @lru_cache(maxsize=4)
+def nation_name_orders(db_path: str = str(DEFAULT_DB_PATH), config_path: str = str(DEFAULT_CONFIG_PATH)) -> tuple[dict[str, str], dict[str, str]]:
+    """読み取り専用：名前の順序（surname_given / given_surname）を (実国籍→順序, 表示国籍→順序) で返す。
+
+    表示国籍は、その表示国籍になる実国籍の順序がすべて同じ場合だけ含める。DBを利用できない場合は空の辞書を返す。
+    """
+    if not imported_db_ready(db_path):
+        return {}, {}
+    config = load_config(config_path)
+    by_actual = {actual: str(nation.get("name_order") or "given_surname") for actual, nation in load_nations(db_path).items()}
+    display_orders: dict[str, set[str]] = {}
+    for actual, order in by_actual.items():
+        display_orders.setdefault(display_nationality_for(actual, config), set()).add(order)
+    by_display = {display: next(iter(orders)) for display, orders in display_orders.items() if len(orders) == 1}
+    return by_actual, by_display
+
+
+@lru_cache(maxsize=4)
 def name_group_display_nationalities(db_path: str = str(DEFAULT_DB_PATH), config_path: str = str(DEFAULT_CONFIG_PATH)) -> dict[int, frozenset[str]]:
     """読み取り専用：名前グループID → その名前グループで名前を作りうる表示国籍の集合。
 

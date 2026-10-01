@@ -3,6 +3,7 @@ import copy
 import hashlib
 import itertools
 import json
+import calendar
 import random
 import re
 import sqlite3
@@ -20,7 +21,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-from generator.foreign_names import generate_foreign_profile, name_group_display_nationalities
+from generator.foreign_names import generate_foreign_profile, name_group_display_nationalities, nation_name_orders
 
 APP_VERSION = "1.0.0"
 APP_NAME = "パワプロ風 架空選手生成"
@@ -498,7 +499,9 @@ def ensure_master_files() -> None:
             csv.writer(f).writerows(rows)
 
 
+@st.cache_resource(show_spinner=False)
 def load_master_data() -> MasterData:
+    # CSV・JSONの読み直しは操作のたびに走らないようキャッシュする（生成処理はマスターデータを書き換えない）
     ensure_master_files()
     abilities = pd.read_csv(DATA_DIR / "special_abilities.csv")
     missing_columns = [column for column in SPECIAL_ABILITY_COLUMNS if column != "target_role" and column not in abilities.columns]
@@ -7881,6 +7884,13 @@ def advance_foreign_import_roster_year(
 
 def save_players(players: list[dict[str, Any]], saved_ids: list[int] | None = None) -> int:
     init_db()
+    try:
+        return _insert_players(players, saved_ids)
+    finally:
+        clear_history_cache()
+
+
+def _insert_players(players: list[dict[str, Any]], saved_ids: list[int] | None) -> int:
     with sqlite3.connect(DB_PATH) as conn:
         for p in players:
             abilities = dict(p.get("abilities", {}))
@@ -7901,10 +7911,13 @@ def save_players(players: list[dict[str, Any]], saved_ids: list[int] | None = No
 
 def delete_all_players() -> int:
     init_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        deleted_count = conn.execute("SELECT COUNT(*) FROM players").fetchone()[0]
-        conn.execute("DELETE FROM players")
-        return int(deleted_count)
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            deleted_count = conn.execute("SELECT COUNT(*) FROM players").fetchone()[0]
+            conn.execute("DELETE FROM players")
+            return int(deleted_count)
+    finally:
+        clear_history_cache()
 
 
 def apply_history_filters(df: pd.DataFrame, categories: list[str], roles: list[str]) -> pd.DataFrame:
@@ -7917,8 +7930,23 @@ def apply_history_filters(df: pd.DataFrame, categories: list[str], roles: list[s
 
 
 def load_history() -> pd.DataFrame:
+    """保存済みの全選手。DBのパスと更新時刻をキーにキャッシュし、タブ切り替えなどの操作ではDBを読み直さない。
+
+    st.cache_data は呼び出しごとにコピーを返すため、呼び出し側で書き換えてもキャッシュには影響しない。
+    """
+    db_path = Path(DB_PATH)
+    modified = db_path.stat().st_mtime_ns if db_path.exists() else 0
+    return _load_history_cached(str(db_path), modified)
+
+
+def clear_history_cache() -> None:
+    _load_history_cached.clear()
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def _load_history_cached(db_path: str, modified_ns: int) -> pd.DataFrame:
     init_db()
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(db_path) as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
         wanted = ["id", "created_at", "seed", "role", "category", "name", "age", "roster_origin", "foreign_route", "entry_route", "pro_entry_age", "pro_years", "npb_years", "npb_first_entry_year", "npb_stint_start_year", "is_returnee", "nationality", "actual_nationality", "nationality_code", "name_group_id", "name_group_name", "skin_color", "birthplace", "region", "position", "player_type", "growth_type", *CLASSIFICATION_COLUMNS, "handedness", "batting_throwing", "height", "weight", "height_cm", "weight_kg", "abilities_json", "special_abilities_json", "ranked_special_abilities_json", "breaking_balls_json", "pitcher_aptitudes_json", "sub_positions_json", "birth_month", "birth_day", "pitching_form_type", "pitching_form_number", "pitching_form_is_generic", "batting_form_type", "batting_form_number", "batting_form_is_generic", "bat_color", "glove_color", "wristband_left_enabled", "wristband_left_color", "wristband_right_enabled", "wristband_right_color", "draft_source_type"]
         selected = [column for column in wanted if column in columns]
@@ -9135,121 +9163,84 @@ def render_page_description(text: str) -> None:
 
 
 def inject_powerpro_ui_css() -> None:
+    # 能力カードのCSS。各クラスの定義は1か所にまとめ、上書きの積み重ねはしない（変更するときは同じクラスの既存ルールを書き換える）。
     st.markdown("""
     <style>
-    @import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;800;900&family=Barlow+Condensed:wght@700;800&display=swap");
+    @import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800;900&family=Barlow+Condensed:wght@700;800&display=swap");
     .block-container {max-width:1680px; padding-top:3.5rem; padding-bottom:2rem;}
-    .pp-panel {background:#fff;}
-    div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {max-width:1560px; margin:0 auto; background:#fff; border:4px solid var(--pp-tab-color,#0876c9); border-radius:16px; padding:8px; box-shadow:0 7px 0 rgba(0,76,130,.18), inset 0 0 0 5px #e8f8ff; font-family:"Arial Rounded MT Bold","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo",sans-serif;}
-    div[class*="st-key-latest_detail_shell"] > div, div[class*="st-key-history_detail_shell"] > div {font-family:inherit;}
-    .pp-header {display:grid; grid-template-columns:minmax(330px, 1.2fr) 126px minmax(400px, 1.45fr); gap:7px; align-items:stretch; min-height:126px; margin-bottom:0; min-width:0;}
-    .pp-name {background:linear-gradient(#ffbbb5,#ff6e68); border:3px solid #e82e42; border-radius:8px; font-size:28px; font-weight:900; text-align:center; padding:4px 7px; min-height:44px; color:#022d55; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; position:relative; display:flex; align-items:center; justify-content:center; min-width:0;}
-    .pp-number-box {background:#fff; color:#075fbd; border:3px solid #c8e7ff; border-radius:5px; font-size:28px; line-height:1.38; font-weight:950; text-align:center; align-self:stretch; min-height:44px; display:flex; align-items:center; justify-content:center; min-width:0; height:100%;}
-    .pp-category-mark {background:linear-gradient(#fff,#e9f9ff); border:3px solid #c8e7ff; border-radius:5px; color:#075fbd; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:950; min-height:44px; min-width:0; height:100%;}
-    .pp-face {background:#f7fbff; border:2px solid #c8e7ff; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:126px; overflow:hidden; width:126px; min-width:126px; height:126px;}
-    .pp-face svg {width:72px; height:72px; flex:0 0 auto;}
-    .pp-info {display:grid; grid-template-columns:minmax(170px, 1.3fr) minmax(130px, 1fr) minmax(100px, .72fr); gap:5px; align-content:stretch; min-width:0;}
-    .pp-chip {background:#f7fbff; border:2px solid #d5edff; border-radius:9px; padding:5px 8px; color:#0a69b0; font-weight:800; font-size:17px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-    .pp-chip-wide {font-size:14px; letter-spacing:-.03em;}
-    .pp-score {background:#0368b8; color:white; border-radius:7px; padding:1px 8px; display:inline-block; font-weight:900;}
-    .pp-body {display:grid; grid-template-columns:33% 67%; gap:9px; background:#edf9fc; border:0; border-top:3px solid var(--pp-tab-color,#0876c9); border-radius:0 0 10px 10px; padding:9px; overflow:hidden; align-items:start; margin-top:0;}
-    .pp-body-pitcher {grid-template-columns:35% 65%; min-height:430px; overflow:visible;}
-    .pp-mini-label {font-size:12px; opacity:.75; display:block; margin-bottom:3px;}
-    .pp-ability-row {display:grid; grid-template-columns:minmax(102px,38%) 50px 1fr; align-items:center; margin:3px 0; background:#fff; border:2px solid #cfe9ff; border-radius:7px; min-height:42px; height:42px; overflow:hidden; box-shadow:inset 0 1px rgba(255,255,255,.72);}
-    .pp-label {font-size:17px; background:#fff; border-radius:7px; margin-left:6px; padding:2px 7px; color:#126bb0; font-weight:900; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-    .pp-rank {font-size:26px; font-weight:950; text-align:center; -webkit-text-stroke:.45px rgba(255,255,255,.75); text-shadow:0 1px rgba(255,255,255,.42); line-height:1; width:42px;}
-    .pp-value {font-size:24px; color:#0b72bd; font-weight:950; text-align:right; padding-right:12px; overflow-wrap:anywhere;}
-    .pp-special-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:3px;}
-    .pp-special {height:42px; min-width:0; border-radius:7px; border:2px solid #3fb5cb; background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%); color:#075f94; font-weight:850; display:grid; grid-template-columns:minmax(0,1fr); place-items:center; padding:0 6px; font-size:17px; box-shadow:inset 0 1px rgba(255,255,255,.72),0 1px 1px rgba(7,95,148,.14);}
-    .pp-special-name {overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; max-width:100%; text-align:center;}
-    .pp-special-ranked {display:grid; grid-template-columns:minmax(0,1fr) 26px; padding:0; overflow:hidden; gap:0; align-items:stretch;}
-    .pp-special-ranked .pp-special-name {display:flex; align-items:center; justify-content:center; padding:0 4px; min-width:0;}
-    .pp-special-rank-badge {display:flex; align-items:center; justify-content:center; align-self:stretch; width:26px; color:#fff; font-size:19px; line-height:1; font-weight:950; text-align:center; text-shadow:0 1px rgba(0,42,70,.32);}
-    .pp-special.long .pp-special-name {font-size:15px; letter-spacing:-.065em;}
-    .pp-special.xlong .pp-special-name {font-size:13px; letter-spacing:-.085em;}
-    .pp-special.red {background:linear-gradient(#fff8f8,#ffe0e0); border-color:#f29a9a; color:#bd1624;}
-    .pp-special.green {background:linear-gradient(180deg,#effff2 0%,#bcebc7 100%); border-color:#36aa5b; color:#086b30;}
-    .pp-special.neutral {background:linear-gradient(180deg,#f9fdff 0%,#e0f2f6 100%); border-color:#82bdca; color:#285e75;}
-    .pp-special.gold {background:linear-gradient(#fffdf1,#fff0ad); border-color:#e0be3c; color:#836200;}
-    .pp-special.mixed {background:linear-gradient(to right,#b8eef4 0%,#83dce7 50%,#ffe0e0 50%,#ffadad 100%); border-color:#3fb5cb; color:#073f68; text-shadow:0 1px rgba(255,255,255,.68);}
-    .pp-special-ranked.rank-ab {background:linear-gradient(180deg,#eefcff 0%,#ade8ef 58%,#78d3df 100%); border-color:#39afc4; color:#075f94;}
-    .pp-special-ranked.rank-ab .pp-special-rank-badge {background:linear-gradient(180deg,#38c9dc 0%,#1595b5 100%); color:#fff;}
-    .pp-special-ranked.rank-cde {background:linear-gradient(180deg,#fbfdff 0%,#e3f1f5 55%,#c9e5eb 100%); border-color:#78b5c2; color:#285e75;}
-    .pp-special-ranked.rank-cde .pp-special-rank-badge {background:linear-gradient(180deg,#72c5d2 0%,#388fa3 100%); color:#fff;}
-    .pp-special-ranked.rank-fg {background:linear-gradient(180deg,#fff5f5 0%,#ffd3d3 55%,#ffadad 100%); border-color:#ef6c72; color:#c71c24;}
-    .pp-special-ranked.rank-fg .pp-special-rank-badge {background:linear-gradient(180deg,#ed5a60 0%,#c8212b 100%); color:#fff;}
-    .pp-special.empty {height:42px; background:linear-gradient(180deg,#ffffff 0%,#fbfdfe 58%,#f5fafb 100%); border-color:#dcebef; color:transparent; box-shadow:none;}
-    .pp-section-title {color:#075f9e; font-weight:900; font-size:17px; margin:2px 0 7px;}
     div[data-testid="stButton"] > button {min-height:2.2rem;}
     button[kind="primary"], button[kind="primary"] * {color:#ffffff!important;}
-    @media (max-width: 980px) {
-      .pp-header {grid-template-columns:1fr;}
-      .pp-face {width:100%;}
-      .pp-profile-table {grid-template-columns:88px minmax(0, 1fr);}
-      .pp-profile-span-3 {grid-column:span 1;}
-      .pp-info {grid-template-columns:1fr;}
-      .pp-body,.pp-body-pitcher {grid-template-columns:1fr; min-height:0;}
-      .pp-special-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
-      .pp-usage-grid {grid-template-columns:repeat(4,minmax(0,1fr));}
-      .pp-defense-compact {width:100%;}
-    }
-    .pp-aptitude-line {background:#f9fdff; border:2px solid #cfe9ff; border-radius:9px; color:#0a69b0; font-weight:900; padding:5px 9px; margin-bottom:6px; white-space:nowrap; font-size:15px;}
-    .pp-pitcher-usage-row,.pp-pitcher-defense-row {display:grid; grid-template-columns:40% 1fr; align-items:center; margin:4px 0; background:#fff; border:2px solid #cfe9ff; border-radius:9px; min-height:39px; overflow:hidden; box-shadow:inset 0 2px rgba(255,255,255,.8);}
-    .pp-pitcher-usage-values {display:flex; gap:14px; align-items:center; justify-content:space-around; min-width:0; white-space:nowrap; color:#0b72bd; font-weight:950; font-size:18px;}
-    .pp-pitcher-usage-item {white-space:nowrap; display:inline-flex; gap:2px; align-items:baseline;}
-    .pp-pitcher-defense-values {display:flex; gap:10px; align-items:baseline; justify-content:flex-end; padding-right:12px; white-space:nowrap; color:#0b72bd; font-weight:950;}
-    @media (max-width: 980px) {.pp-pitcher-usage-values {font-size:15px; gap:8px;}}
-    .pp-chart-wrap {height:286px; min-height:286px; max-height:286px; margin-top:6px; overflow:hidden;}
-    .pp-trajectory-row {overflow:hidden;}
-    .pp-trajectory-icon {display:flex; align-items:center; justify-content:center; width:50px; height:100%; overflow:visible;}
-    .pp-trajectory-icon svg {overflow:visible;}
-    .pp-trajectory-icon.trajectory-1 svg {transform:rotate(0deg); transform-origin:6px 25px;}
-    .pp-trajectory-icon.trajectory-2 svg {transform:rotate(-18deg); transform-origin:6px 25px;}
-    .pp-trajectory-icon.trajectory-3 svg {transform:rotate(-34deg); transform-origin:6px 25px;}
-    .pp-trajectory-icon.trajectory-4 svg {transform:rotate(-58deg); transform-origin:6px 25px;}
-    .pp-trajectory-value {color:#0b72bd;}
-    .pp-defense-grid,.pp-profile-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px;}
-    .pp-defense-compact {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px; margin:5px 0; border:2px solid #a9d4e8; border-radius:9px; overflow:hidden; background:#a9d4e8;}
-    .pp-defense-pos {display:grid; grid-template-columns:34px 34px minmax(0,1fr); align-items:center; gap:4px; background:#f7fbfd; border:0; border-radius:0; padding:8px; color:#28617f; font-weight:850; min-height:42px; min-width:0;}
-    .pp-defense-short {text-align:left; color:#245c78;}
-    .pp-defense-rank {text-align:center; font-size:18px; font-weight:950;}
-    .pp-defense-num {text-align:right; color:#0b629d; font-variant-numeric:tabular-nums;}
-    .pp-defense-empty {grid-column:2 / 4; text-align:center; color:#aec5d1; font-weight:800;}
-    .pp-defense-pos.main {background:#dff3ff; box-shadow:inset 4px 0 0 #0b8fe0; color:#063f68; font-weight:950;}
-    .pp-usage-grid {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px;}
-    .pp-usage-cell {min-height:46px; border:2px solid #bde7f0; border-radius:7px; display:flex; align-items:center; justify-content:center; padding:0 6px; font-weight:900; color:#0b72bd; background:rgba(235,250,253,.46); min-width:0; text-align:center;}
-    .pp-usage-label {background:linear-gradient(180deg,#fff 0%,#e9f9fd 100%); color:#126bb0;}
-    .pp-usage-value {background:linear-gradient(180deg,#f3fff5 0%,#c9f2d2 100%); border-color:#56c978; color:#13783a;}
-    .pp-usage-empty {color:transparent; background:linear-gradient(180deg,#fbfeff 0%,#f2fbfd 58%,#e3f5f8 100%); border-color:#c7e5eb; box-shadow:none;}
-    .pp-header-main {display:grid; grid-template-rows:76px 43px; gap:5px; min-width:0;}
+    /* ===== カードの枠・フォント ===== */
+    div[class*="st-key-latest_detail_shell"] {--pp-font:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans CJK JP",sans-serif; --pp-num-font:"Barlow Condensed","Roboto Condensed","Arial Narrow","M PLUS Rounded 1c","Noto Sans CJK JP",sans-serif; max-width:1560px; margin:0 auto; background:#f4fbfd; border:5px solid var(--pp-tab-color,#0876c9); border-radius:16px; padding:8px; box-shadow:0 8px 0 rgba(0,70,120,.16), inset 0 0 0 4px #ffffff; font-family:var(--pp-font);}
+    div[class*="st-key-latest_detail_shell"] > div {font-family:inherit;}
+    /* Streamlitのmarkdown既定フォント（Source Sans）に上書きされないよう、カード内は!importantで指定 */
+    div[class*="st-key-latest_detail_shell"] :is(div,span,p,summary,button,text) {font-family:var(--pp-font)!important;}
+    div[class*="st-key-latest_detail_shell"] :is(.pp-value,.pp-value *,.pp-number-box,.pp-defense-num,.pp-chip) {font-family:var(--pp-num-font)!important;}
+    /* ===== ヘッダー：名前プレート・背番号・顔・成績欄 ===== */
+    .pp-header {display:grid; grid-template-columns:minmax(330px, 1.2fr) 126px minmax(400px, 1.45fr); gap:8px; align-items:stretch; min-height:132px; margin-bottom:0; min-width:0;}
+    .pp-header-main {display:grid; grid-template-rows:80px 44px; gap:6px; min-width:0;}
     .pp-name-line {display:grid; grid-template-columns:minmax(0, 1fr) 48px 62px; gap:5px; min-width:0;}
-    .pp-posline {background:#f7fbff; border:2px solid #d5edff; border-radius:9px; padding:5px 8px; color:#0a69b0; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; height:43px; min-height:43px;}
-    .pp-profile-table {display:grid; grid-template-columns:92px minmax(0, 1fr) 92px minmax(0, 1fr); border:2px solid #c4e3ec; border-radius:7px; overflow:hidden; background:#ffffff;}
-    .pp-profile-label {min-height:44px; display:flex; align-items:center; padding:0 9px; background:#f5fbfd; border-right:1px solid #cfe8ee; border-bottom:1px solid #cfe8ee; color:#1973a5; font-size:14px; font-weight:850;}
-    .pp-profile-value {min-height:44px; display:flex; align-items:center; padding:0 10px; background:#ffffff; border-right:1px solid #cfe8ee; border-bottom:1px solid #cfe8ee; color:#123f61; font-size:17px; font-weight:800; min-width:0; overflow-wrap:anywhere;}
-    .pp-profile-span-3 {grid-column:span 3;}
-    @media (max-width: 980px) {
-      .pp-profile-table {grid-template-columns:88px minmax(0,1fr);}
-      .pp-profile-span-3 {grid-column:span 1;}
-    }
-    .pp-generation-grid {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px;}
-    .pp-generation-card {background:#f8fcff; border:2px solid #cce8ff; border-radius:9px; padding:7px; color:#0a69b0; font-weight:900; min-height:50px;}
-    div[class*="st-key-latest_tab_"], div[class*="st-key-history_tab_"] {margin-bottom:-2px;}
-    div[class*="st-key-latest_tab_"] button, div[class*="st-key-history_tab_"] button {background:#06396f!important; color:white!important; border-color:#052e5a!important; font-weight:900; border-radius:11px 11px 0 0!important; margin-right:0!important; min-height:3rem;}
-    div[class*="st-key-latest_tab_"] button *, div[class*="st-key-history_tab_"] button * {color:#ffffff!important;}
-    div[class*="st-key-latest_tab_"] button[kind="primary"], div[class*="st-key-history_tab_"] button[kind="primary"] {border-bottom-color:transparent!important;}
-    div[class*="st-key-latest_tab_player"] button[kind="primary"], div[class*="st-key-history_tab_player"] button[kind="primary"] {background:#075fbd!important; border-color:#075fbd!important;}
-    div[class*="st-key-latest_tab_pitcher"] button[kind="primary"], div[class*="st-key-history_tab_pitcher"] button[kind="primary"] {background:#d7193f!important; border-color:#d7193f!important;}
-    div[class*="st-key-latest_tab_fielder"] button[kind="primary"], div[class*="st-key-history_tab_fielder"] button[kind="primary"] {background:#0876c9!important; border-color:#0876c9!important;}
-    div[class*="st-key-latest_tab_usage"] button[kind="primary"], div[class*="st-key-history_tab_usage"] button[kind="primary"] {background:#d49a00!important; border-color:#d49a00!important;}
-    div[class*="st-key-latest_tab_profile"] button[kind="primary"], div[class*="st-key-history_tab_profile"] button[kind="primary"] {background:#087d23!important; border-color:#087d23!important;}
-    /* ===== ゲーム画面寄せ（見た目のみの上書き。上の既存ルールより後に置くことで優先されます） ===== */
-    div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {font-family:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans CJK JP",sans-serif; background:#f4fbfd; border-width:5px; box-shadow:0 8px 0 rgba(0,70,120,.16), inset 0 0 0 4px #ffffff;}
-    div[class*="st-key-latest_detail_shell"] .pp-value, div[class*="st-key-history_detail_shell"] .pp-value, .pp-number-box, .pp-defense-num {font-family:"Barlow Condensed","Roboto Condensed","Arial Narrow","M PLUS Rounded 1c","Noto Sans CJK JP",sans-serif;}
-    /* ラベル：白いピル型 */
-    .pp-label {background:linear-gradient(180deg,#ffffff 0%,#f1f5f8 100%); border:2px solid #d4dde4; border-radius:12px; box-shadow:0 2px 0 #c6d1da; color:#2a6aa9; font-weight:800; letter-spacing:.18em; margin:0 6px; padding:3px 6px;}
-    /* 基礎能力行 */
-    .pp-trajectory-value {color:#163b6e;}
+    /* 名前帯：登録名を横圧縮のSVG（fit_text_svg）で表示するため、省略記号は使わない */
+    .pp-name {display:flex; align-items:center; justify-content:center; position:relative; min-width:0; min-height:44px; padding:0 12px; background:linear-gradient(#ffbbb5,#ff6e68); border:3px solid #e82e42; border-radius:8px; box-shadow:inset 0 2px 0 rgba(255,255,255,.55), 0 2px 0 rgba(0,0,0,.18); color:#161616; font-weight:700; overflow:hidden;}
+    .pp-category-mark {display:flex; align-items:center; justify-content:center; min-width:0; min-height:44px; height:100%; background:linear-gradient(#fff,#e9f9ff); border:3px solid #d4e4ee; border-radius:5px; color:#163b6e; font-size:20px; font-weight:950;}
+    .pp-number-box {display:flex; align-items:center; justify-content:center; align-self:stretch; min-width:0; min-height:44px; height:100%; background:linear-gradient(180deg,#ffffff,#eef6fb); border:3px solid #d4e4ee; border-radius:5px; color:#163b6e; font-size:42px; line-height:1.38; font-weight:800; text-align:center;}
+    .pp-face {display:flex; align-items:center; justify-content:center; width:132px; min-width:132px; height:132px; min-height:132px; overflow:hidden; background:linear-gradient(180deg,#ffffff,#f1f8fc); border:3px solid #d4e4ee; border-radius:10px;}
+    .pp-face svg {width:100%; height:100%; flex:0 0 auto;}
+    .pp-info {display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); grid-template-rows:1fr 1fr; gap:6px; align-content:stretch; min-width:0;}
+    .pp-info .pp-chip:first-child {grid-column:1 / -1;}
+    .pp-chip {display:flex; align-items:center; gap:10px; min-width:0; padding:4px 8px; background:linear-gradient(180deg,#ffffff,#f3f8fb); border:2px solid #dbe7ee; border-radius:9px; color:#163b6e; font-size:30px; font-weight:700; overflow:hidden;}
+    .pp-chip-value {flex:1 1 auto; display:flex; align-items:center; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    /* ヘッダーのラベル（成績・フォーム・投打・守備位置・適性）は左列の能力ラベルと同じ大きさのピル */
+    .pp-label.pp-head-label {flex:0 0 auto; margin:0; padding:4px 10px 4px calc(10px + .2em); font-size:21px; letter-spacing:.2em;}
+    /* 守備位置・適性：ラベルピル＋大きな値 */
+    .pp-posline {display:flex; align-items:center; gap:14px; height:43px; min-height:43px; padding:4px 8px; background:linear-gradient(180deg,#ffffff,#f3f8fb); border:2px solid #dbe7ee; border-radius:9px; color:#1b5f9e; font-size:20px; font-weight:700; letter-spacing:.04em; overflow:visible; white-space:nowrap;}
+    .pp-pos-values {display:inline-flex; align-items:baseline; gap:10px; color:#1b5f9e; font-weight:700;}
+    .pp-pos-item.main, .pp-pos-item.lv3 {font-size:30px;}
+    .pp-pos-item.lv2 {font-size:24px;}
+    .pp-pos-item.sub, .pp-pos-item.lv1 {font-size:20px;}
+    /* ===== タブ：選択中はタブ色、非選択はタブごとの暗い色 ===== */
+    div[class*="st-key-latest_tab_"] {margin-bottom:-2px;}
+    div[class*="st-key-latest_tab_"] button {background:#06396f!important; color:white!important; border-color:#052e5a!important; border-radius:11px 11px 0 0!important; margin-right:0!important; min-height:3rem; font-size:20px; font-weight:900; letter-spacing:.06em;}
+    div[class*="st-key-latest_tab_"] button * {color:#ffffff!important;}
+    div[class*="st-key-latest_tab_"] button p {font-size:22px!important; font-weight:900!important; letter-spacing:.08em;}
+    div[class*="st-key-latest_tab_"] button[kind="primary"] {border-bottom-color:transparent!important;}
+    div[class*="st-key-latest_tab_pitcher"] button[kind="primary"] {background:#d7193f!important; border-color:#d7193f!important;}
+    div[class*="st-key-latest_tab_fielder"] button[kind="primary"] {background:#0876c9!important; border-color:#0876c9!important;}
+    div[class*="st-key-latest_tab_usage"] button[kind="primary"] {background:#d49a00!important; border-color:#d49a00!important;}
+    div[class*="st-key-latest_tab_profile"] button[kind="primary"] {background:#087d23!important; border-color:#087d23!important;}
+    div[class*="st-key-latest_tab_pitcher"] button[kind="secondary"] {background:#6f1024!important; border-color:#560b1b!important;}
+    div[class*="st-key-latest_tab_fielder"] button[kind="secondary"] {background:#0b3a78!important; border-color:#082c5c!important;}
+    div[class*="st-key-latest_tab_usage"] button[kind="secondary"] {background:#6b4a06!important; border-color:#553a03!important;}
+    div[class*="st-key-latest_tab_profile"] button[kind="secondary"] {background:#0c4d1c!important; border-color:#083a14!important;}
+    div[class*="st-key-latest_tab_"] button[kind="secondary"] * {color:rgba(255,255,255,.6)!important;}
+    /* ===== 本文 ===== */
+    /* 本文の高さは全タブ共通（野手能力タブの特殊能力8行：54px×8＋すき間4px×7）。左列は --rows 行に均等割りし、右列と下端をそろえる */
+    .pp-body {display:grid; grid-template-columns:33% 67%; grid-template-rows:460px; gap:9px; align-items:stretch; margin-top:0; padding:9px; background:#edf9fc; border:0; border-top:3px solid var(--pp-tab-color,#0876c9); border-radius:0 0 10px 10px; overflow:hidden;}
+    .pp-body-pitcher {grid-template-columns:35% 65%;}
+    .pp-left {display:grid; grid-template-rows:repeat(var(--rows, 7), minmax(0,1fr)); gap:4px; min-width:0; min-height:0;}
+    .pp-right {min-width:0; min-height:0;}
+    /* プロフィール：7行の下に「生成情報」の行を置く（開いたときは右列の中でスクロール） */
+    .pp-body-profile .pp-left {grid-template-rows:repeat(7, minmax(0,1fr)) 34px;}
+    .pp-body-profile .pp-right {display:grid; grid-template-rows:repeat(7, minmax(0,1fr)) 34px; gap:4px; overflow-y:auto;}
+    /* 基礎能力行：ラベル・ランク・数値をゲームと同じ比率で（ランクは行の中央寄り、数値は右端から少し内側） */
+    .pp-ability-row {display:grid; grid-template-columns:minmax(0,43%) minmax(0,17%) 1fr; align-items:center; min-height:0; margin:0; background:linear-gradient(180deg,#ffffff 0%,#f6fafc 100%); border:2px solid #dfe9ef; border-radius:8px; box-shadow:inset 0 1px rgba(255,255,255,.72); overflow:hidden;}
+    .pp-ability-row > div {align-self:stretch; display:flex; align-items:center; min-height:0;}
+    .pp-ability-row > .pp-label {align-self:center; display:block;}
+    .pp-label {margin:0 6px; padding:3px 6px; background:linear-gradient(180deg,#ffffff 0%,#f1f5f8 100%); border:2px solid #d4dde4; border-radius:12px; box-shadow:0 2px 0 #c6d1da; color:#2a6aa9; font-size:17px; font-weight:500; letter-spacing:.18em; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-ability-row .pp-label, .pp-defense-label .pp-label, .pp-usage-label .pp-label {margin:0 8px; padding:4px 4px 4px calc(4px + .2em); font-size:21px; letter-spacing:.2em;}
+    .pp-rank {justify-content:center; width:auto; font-size:44px; line-height:1; font-weight:900; text-align:center; -webkit-text-stroke:0; text-shadow:none; filter:drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff) drop-shadow(0 2px 1px rgba(0,40,80,.35));}
+    .pp-value {justify-content:flex-end; padding-right:14%; color:#163b6e; font-size:46px; line-height:1; font-weight:800; letter-spacing:.01em; text-align:right; overflow-wrap:anywhere; font-variant-numeric:tabular-nums;}
+    /* 球速：数字を大きく、km/h を小さく、ラベルのすぐ右に */
+    .pp-speed-row {grid-template-columns:minmax(0,43%) 0 1fr;}
+    .pp-speed-row .pp-value {justify-content:flex-start; align-items:baseline; align-self:center; gap:6px; padding:0 0 0 6%; line-height:1;}
+    .pp-speed-row .pp-unit {font-size:24px;}
+    /* 弾道の矢印：ランク文字と同じ列の中央に、行の高さ内で回転 */
+    .pp-trajectory-icon {display:flex; align-items:center; justify-content:center; width:auto; height:100%; overflow:visible;}
+    .pp-trajectory-icon svg {width:42px; height:42px; overflow:visible; transform-origin:50% 50%;}
+    .pp-trajectory-icon.trajectory-1 svg {transform:rotate(0deg);}
+    .pp-trajectory-icon.trajectory-2 svg {transform:rotate(-22deg);}
+    .pp-trajectory-icon.trajectory-3 svg {transform:rotate(-45deg);}
+    .pp-trajectory-icon.trajectory-4 svg {transform:rotate(-65deg);}
     /* ランク文字のグラデーション（S〜G）：ゲーム画面の文字色を上・中・下で採色した値 */
     .gr-S,.gr-A,.gr-B,.gr-C,.gr-D,.gr-E,.gr-F,.gr-G {-webkit-background-clip:text; background-clip:text; color:transparent!important;}
     .gr-S {background-image:linear-gradient(180deg,#ffb3d2 0%,#ff7cb1 42%,#ff5c9f 100%);}
@@ -9260,146 +9251,81 @@ def inject_powerpro_ui_css() -> None:
     .gr-E {background-image:linear-gradient(180deg,#95ea66 0%,#5ad814 40%,#30bb08 100%);}
     .gr-F {background-image:linear-gradient(180deg,#78d4ff 0%,#2eb0ff 40%,#1a90f5 100%);}
     .gr-G {background-image:linear-gradient(180deg,#d2d2d2 0%,#a0a0a0 40%,#818181 100%);}
-    /* ヘッダー：名前プレート・背番号・顔・成績欄 */
-    .pp-header {min-height:132px; gap:8px;}
-    .pp-header-main {grid-template-rows:80px 44px; gap:6px;}
-    .pp-name {font-size:34px; font-weight:900; color:#161616; letter-spacing:.18em; padding:0 10px 0 calc(10px + .18em); border-width:3px; box-shadow:inset 0 2px 0 rgba(255,255,255,.55), 0 2px 0 rgba(0,0,0,.18);}
-    .pp-number-box {font-size:42px; font-weight:800; color:#163b6e; background:linear-gradient(180deg,#ffffff,#eef6fb); border-color:#d4e4ee;}
-    .pp-category-mark {font-size:20px; color:#163b6e; border-color:#d4e4ee;}
-    .pp-posline {display:flex; align-items:center; font-size:20px; color:#1b5f9e; background:linear-gradient(180deg,#ffffff,#f3f8fb); border-color:#dbe7ee; letter-spacing:.04em;}
-    .pp-face {width:132px; min-width:132px; height:132px; min-height:132px; background:linear-gradient(180deg,#ffffff,#f1f8fc); border:3px solid #d4e4ee;}
-    .pp-face svg {width:112px; height:112px;}
-    .pp-info {grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); grid-template-rows:1fr 1fr; gap:6px;}
-    .pp-info .pp-chip:first-child {grid-column:1 / -1;}
-    .pp-chip {display:flex; align-items:center; gap:10px; background:linear-gradient(180deg,#ffffff,#f3f8fb); border-color:#dbe7ee; color:#163b6e; font-size:24px; font-weight:900; padding:4px 8px;}
-    .pp-chip.pp-chip-wide {font-size:19px; letter-spacing:-.02em;}
-    .pp-chip .pp-mini-label {flex:0 0 auto; display:inline-block; margin:0; opacity:1; font-size:16px; font-weight:800; color:#2a6aa9; letter-spacing:.2em; background:linear-gradient(180deg,#ffffff 0%,#eef3f7 100%); border:2px solid #d4dde4; border-radius:11px; box-shadow:0 2px 0 #c6d1da; padding:3px 10px;}
-    /* 特殊能力グリッド */
-    .pp-special-grid {gap:4px;}
+    /* 変化球の図：左列の幅いっぱいに表示 */
+    .pp-chart-wrap {width:100%; height:100%; min-height:0; overflow:hidden;}
+    .pp-chart-wrap svg {display:block; width:100%; height:100%;}
+    /* ===== 特殊能力グリッド ===== */
+    .pp-special-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); grid-template-rows:repeat(var(--grid-rows, 8), minmax(0,1fr)); gap:4px; height:100%;}
+    .pp-special {display:grid; grid-template-columns:minmax(0,1fr); place-items:center; min-width:0; min-height:0; padding:0 4px; background:linear-gradient(180deg,#f2feff 0%,#bff1f7 55%,#8fe0ec 100%); border:2px solid #3fb5cb; border-radius:6px; box-shadow:inset 0 1px rgba(255,255,255,.72),0 1px 1px rgba(7,95,148,.14); color:#1276bd; font-size:17px; font-weight:500;}
     .pp-special.red {background:linear-gradient(180deg,#fff2f2 0%,#ffc2c2 55%,#ff9a9a 100%); border-color:#ef6c72; color:#c8141f;}
     .pp-special.green {background:linear-gradient(180deg,#f0fff2 0%,#c6f1cf 55%,#98e0a9 100%); border-color:#47b867; color:#0b6d2f;}
+    .pp-special.neutral {background:linear-gradient(180deg,#f9fdff 0%,#e0f2f6 100%); border-color:#82bdca; color:#285e75;}
     .pp-special.gold {background:linear-gradient(180deg,#fffbe0 0%,#ffe680 55%,#ffcd3a 100%); border-color:#d9a514; color:#7a5200;}
-    /* 標準〜低めのランク（C〜E）は、ゲームと同じく薄く表示 */
-    .pp-special-ranked.rank-cde {background:linear-gradient(180deg,#f5fcff 0%,#dcf1f8 100%); border-color:#c4e2ec; color:#6fa9c4;}
-    .pp-special.empty {height:50px; background:linear-gradient(180deg,#f3fbfe 0%,#e6f6fb 100%); border-color:#d3ebf2;}
-    .pp-usage-cell {min-height:50px; font-size:20px;}
-    .pp-usage-label {background:linear-gradient(180deg,#ffffff 0%,#f1f5f8 100%); border-color:#d4dde4; color:#2a6aa9; box-shadow:0 2px 0 #c6d1da;}
-    .pp-usage-empty {background:linear-gradient(180deg,#f3fbfe 0%,#e6f6fb 100%); border-color:#d3ebf2;}
-    /* 守備・起用：守備力の枠（ラベル＋投捕一二三遊外の2列） */
-    .pp-defense-compact {background:#ffffff; border:2px solid #dfe9ef; gap:0; border-radius:8px;}
-    .pp-defense-label {display:flex; align-items:center; background:#ffffff; min-height:50px; border-bottom:1px solid #e3edf2;}
-    .pp-defense-label .pp-label {flex:1; margin:0 8px;}
-    .pp-defense-pos {grid-template-columns:34px 40px minmax(0,1fr); background:#ffffff; border-bottom:1px solid #e3edf2; min-height:50px; font-size:22px; color:#b9cbd6;}
-    .pp-defense-pos:nth-child(even) {border-left:1px solid #e3edf2;}
-    .pp-defense-pos.main {background:#e6f5ff; color:#163b6e;}
-    .pp-defense-rank {font-size:30px; font-weight:900; filter:drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff) drop-shadow(0 1px 1px rgba(0,40,80,.35));}
-    .pp-defense-num {font-size:28px; font-weight:800; color:#163b6e;}
-    .pp-defense-empty {color:#c3d3dc;}
-    /* タブ：非選択もタブごとの暗い色にする */
-    div[class*="st-key-latest_tab_"] button[kind="secondary"], div[class*="st-key-history_tab_"] button[kind="secondary"] {font-size:20px;}
-    div[class*="st-key-latest_tab_"] button, div[class*="st-key-history_tab_"] button {font-size:20px; letter-spacing:.06em;}
-    div[class*="st-key-latest_tab_pitcher"] button[kind="secondary"], div[class*="st-key-history_tab_pitcher"] button[kind="secondary"] {background:#6f1024!important; border-color:#560b1b!important;}
-    div[class*="st-key-latest_tab_fielder"] button[kind="secondary"], div[class*="st-key-history_tab_fielder"] button[kind="secondary"] {background:#0b3a78!important; border-color:#082c5c!important;}
-    div[class*="st-key-latest_tab_usage"] button[kind="secondary"], div[class*="st-key-history_tab_usage"] button[kind="secondary"] {background:#6b4a06!important; border-color:#553a03!important;}
-    div[class*="st-key-latest_tab_profile"] button[kind="secondary"], div[class*="st-key-history_tab_profile"] button[kind="secondary"] {background:#0c4d1c!important; border-color:#083a14!important;}
-    div[class*="st-key-latest_tab_"] button[kind="secondary"] *, div[class*="st-key-history_tab_"] button[kind="secondary"] * {color:rgba(255,255,255,.6)!important;}
-    /* プロフィール表：ラベル折り返し防止、全幅項目は必ず行頭から、文字サイズを他の欄に合わせる */
-    .pp-profile-table {border-color:#dfe9ef; border-radius:8px;}
-    @media (min-width: 981px) {.pp-profile-table {grid-template-columns:130px minmax(0,1fr) 130px minmax(0,1fr);}}
-    .pp-profile-label {white-space:nowrap; font-size:16px; letter-spacing:.02em; color:#2a6aa9; min-height:48px;}
-    .pp-profile-label:has(+ .pp-profile-span-3) {grid-column-start:1;}
-    .pp-profile-value {font-size:20px; color:#163b6e; min-height:48px;}
-    .pp-generation-info summary {color:#1b5f9e; font-weight:800; cursor:pointer; margin-top:8px;}
-    /* 基礎能力行：ランクと数値を枠の縦中央にそろえる */
-    .pp-ability-row {height:50px; min-height:50px; grid-template-columns:minmax(110px,40%) 58px 1fr; background:linear-gradient(180deg,#ffffff 0%,#f6fafc 100%); border:2px solid #dfe9ef; border-radius:8px; margin:4px 0;}
-    .pp-ability-row > div {align-self:stretch; display:flex; align-items:center; min-height:0;}
-    .pp-ability-row > .pp-label {align-self:center; display:block;}
-    .pp-rank {justify-content:center; font-size:34px; line-height:1; font-weight:900; width:52px; -webkit-text-stroke:0; text-shadow:none; filter:drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff) drop-shadow(0 2px 1px rgba(0,40,80,.35));}
-    .pp-value {justify-content:flex-end; font-size:36px; line-height:1; font-weight:800; color:#163b6e; letter-spacing:.01em; font-variant-numeric:tabular-nums;}
-    /* 特殊能力：セル幅÷文字数で文字を大きく表示（ゲームと同じくセルいっぱいに文字が並ぶ） */
-    .pp-special {container-type:inline-size; height:50px; padding:0 4px; font-weight:800; color:#1276bd; border-radius:6px; background:linear-gradient(180deg,#f2feff 0%,#bff1f7 55%,#8fe0ec 100%);}
-    .pp-special .pp-special-name, .pp-special.long .pp-special-name, .pp-special.xlong .pp-special-name {display:block; width:100%; text-align:center; white-space:nowrap; overflow:visible; line-height:1; letter-spacing:0; text-indent:0; padding:0; font-size:min(30px, calc((100cqw - 4px) / var(--n, 4)));}
-    .pp-special.sp2 .pp-special-name {letter-spacing:.9em; text-indent:.9em;}
-    .pp-special.sp3 .pp-special-name {letter-spacing:.45em; text-indent:.45em;}
-    .pp-special-ranked {grid-template-columns:minmax(0,1fr) 32px; padding:0 2px 0 4px;}
-    .pp-special-ranked .pp-special-name, .pp-special-ranked.long .pp-special-name, .pp-special-ranked.xlong .pp-special-name {align-self:center; font-size:min(30px, calc((100cqw - 40px) / var(--n, 4)));}
-    /* ランク文字：C〜Eは白フチ付きの縁取り文字、A・Bは青、F・Gは赤の四角に白文字 */
-    .pp-special-rank-badge {width:32px; height:40px; margin:0; align-self:center; font-size:34px; line-height:1; font-weight:900; border-radius:5px; background:transparent; text-shadow:none;}
-    .pp-special-ranked.rank-cde .pp-special-rank-badge {background:transparent; color:#8cc3db; filter:drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff) drop-shadow(0 0 1px #5d9dbb);}
-    .pp-special-ranked.rank-ab .pp-special-rank-badge {background:linear-gradient(180deg,#2f8fe0 0%,#1057b0 100%); color:#fff; font-size:26px; height:38px; width:30px;}
-    .pp-special-ranked.rank-fg .pp-special-rank-badge {background:linear-gradient(180deg,#ff5a60 0%,#c8161f 100%); color:#fff; font-size:26px; height:38px; width:30px;}
-    /* タブ文字・起用適性行 */
-    div[class*="st-key-latest_tab_"] button p, div[class*="st-key-history_tab_"] button p {font-size:22px!important; font-weight:900!important; letter-spacing:.08em;}
-    .pp-pitcher-usage-row {min-height:50px;}
-    .pp-pitcher-usage-values {font-size:24px; color:#163b6e;}
-    /* フォント統一：Streamlitのmarkdown既定フォント（Source Sans）に上書きされないよう、詳細パネル内は!importantで指定 */
-    div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {--pp-font:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans CJK JP",sans-serif; --pp-num-font:"Barlow Condensed","Roboto Condensed","Arial Narrow","M PLUS Rounded 1c","Noto Sans CJK JP",sans-serif;}
-    div[class*="st-key-latest_detail_shell"] :is(div,span,p,summary,button,text), div[class*="st-key-history_detail_shell"] :is(div,span,p,summary,button,text) {font-family:var(--pp-font)!important;}
-    div[class*="st-key-latest_detail_shell"] :is(.pp-value,.pp-value *,.pp-number-box,.pp-defense-num,.pp-chip), div[class*="st-key-history_detail_shell"] :is(.pp-value,.pp-value *,.pp-number-box,.pp-defense-num,.pp-chip) {font-family:var(--pp-num-font)!important;}
-    div[class*="st-key-latest_detail_shell"] .pp-chip .pp-mini-label, div[class*="st-key-history_detail_shell"] .pp-chip .pp-mini-label {font-family:var(--pp-font)!important;}
-    /* ===== 実画面（M PLUS Rounded 1c）での表示バランス調整 ===== */
-    /* 基礎能力行：ラベル・ランク・数値をゲームと同じ比率で大きく（ランクは行の中央寄り、数値は右端から少し内側） */
-    .pp-ability-row {height:54px; min-height:54px; grid-template-columns:minmax(0,43%) minmax(0,17%) 1fr;}
-    .pp-ability-row .pp-label {font-size:21px; letter-spacing:.2em; padding:4px 4px 4px calc(4px + .2em); margin:0 8px;}
-    .pp-rank {width:auto; font-size:44px;}
-    .pp-value {font-size:46px; padding-right:14%;}
-    .pp-speed-row {grid-template-columns:minmax(0,43%) 0 1fr;}
-    .pp-speed-row .pp-value {justify-content:flex-start; align-items:baseline; padding:0 0 0 6%; gap:6px; line-height:54px;}
-    .pp-speed-row .pp-unit {font-size:24px;}
-    .pp-trajectory-icon svg {width:60px; height:38px;}
-    /* ヘッダー：守備位置・適性をラベルピル＋大きな値に */
-    .pp-posline {gap:14px; padding:4px 8px; overflow:visible;}
-    .pp-posline .pp-mini-label {flex:0 0 auto; display:inline-block; margin:0; opacity:1; font-size:16px; font-weight:800; color:#2a6aa9; letter-spacing:.2em; background:linear-gradient(180deg,#ffffff 0%,#eef3f7 100%); border:2px solid #d4dde4; border-radius:11px; box-shadow:0 2px 0 #c6d1da; padding:3px 10px;}
-    .pp-pos-values {display:inline-flex; align-items:baseline; gap:10px; color:#1b5f9e; font-weight:900;}
-    .pp-pos-item.main, .pp-pos-item.lv3 {font-size:30px;}
-    .pp-pos-item.lv2 {font-size:24px;}
-    .pp-pos-item.sub, .pp-pos-item.lv1 {font-size:20px;}
-    .pp-chip {font-size:30px;}
-    .pp-chip.pp-chip-wide {font-size:24px;}
-    /* 特殊能力：文字をさらに大きく（上限36px）、薄い表示は水色＋縁取り */
-    .pp-special .pp-special-name, .pp-special.long .pp-special-name, .pp-special.xlong .pp-special-name {font-size:min(36px, calc((100cqw - 4px) / var(--n, 4)));}
-    .pp-special-ranked .pp-special-name, .pp-special-ranked.long .pp-special-name, .pp-special-ranked.xlong .pp-special-name {font-size:min(36px, calc((100cqw - 44px) / var(--n, 4)));}
-    .pp-special, .pp-special.empty {height:54px;}
+    .pp-special.mixed {background:linear-gradient(to right,#b8eef4 0%,#83dce7 50%,#ffe0e0 50%,#ffadad 100%); border-color:#3fb5cb; color:#073f68;}
+    /* 名前はSVGの文字なので、白フチは text-shadow ではなく stroke（文字の下に描く）で付ける */
+    .pp-special.mixed .pp-fit-text text {paint-order:stroke; stroke:rgba(255,255,255,.68); stroke-width:3px; stroke-linejoin:round;}
+    .pp-special.empty {background:linear-gradient(180deg,#f3fbfe 0%,#e6f6fb 100%); border-color:#d3ebf2; color:transparent; box-shadow:none;}
+    /* 名前：文字の高さは全マス同じ。幅が足りないときだけ横に圧縮する（fit_text_svg）。2〜3文字は4文字分に字間を広げる */
+    .pp-special-name {display:flex; align-items:center; justify-content:center; width:100%; height:100%; min-width:0; overflow:hidden;}
+    .pp-fit-text {display:block; flex:none; overflow:visible;}
+    .pp-fit-text text {fill:currentColor; letter-spacing:0;}
+    /* ランク付き特殊能力：右側の帯（上下につながる）＋白抜きのランク文字。A・Bは青、C〜Eは薄い水色、F・Gは赤の帯 */
+    .pp-special-ranked {--strip:#a8dcf2; display:grid; grid-template-columns:minmax(0,1fr) 34px; gap:0; align-items:stretch; padding:3px 0 3px 3px; background:var(--strip); border:0; border-color:transparent; border-radius:6px; box-shadow:none; color:#86c9ec; overflow:hidden;}
+    .pp-special-ranked.rank-ab {--strip:#14a0cf; color:#075f94;}
     .pp-special-ranked.rank-cde {color:#7dbde2;}
-    .pp-special-ranked.rank-cde .pp-special-name {filter:drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff) drop-shadow(0 -1px 0 #fff);}
-    .pp-special-rank-badge {font-size:38px;}
-    .pp-special-ranked.rank-cde .pp-special-rank-badge {color:#a9d8f0; filter:drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff) drop-shadow(1px 0 0 #2f6f98) drop-shadow(-1px 0 0 #2f6f98) drop-shadow(0 1px 0 #2f6f98) drop-shadow(0 -1px 0 #2f6f98);}
-    .pp-special-ranked.rank-ab .pp-special-rank-badge, .pp-special-ranked.rank-fg .pp-special-rank-badge {font-size:30px; height:42px;}
-    /* 守備・起用：守備力の枠と起用欄も同じ文字サイズ感に */
-    .pp-defense-label, .pp-defense-pos {min-height:56px;}
-    .pp-defense-pos {font-size:26px;}
-    .pp-defense-rank {font-size:38px; line-height:1;}
-    .pp-defense-num {font-size:36px; line-height:1;}
-    .pp-usage-cell {min-height:54px; font-size:24px;}
-    /* 守れないポジションは位置の文字も薄く（ゲームと同じ）、守れるポジションだけ濃く */
-    .pp-defense-pos .pp-defense-short {color:#c3d3dc;}
-    .pp-defense-pos:has(.pp-defense-rank) .pp-defense-short {color:#163b6e;}
-    /* 変化球の図：ゲームと同じく左列の幅いっぱいに表示 */
-    .pp-chart-wrap {width:100%; height:auto; min-height:0; max-height:none; aspect-ratio:280 / 210; margin-top:6px;}
-    .pp-chart-wrap svg {display:block; width:100%; height:100%;}
-    /* ===== ランク付き特殊能力：右側の帯（上下につながる）＋白抜きのランク文字 ===== */
-    .pp-special-ranked {--strip:#a8dcf2; background:var(--strip); border:0; border-radius:6px; padding:3px 0 3px 3px; grid-template-columns:minmax(0,1fr) 34px; box-shadow:none; color:#86c9ec;}
-    .pp-special-ranked.rank-ab {--strip:#14a0cf;}
-    .pp-special-ranked.rank-fg {--strip:#e4575e;}
-    .pp-special-ranked .pp-special-name, .pp-special-ranked.long .pp-special-name, .pp-special-ranked.xlong .pp-special-name {height:100%; line-height:48px; border-radius:5px; background:linear-gradient(180deg,#f5fcff 0%,#e3f5fc 48%,#d3eef9 52%,#e6f6fc 100%); box-shadow:inset 0 0 0 1px rgba(255,255,255,.9); filter:none; font-size:min(36px, calc((100cqw - 44px) / var(--n, 4)));}
-    .pp-special-ranked.rank-cde .pp-special-name {color:#86c9ec; filter:none;}
+    .pp-special-ranked.rank-fg {--strip:#e4575e; color:#c71c24;}
+    .pp-special-ranked .pp-special-name {background:linear-gradient(180deg,#f5fcff 0%,#e3f5fc 48%,#d3eef9 52%,#e6f6fc 100%); border-radius:5px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.9);}
     .pp-special-ranked.rank-ab .pp-special-name {color:#0d4f9e; background:linear-gradient(180deg,#effdff 0%,#c3f2fd 48%,#a4e9fb 52%,#c9f4fd 100%);}
+    .pp-special-ranked.rank-cde .pp-special-name {color:#86c9ec;}
     .pp-special-ranked.rank-fg .pp-special-name {color:#d0121b; background:linear-gradient(180deg,#fff4f4 0%,#ffd6d6 48%,#ffc2c2 52%,#ffd9d9 100%);}
-    .pp-special-rank-badge, .pp-special-ranked.rank-cde .pp-special-rank-badge, .pp-special-ranked.rank-ab .pp-special-rank-badge, .pp-special-ranked.rank-fg .pp-special-rank-badge {width:34px; height:100%; margin:0; border-radius:0; background:transparent; color:#ffffff; font-size:36px; line-height:1; font-weight:900; align-self:stretch; display:flex; align-items:center; justify-content:center;}
-    .pp-special-ranked.rank-cde .pp-special-rank-badge {filter:drop-shadow(1.5px 0 0 #3f7690) drop-shadow(-1.5px 0 0 #3f7690) drop-shadow(0 1.5px 0 #3f7690) drop-shadow(0 -1.5px 0 #3f7690);}
+    .pp-special-rank-badge {display:flex; align-items:center; justify-content:center; align-self:stretch; width:34px; height:100%; margin:0; background:transparent; border-radius:0; color:#ffffff; font-size:36px; line-height:1; font-weight:900; text-align:center; text-shadow:none;}
     .pp-special-ranked.rank-ab .pp-special-rank-badge {filter:drop-shadow(1.5px 0 0 #0a3f63) drop-shadow(-1.5px 0 0 #0a3f63) drop-shadow(0 1.5px 0 #0a3f63) drop-shadow(0 -1.5px 0 #0a3f63);}
+    .pp-special-ranked.rank-cde .pp-special-rank-badge {filter:drop-shadow(1.5px 0 0 #3f7690) drop-shadow(-1.5px 0 0 #3f7690) drop-shadow(0 1.5px 0 #3f7690) drop-shadow(0 -1.5px 0 #3f7690);}
     .pp-special-ranked.rank-fg .pp-special-rank-badge {filter:drop-shadow(1.5px 0 0 #8c0f17) drop-shadow(-1.5px 0 0 #8c0f17) drop-shadow(0 1.5px 0 #8c0f17) drop-shadow(0 -1.5px 0 #8c0f17);}
-    .pp-special.pp-special-ranked.rank-cde, .pp-special.pp-special-ranked.rank-ab, .pp-special.pp-special-ranked.rank-fg {background:var(--strip); border:0; border-color:transparent;}
     /* 1段目と2段目の帯を、間のすき間ごと上下につなげる */
     .pp-special-grid > .pp-special-ranked:nth-child(-n+4) {border-bottom-left-radius:0; border-bottom-right-radius:0; box-shadow:0 4px 0 0 var(--strip);}
     .pp-special-grid > .pp-special-ranked:nth-child(n+5):nth-child(-n+8) {border-top-left-radius:0; border-top-right-radius:0;}
-    /* 弾道の矢印：ランク文字と同じ列の中央に、行の高さ内で回転 */
-    .pp-trajectory-row .pp-trajectory-icon {width:auto; justify-content:center; overflow:visible;}
-    .pp-trajectory-icon svg, .pp-trajectory-icon.trajectory-1 svg, .pp-trajectory-icon.trajectory-2 svg, .pp-trajectory-icon.trajectory-3 svg, .pp-trajectory-icon.trajectory-4 svg {width:42px; height:42px; transform-origin:50% 50%;}
-    .pp-trajectory-icon.trajectory-1 svg {transform:rotate(0deg);}
-    .pp-trajectory-icon.trajectory-2 svg {transform:rotate(-22deg);}
-    .pp-trajectory-icon.trajectory-3 svg {transform:rotate(-45deg);}
-    .pp-trajectory-icon.trajectory-4 svg {transform:rotate(-65deg);}
+    /* ===== 守備・起用：守備力の枠（ラベル＋投捕一二三遊外の2列）と起用欄 ===== */
+    .pp-defense-compact {grid-row:span 4; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(4,minmax(0,1fr)); gap:0; margin:0; background:#ffffff; border:2px solid #dfe9ef; border-radius:8px; overflow:hidden;}
+    .pp-defense-label {display:flex; align-items:center; min-height:0; background:#ffffff; border-bottom:1px solid #e3edf2;}
+    /* 「守備力」ラベルは他の能力ラベルと同じ幅（能力行の43%から左右の余白を除いた幅） */
+    .pp-defense-label .pp-label {flex:none; width:calc(86% - 16px);}
+    .pp-defense-pos {display:grid; grid-template-columns:34px 40px minmax(0,1fr); align-items:center; gap:4px; min-width:0; min-height:0; padding:0 8px; background:#ffffff; border:0; border-bottom:1px solid #e3edf2; border-radius:0; color:#b9cbd6; font-size:26px; font-weight:850;}
+    .pp-defense-pos:nth-child(even) {border-left:1px solid #e3edf2;}
+    .pp-defense-pos.main {background:#e6f5ff; box-shadow:inset 4px 0 0 #0b8fe0; color:#163b6e; font-weight:950;}
+    /* 守れないポジションは位置の文字も薄く、守れるポジションだけ濃く */
+    .pp-defense-short {text-align:left; color:#c3d3dc;}
+    .pp-defense-pos:has(.pp-defense-rank) .pp-defense-short {color:#163b6e;}
+    .pp-defense-rank {text-align:center; font-size:38px; line-height:1; font-weight:900; filter:drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff) drop-shadow(0 1px 1px rgba(0,40,80,.35));}
+    .pp-defense-num {text-align:right; color:#163b6e; font-size:36px; line-height:1; font-weight:800; font-variant-numeric:tabular-nums;}
+    .pp-defense-empty {grid-column:2 / 4; text-align:center; color:#c3d3dc; font-weight:800;}
+    /* 起用法の見出し：能力ラベルと同じピルをマスいっぱいに */
+    .pp-special.pp-usage-label {padding:0; background:transparent; border-color:transparent; box-shadow:none;}
+    .pp-usage-label .pp-label {width:100%; margin:0;}
+    /* ===== プロフィール ===== */
+    .pp-prof-row {display:grid; grid-template-columns:1.75fr 1fr; gap:4px; min-width:0; min-height:0;}
+    .pp-prof-row.half {grid-template-columns:1fr 1fr;}
+    .pp-prof-cell {display:flex; align-items:center; gap:10px; min-width:0; min-height:0; padding:0 10px 0 6px; background:linear-gradient(180deg,#ffffff 0%,#f6fafc 100%); border:2px solid #dfe9ef; border-radius:8px; box-shadow:inset 0 1px rgba(255,255,255,.72); overflow:hidden;}
+    .pp-prof-label {flex:0 0 auto; display:flex; justify-content:center; width:138px; margin:0; padding:4px 8px;}
+    .pp-prof-value {flex:1 1 auto; display:flex; align-items:center; min-width:0; color:#163b6e; font-weight:700;}
+    /* バット・グラブ・リストバンドの色見本（なしは青い×） */
+    .pp-swatch {flex:0 0 auto; width:30px; height:30px; border:2px solid #c9d6e0; border-radius:6px; box-shadow:inset 0 1px rgba(255,255,255,.5);}
+    .pp-swatch-none {display:flex; background:#e8f3ff; border-color:#9cc3ea;}
+    .pp-swatch-none svg {width:100%; height:100%;}
+    .pp-swatch-none path {fill:none; stroke:#1f6fe0; stroke-width:3.2; stroke-linecap:round;}
+    .pp-generation-info summary {color:#1b5f9e; font-weight:800; cursor:pointer; line-height:30px;}
+    .pp-generation-grid {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-top:4px;}
+    .pp-generation-card {display:flex; align-items:center; gap:8px; min-width:0; min-height:46px; padding:4px 8px 4px 4px; background:linear-gradient(180deg,#ffffff 0%,#f6fafc 100%); border:2px solid #dfe9ef; border-radius:8px;}
+    .pp-generation-card .pp-label {flex:0 0 auto; margin:0;}
+    .pp-generation-value {min-width:0; color:#163b6e; font-size:18px; font-weight:700; overflow-wrap:anywhere;}
+    @media (max-width: 980px) {
+      .pp-header {grid-template-columns:1fr;}
+      .pp-body,.pp-body-pitcher {grid-template-columns:1fr; grid-template-rows:none;}
+      .pp-left, .pp-body-profile .pp-left, .pp-body-profile .pp-right {grid-template-rows:none; grid-auto-rows:58px;}
+      .pp-special-grid {grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:none; grid-auto-rows:54px;}
+      .pp-defense-compact {width:100%;}
+      .pp-prof-row, .pp-prof-row.half {grid-template-columns:1fr;}
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -9443,7 +9369,8 @@ def overall_score(p: dict[str, Any]) -> int:
 def render_player_icon_svg(p: dict[str, Any]) -> str:
     initial = e(str(p.get("name", "選"))[:1])
     cap = "#e83b4f" if p.get("role") == "投手" else "#0a76c9"
-    return f'<svg width="96" height="96" viewBox="0 0 116 116" role="img" aria-label="選手アイコン"><circle cx="58" cy="62" r="34" fill="#ffd9b3" stroke="#8b5a32" stroke-width="3"/><path d="M20 54 Q58 12 96 54 Z" fill="{cap}" stroke="#fff" stroke-width="4"/><rect x="34" y="72" width="48" height="30" rx="8" fill="#fff" stroke="#b8d7ee"/><text x="58" y="47" text-anchor="middle" font-size="32" font-weight="900" fill="#fff">{initial}</text><circle cx="46" cy="62" r="4" fill="#073b6b"/><circle cx="70" cy="62" r="4" fill="#073b6b"/></svg>'
+    # viewBox は顔・帽子・頭文字の範囲（x18〜98, y17〜103）に詰め、枠いっぱいに表示する
+    return f'<svg width="96" height="96" viewBox="14 15 88 88" role="img" aria-label="選手アイコン"><circle cx="58" cy="62" r="34" fill="#ffd9b3" stroke="#8b5a32" stroke-width="3"/><path d="M20 54 Q58 12 96 54 Z" fill="{cap}" stroke="#fff" stroke-width="4"/><rect x="34" y="72" width="48" height="30" rx="8" fill="#fff" stroke="#b8d7ee"/><text x="58" y="47" text-anchor="middle" font-size="32" font-weight="900" fill="#fff">{initial}</text><circle cx="46" cy="62" r="4" fill="#073b6b"/><circle cx="70" cy="62" r="4" fill="#073b6b"/></svg>'
 
 
 
@@ -9547,21 +9474,69 @@ def fixed_rank_slots(player: dict[str, Any], mode: str) -> list[str | None]:
     return [ranked.get(name) if name else None for name in order]
 
 
+# 横圧縮テキスト（A-1）の「自然な幅」の計算に使う文字幅（em）。
+# 全角は1em。ASCII（32〜126）は M PLUS Rounded 1c の実測値で、アクセント付きの文字は元の文字の幅を使う。
+ASCII_EM_WIDTHS = (
+    0.284, 0.380, 0.470, 0.692, 0.593, 0.874, 0.725, 0.284, 0.394, 0.394, 0.507, 0.734, 0.321, 0.482, 0.338, 0.506,
+    0.640, 0.640, 0.640, 0.640, 0.640, 0.640, 0.640, 0.640, 0.640, 0.640, 0.418, 0.413, 0.681, 0.754, 0.681, 0.635,
+    0.818, 0.653, 0.619, 0.634, 0.680, 0.602, 0.586, 0.705, 0.704, 0.352, 0.556, 0.630, 0.599, 0.838, 0.704, 0.734,
+    0.628, 0.741, 0.634, 0.582, 0.648, 0.678, 0.653, 0.878, 0.632, 0.632, 0.632, 0.502, 0.506, 0.502, 0.632, 0.590,
+    0.286, 0.561, 0.607, 0.508, 0.607, 0.546, 0.526, 0.591, 0.601, 0.338, 0.383, 0.563, 0.338, 0.819, 0.597, 0.574,
+    0.601, 0.601, 0.485, 0.518, 0.523, 0.591, 0.540, 0.787, 0.526, 0.540, 0.558, 0.534, 0.382, 0.534, 0.683,
+)
+# 2〜3文字の名前は、この文字数分の幅に字間を広げて並べる（ゲームの「盗　塁」「満塁男」と同じ）
+FIT_TEXT_SPREAD_CHARS = 4
+SPECIAL_NAME_FONT_PX = 34
+NAMEPLATE_FONT_PX = 46
+
+
+def text_em_width(text: str) -> float:
+    total = 0.0
+    for char in str(text):
+        if unicodedata.east_asian_width(char) in ("F", "W") or ord(char) >= 0x2000:
+            total += 1.0
+            continue
+        code = ord(unicodedata.normalize("NFKD", char)[:1] or char)
+        total += ASCII_EM_WIDTHS[code - 32] if 32 <= code < 127 else 0.6
+    return total
+
+
+def fit_text_svg(text: Any, font_size: float, *, spread: bool = False, align: str = "middle") -> str:
+    """文字の高さを変えずに、入りきらないときだけ横方向に圧縮して表示するSVG。
+
+    SVGの幅を「自然な幅」W（px）と枠の幅の小さい方にし、viewBox は W のままにすることで、
+    枠が狭いときだけ preserveAspectRatio="none" で横に縮む。JSは使わない。
+    spread=True のとき、2〜3文字の全角の名前は4文字分の幅に字間を広げる（ローマ字は広げない）。
+    """
+    text = str(text or "")
+    if not text:
+        return ""
+    # 字間を広げるのは全角（漢字・かな）の名前だけ。ローマ字（例：Lee）は広げない
+    spread_out = spread and len(text) in (2, 3) and all(unicodedata.east_asian_width(char) in ("F", "W") for char in text)
+    width = round((FIT_TEXT_SPREAD_CHARS if spread_out else text_em_width(text)) * font_size, 1)
+    height = round(font_size * 1.25, 1)
+    x = {"start": 0.0, "middle": width / 2, "end": width}.get(align, width / 2)
+    adjust = "spacing" if spread_out else "spacingAndGlyphs"
+    return (
+        f'<svg class="pp-fit-text" viewBox="0 0 {width:g} {height:g}" preserveAspectRatio="none" '
+        f'style="width:min(100%, {width:g}px); height:{height:g}px">'
+        f'<text x="{x:g}" y="{height / 2:g}" dominant-baseline="central" text-anchor="{e(align)}" '
+        f'font-size="{font_size:g}" textLength="{width:g}" lengthAdjust="{adjust}">{e(text)}</text></svg>'
+    )
+
+
 def special_cell_html(name: str | None, kind: str = "blue") -> str:
     if not name:
         return '<div class="pp-special empty"><span></span></div>'
     base_name, rank_text = split_special_rank(name)
-    length_cls = "xlong" if len(base_name) >= 11 else "long" if len(base_name) >= 8 else ""
-    # ゲームでは文字がセル幅いっぱいに大きく表示され、2〜3文字の能力（盗塁・逆境○など）だけ字間が空きます。
-    # 文字数を --n としてCSSに渡し、セル幅÷文字数で文字サイズを決めます。
-    char_count = max(1, len(base_name))
-    spread_cls = "sp2" if char_count <= 2 else "sp3" if char_count == 3 else ""
+    # 文字の高さは全マス同じにし、幅が足りない名前だけ横に圧縮する（ランク付きはランク文字の帯を除いた幅に収める）
+    name_html = f'<span class="pp-special-name">{fit_text_svg(base_name, SPECIAL_NAME_FONT_PX, spread=True)}</span>'
     if rank_text:
-        classes = " ".join(part for part in ["pp-special", "pp-special-ranked", special_rank_class(rank_text), length_cls, spread_cls] if part)
-        return f'<div class="{classes}" title="{e(name)}"><span class="pp-special-name" style="--n:{char_count}">{e(base_name)}</span><span class="pp-special-rank-badge">{e(rank_text)}</span></div>'
-    cls = "gold" if kind == "gold" else "red" if kind == "red" else "green" if kind == "green" else "neutral" if kind == "neutral" else "mixed" if kind == "mixed" else ""
-    classes = " ".join(part for part in ["pp-special", cls, length_cls, spread_cls] if part)
-    return f'<div class="{classes}" title="{e(name)}"><span class="pp-special-name" style="--n:{char_count}">{e(base_name)}</span></div>'
+        classes = f"pp-special pp-special-ranked {special_rank_class(rank_text)}".strip()
+        return f'<div class="{classes}" title="{e(name)}">{name_html}<span class="pp-special-rank-badge">{e(rank_text)}</span></div>'
+    cls = kind if kind in ("gold", "red", "green", "neutral", "mixed") else ""
+    classes = f"pp-special {cls}".strip()
+    return f'<div class="{classes}" title="{e(name)}">{name_html}</div>'
 
 
 def collect_special_entries(p: dict[str, Any], master: MasterData, mode: str) -> list[tuple[str, str]]:
@@ -9607,7 +9582,12 @@ def render_special_grid_html(p: dict[str, Any], master: MasterData, mode: str = 
     cells.extend(special_cell_html(name, kind) for name, kind in display_entries)
     while len(cells) < actual_cell_count:
         cells.append(special_cell_html(None))
-    return '<div class="pp-special-grid">' + "".join(cells) + "</div>"
+    return special_grid_wrap_html(cells)
+
+
+def special_grid_wrap_html(cells: list[str]) -> str:
+    # 行数をCSSに渡し、右列の高さ（野手能力タブの8行分）に行を均等に割り付ける
+    return f'<div class="pp-special-grid" style="--grid-rows:{max(1, math.ceil(len(cells) / 4))}">' + "".join(cells) + "</div>"
 
 def pitch_display_name(name: Any) -> str:
     return str(name or "")
@@ -10133,17 +10113,6 @@ def render_pitch_chart_svg(balls: list[dict[str, Any]] | None, batting_throwing:
     return "".join(lines) + "</svg>"
 
 
-def compact_pitcher_aptitude_text(player: dict[str, Any]) -> str:
-    abilities = player.get("abilities", {}) if isinstance(player.get("abilities"), dict) else {}
-    values = {key: player.get(key) or abilities.get(key) for key in PITCHER_APTITUDE_KEYS}
-    if not any(values.values()):
-        pos = str(player.get("position", ""))
-        values = {"starter_aptitude": "◎" if pos == "先発" else "－", "reliever_aptitude": "◎" if pos == "中継ぎ" else "－", "closer_aptitude": "◎" if pos == "抑え" else "－"}
-    labels = [("starter_aptitude", "先"), ("reliever_aptitude", "中"), ("closer_aptitude", "抑")]
-    return " ".join(f"{label}{(values.get(key) or '－').replace('-', '－')}" for key, label in labels)
-
-
-
 def pitcher_fallback_abilities() -> dict[str, Any]:
     return {"球速": "120 km/h", "コントロール": ability(1), "スタミナ": ability(1)}
 
@@ -10225,26 +10194,6 @@ def display_position_defense_value(player: dict[str, Any], full_position: str, m
 
 
 
-def pitcher_usage_row_html(player: dict[str, Any]) -> str:
-    abilities = player.get("abilities", {}) if isinstance(player.get("abilities"), dict) else {}
-    values = {key: player.get(key) or abilities.get(key) for key in PITCHER_APTITUDE_KEYS}
-    if not any(values.values()):
-        pos = str(player.get("position", ""))
-        values = {"starter_aptitude": "◎" if pos == "先発" else "－", "reliever_aptitude": "◎" if pos == "中継ぎ" else "－", "closer_aptitude": "◎" if pos == "抑え" else "－"}
-    items = [("starter_aptitude", "先"), ("reliever_aptitude", "中"), ("closer_aptitude", "抑")]
-    value_html = "".join(f'<span class="pp-pitcher-usage-item"><span>{label}</span><span>{e((values.get(key) or "－").replace("-", "－"))}</span></span>' for key, label in items)
-    return f'<div class="pp-pitcher-usage-row"><div class="pp-label">起用適性</div><div class="pp-pitcher-usage-values">{value_html}</div></div>'
-
-
-def pitcher_defense_row_html(item: Any) -> str:
-    if isinstance(item, dict):
-        rank_text = str(item.get("rank", "－"))
-        value = str(item.get("value", "－"))
-    else:
-        rank_text = "－"
-        value = str(item if item is not None else "－")
-    return f'<div class="pp-pitcher-defense-row"><div class="pp-label">守備力</div><div class="pp-pitcher-defense-values"><span>投</span><span style="color:{ui_rank_color(rank_text)};font-size:24px;text-shadow:1px 1px white;">{e(rank_text)}</span><span>{e(value)}</span></div></div>'
-
 def render_defense_usage_left(player: dict[str, Any]) -> str:
     f = displayed_fielder_abilities(player)
     is_pitcher = player.get("role") == "投手"
@@ -10252,7 +10201,7 @@ def render_defense_usage_left(player: dict[str, Any]) -> str:
     pos_labels = [("投", "投手"), ("捕", "捕手"), ("一", "一塁手"), ("二", "二塁手"), ("三", "三塁手"), ("遊", "遊撃手"), ("外", "外野手")]
     main_position = "投手" if is_pitcher else player.get("position")
     base_fielding = ability_numeric_value(f, "守備力")
-    # ゲーム画面と同じく、守備力の枠の先頭セルにラベルを置き、投〜外の7ポジションを2列で並べます。
+    # ゲーム画面と同じく、守備力の枠の先頭セルにラベルを置き、投〜外の7ポジションを2列で並べます（左列の4行分）。
     cells = ['<div class="pp-defense-label"><span class="pp-label">守備力</span></div>']
     for short, full in pos_labels:
         is_main = main_position == full
@@ -10269,10 +10218,8 @@ def render_defense_usage_left(player: dict[str, Any]) -> str:
             value_html = '<span class="pp-defense-empty">－－</span>'
         cells.append(f'<div class="pp-defense-pos{main_cls}"><span class="pp-defense-short">{short}</span>{value_html}</div>')
     grid = '<div class="pp-defense-compact">' + ''.join(cells) + '</div>'
-    html = render_ability_rows([("走力", f.get("走力")), ("肩力", f.get("肩力"))]) + grid + render_ability_rows([("捕球", f.get("捕球"))])
-    if is_pitcher:
-        html += pitcher_usage_row_html(player)
-    return html
+    return render_ability_rows([("走力", f.get("走力")), ("肩力", f.get("肩力"))]) + grid + render_ability_rows([("捕球", f.get("捕球"))])
+
 
 def profile_physique_text(player: dict[str, Any], key: str, legacy_key: str, unit: str) -> str:
     value = player.get(key) if key in player else player.get(legacy_key)
@@ -10281,48 +10228,150 @@ def profile_physique_text(player: dict[str, Any], key: str, legacy_key: str, uni
     return f"{int(value)}{unit}"
 
 
-def render_profile_right(player: dict[str, Any]) -> str:
-    display_name = player.get("back_name") or player.get("name")
+# ===== 登録名・誕生日（表示専用。保存データは変えない） =====
+SURNAME_FIRST_ORDER = "surname_given"
+
+
+def player_name_order(player: dict[str, Any]) -> str:
+    """外国人選手の名前の順序。実国籍→表示国籍の順に外国人名DBから引き、引けなければ「名 姓」とみなす。"""
+    by_actual, by_display = nation_name_orders()
+    actual = str(player.get("actual_nationality") or "")
+    if actual in by_actual:
+        return by_actual[actual]
+    return by_display.get(str(player.get("nationality") or ""), "given_surname")
+
+
+def registered_surname_roman(player: dict[str, Any]) -> str:
+    """名前から名字を取り出す（外国人はローマ字のまま）。"""
+    name = str(player.get("name") or "").strip()
+    parts = name.replace("　", " ").split()
+    if len(parts) <= 1:
+        return name
+    if str(player.get("nationality") or "日本") == "日本" or player_name_order(player) == SURNAME_FIRST_ORDER:
+        return parts[0]
+    return " ".join(parts[1:])
+
+
+def registered_name(player: dict[str, Any]) -> str:
+    """名前帯に出す登録名（通常は名字）。外国人のカタカナ化（A-7b）はここで置き換える。"""
+    return registered_surname_roman(player)
+
+
+def back_name_display(player: dict[str, Any]) -> str:
+    if str(player.get("nationality") or "日本") == "日本":
+        return "－"  # 日本人は読みのデータがない
+    return registered_surname_roman(player).upper() or "－"
+
+
+GAME_REFERENCE_MONTH_DAY = (4, 1)  # 保存されている年齢は「ゲーム内の年」の4月1日時点の満年齢とみなす
+DISPLAY_SETTINGS_PATH = DATA_DIR / "config" / "display_settings.json"
+GAME_YEAR_KEY = "display_game_year"
+
+
+def saved_game_year() -> int:
+    try:
+        value = json.loads(DISPLAY_SETTINGS_PATH.read_text(encoding="utf-8")).get("game_year")
+        return int(value)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return NPB_CURRENT_YEAR
+
+
+def save_game_year(year: int) -> None:
+    try:
+        settings = json.loads(DISPLAY_SETTINGS_PATH.read_text(encoding="utf-8"))
+        settings = settings if isinstance(settings, dict) else {}
+    except (OSError, ValueError):
+        settings = {}
+    settings["game_year"] = int(year)
+    DISPLAY_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DISPLAY_SETTINGS_PATH.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def current_game_year() -> int:
+    value = st.session_state.get(GAME_YEAR_KEY)
+    return int(value) if value else saved_game_year()
+
+
+def birthday_with_year_display(player: dict[str, Any], game_year: int) -> str:
+    """「2002年6月30日」形式。年齢を基準日（ゲーム内の年の4月1日）時点の満年齢として生年を逆算する。"""
+    month, day = int(player.get("birth_month") or 0), int(player.get("birth_day") or 0)
+    if not month or not day:
+        return ""
+    try:
+        age = int(player.get("age"))
+    except (TypeError, ValueError):
+        return birthday_display(player)
+    year = int(game_year) - age - (1 if (month, day) > GAME_REFERENCE_MONTH_DAY else 0)
+    if (month, day) == (2, 29) and not calendar.isleap(year):
+        day = 28
+    return f"{year}年{month}月{day}日"
+
+
+# ===== プロフィール =====
+# 色見本の色。2色（「黒/木」など）は斜めに塗り分ける。表にない色名は色見本を出さない。
+EQUIPMENT_SWATCH_COLORS = {
+    "木": "#e0b273", "黒": "#26282c", "茶": "#7b4a26", "赤": "#d8252e", "黄": "#f4cf1c", "革": "#c98d4f",
+    "オレンジ": "#f2841d", "青": "#1f5fd0", "ブロンド": "#e8c983", "水色": "#5fc6ef", "緑": "#2f9d4b",
+    "シルバー": "#b9c1c9", "白": "#ffffff", "グレー": "#8b939b", "紫": "#8a4cc4", "ピンク": "#f390b8",
+}
+PROFILE_LABEL_FONT_PX = 21
+PROFILE_VALUE_FONT_PX = 30
+
+
+def equipment_swatch_html(color_name: Any) -> str:
+    text = str(color_name or "")
+    if text == "なし":
+        return '<span class="pp-swatch pp-swatch-none" title="なし"><svg viewBox="0 0 20 20"><path d="M4 4 L16 16 M16 4 L4 16"/></svg></span>'
+    colors = [EQUIPMENT_SWATCH_COLORS.get(part) for part in text.split("/")]
+    if not text or not all(colors):
+        return ""
+    fill = colors[0] if len(colors) == 1 else f"linear-gradient(135deg,{colors[0]} 50%,{colors[1]} 50%)"
+    return f'<span class="pp-swatch" style="background:{fill}"></span>'
+
+
+def wristband_text(player: dict[str, Any], side: str) -> str:
+    if f"wristband_{side}_enabled" not in player:
+        return ""
+    return str(player.get(f"wristband_{side}_color") or "") if int(player.get(f"wristband_{side}_enabled") or 0) else "なし"
+
+
+def profile_cell_html(label: str, value: Any, swatch: bool = False) -> str:
+    text = "－" if value in (None, "") else str(value)
+    swatch_html = equipment_swatch_html(text) if swatch else ""
+    return (
+        f'<div class="pp-prof-cell" title="{e(label)}：{e(text)}">'
+        f'<span class="pp-label pp-prof-label">{fit_text_svg(label, PROFILE_LABEL_FONT_PX, spread=True)}</span>'
+        f'{swatch_html}<span class="pp-prof-value">{fit_text_svg(text, PROFILE_VALUE_FONT_PX, align="start")}</span></div>'
+    )
+
+
+def render_profile_right(player: dict[str, Any], game_year: int | None = None) -> str:
+    # ゲームのプロフィール画面と同じく、白いピル型ラベル＋大きな値の7行。
+    # よびかた・ボイスの行には作成モードでまとめて確認したい投球・打撃フォームを、背ネームの右には肌色を置く。
+    game_year = NPB_CURRENT_YEAR if game_year is None else game_year
     pro_years = int(player.get("pro_years") or 0)
     pro_years_text = "" if "pro_years" not in player else ("不明" if not player.get("entry_route") else ("未経験" if pro_years == 0 else f"{pro_years}年目"))
-    roster_origin_text = {"foreign_import": "外国人補強", "domestic": "国内経由"}.get(str(player.get("roster_origin") or ""), "")
-    foreign_route_text = FOREIGN_ROUTE_LABELS.get(str(player.get("foreign_route") or ""), "")
-    npb_years = int(player.get("npb_years") or 0)
-    npb_years_text = f"{npb_years}年目" if player.get("roster_origin") == "foreign_import" and npb_years else ""
-    items = [
-        ("氏名", player.get("name"), " pp-profile-span-3"),
-        ("年齢", f"{player.get('age')}歳", ""),
-        ("プロ", pro_years_text, ""),
-        ("加入区分", roster_origin_text, ""),
-        ("経由", foreign_route_text, ""),
-        ("NPB在籍", npb_years_text, ""),
-        ("再来日", "あり" if player.get("is_returnee") else "", ""),
-        ("誕生日", birthday_display(player), ""),
-        ("投打", player.get("batting_throwing"), ""),
-        ("国籍", player.get("nationality"), ""),
-        ("実国籍", player.get("actual_nationality"), ""),
-        ("肌色", player.get("skin_color") or "", ""),
-        ("出身地", player.get("birthplace"), ""),
-        ("身長", profile_physique_text(player, "height_cm", "height", "cm"), ""),
-        ("体重", profile_physique_text(player, "weight_kg", "weight", "kg"), ""),
-        ("投球フォーム", form_display(player, "pitching") if player.get("role") == "投手" else "", ""),
-        ("打撃フォーム", form_display(player, "batting"), ""),
-        ("バット", player.get("bat_color"), ""),
-        ("グラブ", player.get("glove_color"), ""),
-        ("左リストバンド", (player.get("wristband_left_color") if int(player.get("wristband_left_enabled") or 0) else "なし") if "wristband_left_enabled" in player else "", ""),
-        ("右リストバンド", (player.get("wristband_right_color") if int(player.get("wristband_right_enabled") or 0) else "なし") if "wristband_right_enabled" in player else "", ""),
-        ("ドラフト所属区分", player.get("draft_source_type") if player.get("category") == "ドラフト候補用" else "", ""),
-        ("表示名", display_name, " pp-profile-span-3"),
+    is_japanese = str(player.get("nationality") or "日本") == "日本"
+    age = player.get("age")
+    skin_color = player.get("skin_color")
+    rows = [
+        ("wide", [("氏名", player.get("name"), False), ("プロ", pro_years_text, False)]),
+        ("wide", [("誕生日", birthday_with_year_display(player, game_year), False), ("年齢", f"{age}歳" if age not in (None, "") else "", False)]),
+        ("wide", [("国・地域", player.get("birthplace") if is_japanese else player.get("nationality"), False), ("経歴", player.get("entry_route"), False)]),
+        ("wide", [("背ネーム", back_name_display(player), False), ("肌色", skin_color if skin_color not in (None, "", 0) else "", False)]),
+        ("half", [("投球フォーム", form_display(player, "pitching") if player.get("role") == "投手" else "", False), ("打撃フォーム", form_display(player, "batting"), False)]),
+        ("half", [("バット", player.get("bat_color"), True), ("グラブ", player.get("glove_color"), True)]),
+        ("half", [("左リストバンド", wristband_text(player, "left"), True), ("右リストバンド", wristband_text(player, "right"), True)]),
     ]
-    items = [(label, value, span_class) for label, value, span_class in items if value not in (None, "")]
-    cells = ''.join(
-        f'<div class="pp-profile-label">{e(label)}</div><div class="pp-profile-value{span_class}">{e(value)}</div>'
-        for label, value, span_class in items
+    return "".join(
+        f'<div class="pp-prof-row {kind}">' + "".join(profile_cell_html(*cell) for cell in cells) + "</div>"
+        for kind, cells in rows
     )
-    return '<div class="pp-profile-table">' + cells + '</div>'
 
 
 def render_generation_info_html(player: dict[str, Any]) -> str:
+    roster_origin_text = {"foreign_import": "外国人補強", "domestic": "国内経由"}.get(str(player.get("roster_origin") or ""), "")
+    npb_years = int(player.get("npb_years") or 0)
     items = [
         ("カテゴリ", player.get("category")),
         ("タイプ", player.get("player_type")),
@@ -10332,41 +10381,72 @@ def render_generation_info_html(player: dict[str, Any]) -> str:
         ("完成度", player.get("development_stage")),
         ("獲得目的", player.get("acquisition_role")),
         ("弱点プロファイル", player.get("weakness_profile")),
+        ("身長", profile_physique_text(player, "height_cm", "height", "cm")),
+        ("体重", profile_physique_text(player, "weight_kg", "weight", "kg")),
+        ("加入区分", roster_origin_text),
+        ("経由", FOREIGN_ROUTE_LABELS.get(str(player.get("foreign_route") or ""), "")),
+        ("NPB在籍", f"{npb_years}年目" if player.get("roster_origin") == "foreign_import" and npb_years else ""),
+        ("再来日", "あり" if player.get("is_returnee") else ""),
+        ("実国籍", player.get("actual_nationality")),
+        ("ドラフト所属区分", player.get("draft_source_type") if player.get("category") == "ドラフト候補用" else ""),
         ("seed", player.get("seed")),
     ]
     items = [(label, value) for label, value in items if value not in (None, "")]
-    cards = ''.join(f'<div class="pp-generation-card"><span class="pp-mini-label">{e(label)}</span>{e(value)}</div>' for label, value in items)
+    cards = ''.join(f'<div class="pp-generation-card"><span class="pp-label">{e(label)}</span><span class="pp-generation-value">{e(value)}</span></div>' for label, value in items)
     return '<details class="pp-generation-info"><summary>生成情報</summary><div class="pp-generation-grid">' + cards + '</div></details>'
 
 
+# ===== ヘッダー =====
 def player_uniform_number(player: dict[str, Any]) -> int:
     return random.Random(f"number:{player.get('seed', 0)}:{player.get('name', '')}").randint(0, 99)
 
 
-def role_stats_placeholder(player: dict[str, Any]) -> str:
-    if player.get("role") == "投手":
-        return "防 ----　--勝 --敗 --HP --S"
-    return "率 .---　--本 --点 --盗"
+def header_stats_kind(player: dict[str, Any], tab: str | None) -> str:
+    """成績・フォーム欄の種類。投手能力・野手能力タブはタブに合わせ、それ以外は本来の役割に合わせる。"""
+    if tab == "投手能力":
+        return "pitching"
+    if tab == "野手能力":
+        return "batting"
+    return "pitching" if player.get("role") == "投手" else "batting"
 
 
-def role_form_placeholder(player: dict[str, Any]) -> str:
-    if player.get("role") == "投手":
+def header_position_kind(player: dict[str, Any], tab: str | None) -> str:
+    """位置の行の種類。投手能力タブは適性、野手能力・守備・起用タブは守備位置、それ以外は本来の役割。"""
+    if tab == "投手能力":
+        return "aptitude"
+    if tab in ("野手能力", "守備・起用"):
+        return "defense"
+    return "aptitude" if player.get("role") == "投手" else "defense"
+
+
+def role_stats_placeholder(player: dict[str, Any], kind: str | None = None) -> str:
+    # 成績は記録しないため、ゲームの未記録表示と同じ書式にする
+    if (kind or header_stats_kind(player, None)) == "pitching":
+        return "防----　--勝--敗--HP--S"
+    return "率-----　---本---点---盗"
+
+
+def role_form_placeholder(player: dict[str, Any], kind: str | None = None) -> str:
+    if (kind or header_stats_kind(player, None)) == "pitching":
+        if player.get("role") != "投手":
+            return "－－－－－－"
         return form_display(player, "pitching") or "－"
     return form_display(player, "batting") or "－"
 
 
-def header_position_text(player: dict[str, Any]) -> str:
-    if player.get("role") == "投手":
-        return f"適性　{compact_pitcher_aptitude_text(player)}"
-    short_positions = {"捕手": "捕", "一塁手": "一", "二塁手": "二", "三塁手": "三", "遊撃手": "遊", "外野手": "外"}
-    return f"守備位置　{short_positions.get(str(player.get('position', '')), player.get('position', '－'))}"
+def header_label_html(label: str) -> str:
+    return f'<span class="pp-label pp-head-label">{e(label)}</span>'
 
 
-def header_position_html(player: dict[str, Any]) -> str:
+def header_position_html(player: dict[str, Any], kind: str | None = None) -> str:
     # ゲームと同じく「守備位置」「適性」をラベルのピルにし、値は大きな文字で表示します。
-    # 野手：メインポジションを大きく、サブポジションを小さく並べます（例：遊 三 外）。
-    # 投手：先・中・抑を適性の高さに応じた大きさで並べ、適性なし（－）は表示しません。
-    if player.get("role") == "投手":
+    # 守備位置：メインポジションを大きく、サブポジションを小さく並べます（例：遊 三 外）。投手は「投」だけ。
+    # 適性：先・中・抑を適性の高さに応じた大きさで並べ、適性なし（－）は表示しません。野手は「－－－」。
+    kind = kind or header_position_kind(player, None)
+    is_pitcher = player.get("role") == "投手"
+    if kind == "aptitude":
+        if not is_pitcher:
+            return f'<div class="pp-posline">{header_label_html("適性")}<span class="pp-pos-values"><span class="pp-pos-item lv1">－－－</span></span></div>'
         abilities = player.get("abilities", {}) if isinstance(player.get("abilities"), dict) else {}
         values = {key: player.get(key) or abilities.get(key) for key in PITCHER_APTITUDE_KEYS}
         if not any(values.values()):
@@ -10379,13 +10459,15 @@ def header_position_html(player: dict[str, Any]) -> str:
             if mark in level_class:
                 items.append(f'<span class="pp-pos-item {level_class[mark]}" title="{e(label + mark)}">{label}</span>')
         value_html = "".join(items) or '<span class="pp-pos-item lv1">－</span>'
-        return f'<div class="pp-posline"><span class="pp-mini-label">適性</span><span class="pp-pos-values">{value_html}</span></div>'
+        return f'<div class="pp-posline">{header_label_html("適性")}<span class="pp-pos-values">{value_html}</span></div>'
+    if is_pitcher:
+        return f'<div class="pp-posline">{header_label_html("守備位置")}<span class="pp-pos-values"><span class="pp-pos-item main">投</span></span></div>'
     short_positions = {"捕手": "捕", "一塁手": "一", "二塁手": "二", "三塁手": "三", "遊撃手": "遊", "外野手": "外"}
     main = str(player.get("position", ""))
     main_short = short_positions.get(main, main or "－")
     subs = {item["position"] for item in normalize_sub_positions(player.get("sub_positions"))}
     sub_html = "".join(f'<span class="pp-pos-item sub">{short}</span>' for full, short in short_positions.items() if full in subs and full != main)
-    return f'<div class="pp-posline"><span class="pp-mini-label">守備位置</span><span class="pp-pos-values"><span class="pp-pos-item main">{e(main_short)}</span>{sub_html}</span></div>'
+    return f'<div class="pp-posline">{header_label_html("守備位置")}<span class="pp-pos-values"><span class="pp-pos-item main">{e(main_short)}</span>{sub_html}</span></div>'
 
 
 def normalize_selected_tab_value(player: dict[str, Any], value: Any) -> str:
@@ -10394,81 +10476,57 @@ def normalize_selected_tab_value(player: dict[str, Any], value: Any) -> str:
     return str(value)
 
 
-def usage_special_categories(player: dict[str, Any], master: MasterData) -> dict[str, list[str]]:
-    entries = [name for name, _kind in collect_special_entries(player, master, "usage")]
-    if player.get("role") == "投手":
-        mapping = {
-            "投球方針": {"速球中心", "変化球中心", "投球位置左", "投球位置右", "テンポ○"},
-            "起用法": {"フル出場"},
-            "その他": {"人気者"},
-        }
-    else:
-        mapping = {
-            "打撃方針": {"ミート多用", "強振多用", "積極打法", "慎重打法", "チームプレイ○", "チームプレイ×"},
-            "走塁方針": {"積極盗塁", "慎重盗塁", "積極走塁"},
-            "守備方針": {"積極守備"},
-            "起用法": {"フル出場"},
-            "その他": {"人気者"},
-        }
-    return {label: [name for name in entries if name in names] for label, names in mapping.items() if any(name in names for name in entries)}
+# ===== 守備・起用タブの右グリッド =====
+GROWTH_CELL_TITLE = "成長タイプ（ゲーム画面では非表示。作成モードで指定）"
 
 
 def render_usage_categories_html(player: dict[str, Any], master: MasterData) -> str:
-    cells: list[str] = []
-    categories = usage_special_categories(player, master)
-    growth_html = e(growth_type_label(player.get("growth_type")))
-    if not categories:
-        cells.extend([
-            '<div class="pp-usage-cell pp-usage-label">起用法</div>',
-            f'<div class="pp-usage-cell pp-usage-value">{growth_html}</div>',
-            '<div class="pp-usage-cell pp-usage-empty"></div>',
-            '<div class="pp-usage-cell pp-usage-empty"></div>',
-        ])
-    else:
-        for label, names in categories.items():
-            for offset in range(0, max(1, len(names)), 3):
-                row_names = names[offset: offset + 3]
-                row_label = label if offset == 0 else ''
-                cells.append(f'<div class="pp-usage-cell pp-usage-label">{e(row_label)}</div>')
-                for name in row_names:
-                    cells.append(f'<div class="pp-usage-cell pp-usage-value">{e(name)}</div>')
-                while len(cells) % 4 != 0:
-                    cells.append('<div class="pp-usage-cell pp-usage-empty"></div>')
-        cells.extend([
-            '<div class="pp-usage-cell pp-usage-label"></div>',
-            f'<div class="pp-usage-cell pp-usage-value">{growth_html}</div>',
-            '<div class="pp-usage-cell pp-usage-empty"></div>',
-            '<div class="pp-usage-cell pp-usage-empty"></div>',
-        ])
-    target_count = special_grid_cell_count(32, 0, len(cells))
-    while len(cells) < target_count:
-        cells.append('<div class="pp-usage-cell pp-usage-empty"></div>')
-    return '<div class="pp-usage-grid">' + ''.join(cells) + '</div>'
+    # ゲームと同じく見出しは「起用法」だけ。起用法の欄に入るのは「フル出場」のみで、
+    # 2行目の1列目に成長タイプ（ゲームでは非表示、作成モードで指定）、3行目からそのほかの起用系特殊能力を見出しなしで並べる。
+    entries = collect_special_entries(player, master, "usage")
+    full_game = [(name, kind) for name, kind in entries if name == "フル出場"]
+    others = [(name, kind) for name, kind in entries if name != "フル出場"]
+    growth_text = f"成長：{growth_type_label(player.get('growth_type'))}"
+    cells = [
+        '<div class="pp-special pp-usage-label"><span class="pp-label">起用法</span></div>',
+        special_cell_html(full_game[0][0], full_game[0][1]) if full_game else special_cell_html(None),
+        special_cell_html(None),
+        special_cell_html(None),
+        f'<div class="pp-special neutral pp-usage-growth" title="{e(GROWTH_CELL_TITLE)}"><span class="pp-special-name">{fit_text_svg(growth_text, SPECIAL_NAME_FONT_PX)}</span></div>',
+        special_cell_html(None),
+        special_cell_html(None),
+        special_cell_html(None),
+    ]
+    cells.extend(special_cell_html(name, kind) for name, kind in others)
+    while len(cells) < special_grid_cell_count(32, 0, len(cells)):
+        cells.append(special_cell_html(None))
+    return special_grid_wrap_html(cells)
+
 
 def set_selected_tab(tab_key: str, label: str) -> None:
     st.session_state[tab_key] = label
 
 
-def render_header_html(p: dict[str, Any]) -> str:
+def render_header_html(p: dict[str, Any], tab: str | None = None) -> str:
     category_mark = {"架空球団用": "架", "ドラフト候補用": "候", "助っ人外国人用": "外"}.get(str(p.get("category", "")), "球")
-    escaped_name = e(p.get("name"))
     nameplate_style = nameplate_background_css(get_player_nameplate_colors(p))
     style_attr = f' style="{e(nameplate_style)}"' if nameplate_style else ""
+    stats_kind = header_stats_kind(p, tab)
     return f"""
       <div class="pp-header">
         <div class="pp-header-main">
           <div class="pp-name-line">
-            <div class="pp-name" title="{escaped_name}"{style_attr}>{escaped_name}</div>
+            <div class="pp-name" title="{e(p.get("name"))}"{style_attr}>{fit_text_svg(registered_name(p), NAMEPLATE_FONT_PX, spread=True)}</div>
             <div class="pp-category-mark" title="{e(p.get('category'))}">{e(category_mark)}</div>
             <div class="pp-number-box">{player_uniform_number(p)}</div>
           </div>
-          {header_position_html(p)}
+          {header_position_html(p, header_position_kind(p, tab))}
         </div>
         <div class="pp-face">{render_player_icon_svg(p)}</div>
         <div class="pp-info">
-          <div class="pp-chip"><span class="pp-mini-label">成績</span>{e(role_stats_placeholder(p))}</div>
-          <div class="pp-chip pp-chip-wide"><span class="pp-mini-label">フォーム</span>{e(role_form_placeholder(p))}</div>
-          <div class="pp-chip"><span class="pp-mini-label">投打</span>{e(p.get('batting_throwing'))}</div>
+          <div class="pp-chip">{header_label_html("成績")}<span class="pp-chip-value">{e(role_stats_placeholder(p, stats_kind))}</span></div>
+          <div class="pp-chip pp-chip-wide">{header_label_html("フォーム")}<span class="pp-chip-value">{fit_text_svg(role_form_placeholder(p, stats_kind), 28, align="start")}</span></div>
+          <div class="pp-chip">{header_label_html("投打")}<span class="pp-chip-value">{e(p.get('batting_throwing'))}</span></div>
         </div>
       </div>"""
 
@@ -10480,38 +10538,49 @@ def render_detail_panel(p: dict[str, Any], master: MasterData, key_prefix: str) 
     panel_color = TAB_COLORS.get(tab, "#0876c9")
     with st.container(key=f"{key_prefix}_detail_shell"):
         st.markdown(f'<style>div[class*="st-key-{key_prefix}_detail_shell"]{{--pp-tab-color:{panel_color};}}</style>', unsafe_allow_html=True)
-        st.markdown(render_header_html(p), unsafe_allow_html=True)
+        st.markdown(render_header_html(p, tab), unsafe_allow_html=True)
         tabs = [(label, {"投手能力":"pitcher", "野手能力":"fielder", "守備・起用":"usage", "プロフィール":"profile"}[label], TAB_COLORS[label]) for label in TAB_LABELS]
         tab_cols = st.columns(len(tabs), gap="small")
         for col, (label, key_name, _color) in zip(tab_cols, tabs):
             with col:
                 st.button(label, key=f"{key_prefix}_tab_{key_name}", use_container_width=True, type="primary" if tab == label else "secondary", on_click=set_selected_tab, args=(tab_key, label))
-        st.markdown(render_detail_body_html(p, master, tab), unsafe_allow_html=True)
+        st.markdown(render_detail_body_html(p, master, tab, current_game_year()), unsafe_allow_html=True)
 
 
-def render_detail_body_html(p: dict[str, Any], master: MasterData, effective_tab: str) -> str:
+# ===== 本文（左列・右列） =====
+def pitcher_left_html(p: dict[str, Any], chart_rows: int) -> str:
+    # 球速・コントロール・スタミナの3行は右列の行とそろえ、変化球の図は残りの行にまたがって置く
+    pa = displayed_pitcher_abilities(p)
+    balls = p.get("breaking_balls", []) if p.get("role") == "投手" else []
+    rows = render_ability_rows([("球速", pa.get("球速")), ("コントロール", pa.get("コントロール")), ("スタミナ", pa.get("スタミナ"))])
+    return rows + f'<div class="pp-chart-wrap" style="grid-row:span {chart_rows}">{render_pitch_chart_svg(balls, str(p.get("batting_throwing", "")))}</div>'
+
+
+def fielder_left_html(p: dict[str, Any]) -> str:
+    fa = displayed_fielder_abilities(p)
+    return render_trajectory_row_html(fa.get("弾道")) + render_ability_rows([("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
+
+
+def render_detail_body_html(p: dict[str, Any], master: MasterData, effective_tab: str, game_year: int | None = None) -> str:
+    # 本文の高さは全タブ共通（野手能力タブの特殊能力8行分）。左列は行数 --rows で高さを均等に割る。
     if effective_tab == "投手能力":
-        pa = displayed_pitcher_abilities(p)
-        balls = p.get("breaking_balls", []) if p.get("role") == "投手" else []
-        left = render_ability_rows([("球速", pa.get("球速")), ("コントロール", pa.get("コントロール")), ("スタミナ", pa.get("スタミナ"))]) + f'<div class="pp-chart-wrap">{render_pitch_chart_svg(balls, str(p.get("batting_throwing", "")))}</div>'
+        body_class, rows = "pp-body pp-body-pitcher", 8
+        left = pitcher_left_html(p, chart_rows=5)
         right = render_special_grid_html(p, master, mode="pitcher")
     elif effective_tab == "野手能力":
-        fa = displayed_fielder_abilities(p)
-        left = render_trajectory_row_html(fa.get("弾道")) + render_ability_rows([("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
+        body_class, rows = "pp-body pp-body-fielder", 7
+        left = fielder_left_html(p)
         right = render_special_grid_html(p, master, mode="fielder")
     elif effective_tab == "守備・起用":
+        body_class, rows = "pp-body pp-body-usage", 7
         left = render_defense_usage_left(p)
         right = render_usage_categories_html(p, master)
     else:
-        if p.get("role") == "投手":
-            pa = displayed_pitcher_abilities(p)
-            left = render_ability_rows([("球速", pa.get("球速")), ("コントロール", pa.get("コントロール")), ("スタミナ", pa.get("スタミナ"))]) + f'<div class="pp-chart-wrap">{render_pitch_chart_svg(p.get("breaking_balls", []), str(p.get("batting_throwing", "")))}</div>'
-        else:
-            fa = displayed_fielder_abilities(p)
-            left = render_trajectory_row_html(fa.get("弾道")) + render_ability_rows([("ミート", fa.get("ミート")), ("パワー", fa.get("パワー")), ("走力", fa.get("走力")), ("肩力", fa.get("肩力")), ("守備力", fa.get("守備力")), ("捕球", fa.get("捕球"))])
-        right = render_profile_right(p) + render_generation_info_html(p)
-    body_class = "pp-body pp-body-pitcher" if effective_tab == "投手能力" else "pp-body"
-    return f'<div class="{body_class}"><div>{left}</div><div>{right}</div></div>'
+        body_class, rows = "pp-body pp-body-profile", 7
+        left = pitcher_left_html(p, chart_rows=4) if p.get("role") == "投手" else fielder_left_html(p)
+        right = render_profile_right(p, game_year) + render_generation_info_html(p)
+    return f'<div class="{body_class}"><div class="pp-left" style="--rows:{rows}">{left}</div><div class="pp-right">{right}</div></div>'
+
 
 # ===== 能力カード以外の画面部品 =====
 # 配色トークン。.streamlit/config.toml のテーマと同じ値にそろえる。
@@ -10637,11 +10706,17 @@ def app_chrome_css() -> str:
     .pp-page-description {color:var(--ui-text); font-size:16px; line-height:1.6; font-weight:650; margin:0 0 14px;}
     .pp-section-heading {color:var(--ui-primary); background:var(--ui-surface); border-left:5px solid var(--ui-accent); border-radius:4px; padding:7px 12px; font-size:17px; font-weight:900; margin:18px 0 10px;}
     div[class*="st-key-player_area"] {max-width:/*CARD_MAX_WIDTH*/; width:100%; margin-left:auto; margin-right:auto;}
-    .pp-table-count {text-align:right; color:var(--ui-muted); font-size:14px; font-weight:700;}
+    .pp-table-count {text-align:left; color:var(--ui-muted); font-size:14px; font-weight:700;}
+    #pp-card {scroll-margin-top:72px;}
+    .pp-selected-line {display:flex; align-items:center; gap:14px; margin:2px 0 6px; color:var(--ui-text); font-size:14px; font-weight:700;}
+    .pp-selected-line a {color:var(--ui-primary); font-weight:800; text-decoration:none; white-space:nowrap;}
+    .pp-selected-line a:hover {text-decoration:underline;}
     .pp-player-count {display:flex; align-items:center; justify-content:center; height:40px; color:var(--ui-muted); font-size:15px; font-weight:800; white-space:nowrap; font-variant-numeric:tabular-nums;}
     /* サイドバー：紺地に白文字。入力欄は白地に本文色 */
     [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] label, [data-testid="stSidebar"] label p {color:var(--ui-sidebar-text);}
     [data-testid="stSidebar"] [data-testid="stCaptionContainer"], [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {color:var(--ui-sidebar-muted);}
+    /* 未選択のラジオボタンの丸が紺地に溶けないよう、白の枠線を付ける */
+    [data-testid="stSidebar"] [data-testid="stRadioOption"]:not([data-selected="true"]) > div > div > div:first-child {box-shadow:inset 0 0 0 2px #FFFFFF;}
     [data-testid="stSidebar"] input {background:var(--ui-surface); color:var(--ui-text); -webkit-text-fill-color:var(--ui-text);}
     [data-testid="stSidebar"] input:disabled {background:#DCE5F0; color:var(--ui-muted); -webkit-text-fill-color:var(--ui-muted); cursor:not-allowed;}
     [data-testid="stSidebar"] [data-testid="stSelectbox"] div:has(> input), [data-testid="stSidebar"] [data-testid="stSelectbox"] button, [data-testid="stSidebar"] [data-testid="stSelectbox"] svg {color:var(--ui-text);}
@@ -10749,13 +10824,14 @@ def relative_player_id(player_ids: list[str], current_id: str | None, offset: in
 
 
 def player_choice_ids(history_ids: list[str], latest_ids: list[str], selected_id: str | None, limit: int = PLAYER_OPTION_LIMIT) -> list[str]:
-    """選択欄の並び（生成日時の新しい順）。保存できなかった今回分を先頭に置き、上限外でも選択中の選手は残す。"""
-    history_id_set = set(history_ids)
-    unsaved = [player_id for player_id in latest_ids if player_id not in history_id_set]
-    included = set(history_ids[:limit])
-    if selected_id in history_id_set:
+    """選択欄の並び。今回生成した選手（未保存分を含む）を絞り込みに関係なく先頭に置き、
+    続けて表の絞り込み結果を生成日時の新しい順に並べる。上限外でも選択中の選手は残す。"""
+    latest_id_set = set(latest_ids)
+    rest = [player_id for player_id in history_ids if player_id not in latest_id_set]
+    included = set(rest[:limit])
+    if selected_id in rest:
         included.add(selected_id)
-    return unsaved + [player_id for player_id in history_ids if player_id in included]
+    return list(latest_ids) + [player_id for player_id in rest if player_id in included]
 
 
 def reset_history_table_selection() -> None:
@@ -10813,6 +10889,7 @@ def history_row_label(row: pd.Series) -> str:
 
 
 def render_player_section(history: pd.DataFrame, master: MasterData) -> None:
+    """history は表の絞り込み結果。選択欄と前後ボタンはこの範囲（＋今回生成した選手）を移動する。"""
     latest_players = st.session_state.get("latest_players", [])
     latest_by_id = {player_unique_id(player, index): player for index, player in enumerate(latest_players)}
     history_ids = history_ids_from_frame(history)
@@ -10832,6 +10909,7 @@ def render_player_section(history: pd.DataFrame, master: MasterData) -> None:
     current_index = player_ids.index(st.session_state[PLAYER_SELECT_KEY])
     # 選手選択欄とカードは改修前のカード幅にそろえて中央に置く（表や出力ボタンは全幅のまま）
     with st.container(key=PLAYER_AREA_KEY):
+        st.markdown(f'<div id="{CARD_ANCHOR_ID}"></div>', unsafe_allow_html=True)
         render_section_heading("選手を選択")
         previous_col, select_col, count_col, next_col = st.columns([0.15, 0.6, 0.1, 0.15], gap="small", vertical_alignment="center")
         with previous_col:
@@ -10847,6 +10925,7 @@ def render_player_section(history: pd.DataFrame, master: MasterData) -> None:
             player = latest_by_id[selected_player_id]
         else:
             player = player_from_history_row(history.iloc[row_position_by_id[selected_player_id]])
+        st.session_state[SELECTED_PLAYER_LABEL_KEY] = player_label(player)
         render_seed_copy(player)
         render_detail_panel(player, master, DETAIL_KEY_PREFIX)
 
@@ -10921,6 +11000,8 @@ def export_file_name(kind: str, extension: str, now: Any = None) -> str:
 
 
 HISTORY_PERIOD_OPTIONS = ["すべて", "今日", "7日以内"]
+CARD_ANCHOR_ID = "pp-card"
+SELECTED_PLAYER_LABEL_KEY = "selected_player_label"
 HISTORY_TABLE_HEIGHT = 420
 EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 SEED_INPUT_KEY = "seed_input"
@@ -10955,6 +11036,27 @@ def history_position_options(history: pd.DataFrame) -> list[str]:
     return [position for position in order if position in present] + sorted(present - set(order))
 
 
+def history_filter_values() -> tuple[list[str], list[str], str, str]:
+    """表の絞り込み条件。選手選択欄が表より先に描画されるため、ウィジェットの値は st.session_state から読む。"""
+    state = st.session_state
+    return (
+        list(state.get("history_filter_categories") or []),
+        list(state.get("history_filter_positions") or []),
+        state.get("history_filter_period") or "すべて",
+        str(state.get("history_filter_name") or ""),
+    )
+
+
+def filtered_history(history: pd.DataFrame) -> pd.DataFrame:
+    if history.empty:
+        return history
+    return filter_history_table(history, *history_filter_values())
+
+
+def selected_player_line_html(label: str) -> str:
+    return f'<div class="pp-selected-line">選択中：{e(label)}<a href="#{CARD_ANCHOR_ID}">▲カードへ</a></div>'
+
+
 def render_history_section(history: pd.DataFrame) -> None:
     render_section_heading("過去生成選手")
     if history.empty:
@@ -10970,11 +11072,14 @@ def render_history_section(history: pd.DataFrame) -> None:
     with name_col:
         name_query = st.text_input("名前で検索", key="history_filter_name", placeholder="名前の一部")
     filtered = filter_history_table(history, categories, positions, period, name_query)
-    detail_col, count_col = st.columns([0.5, 0.5], vertical_alignment="center")
+    # 件数は表の右上（ツールバーと重なる位置）を避け、トグルの右隣に左寄せで出す
+    detail_col, count_col = st.columns([0.16, 0.84], vertical_alignment="center")
     with detail_col:
         show_details = st.toggle("詳細列を表示", key="history_show_details")
     with count_col:
         st.markdown(f'<div class="pp-table-count">{len(filtered)}件を表示（全{len(history)}件）</div>', unsafe_allow_html=True)
+    if st.session_state.get(SELECTED_PLAYER_LABEL_KEY):
+        st.markdown(selected_player_line_html(st.session_state[SELECTED_PLAYER_LABEL_KEY]), unsafe_allow_html=True)
     display, columns = history_display_frame(filtered, show_details)
     st.session_state[HISTORY_TABLE_IDS_KEY] = history_ids_from_frame(filtered)
     table_key = f"history_table_{st.session_state.get(HISTORY_TABLE_NONCE_KEY, 0)}"
@@ -11078,6 +11183,10 @@ def generate_and_save_players(role: str, category: str, count: int, master: Mast
     st.session_state["pending_toast"] = f"{len(players)}人の選手を生成しました"
 
 
+def persist_game_year() -> None:
+    save_game_year(int(st.session_state[GAME_YEAR_KEY]))
+
+
 def start_generation() -> None:
     st.session_state["generating"] = True
 
@@ -11105,6 +11214,18 @@ def render_generation_sidebar() -> tuple[str, str, int, str]:
         st.caption("『seedをコピー』で得た文字列を貼ると、同じ条件で再生成します")
         st.button("生成する", type="primary", use_container_width=True, key="generate_button", disabled=bool(st.session_state.get("generating")), on_click=start_generation)
         st.caption(f"Version {APP_VERSION}")
+        st.divider()
+        if GAME_YEAR_KEY not in st.session_state:
+            st.session_state[GAME_YEAR_KEY] = saved_game_year()
+        st.number_input(
+            "ゲーム内の年",
+            min_value=1900,
+            max_value=2200,
+            step=1,
+            key=GAME_YEAR_KEY,
+            on_change=persist_game_year,
+            help="プロフィールの誕生日に付ける生年の計算にだけ使います（年齢は4月1日時点の満年齢とみなします）。生成結果・保存データには影響しません。",
+        )
     return role, category, int(count), seed_text
 
 
@@ -11142,7 +11263,8 @@ def generation_page() -> None:
     if st.session_state.get("save_error"):
         st.error(st.session_state["save_error"])
     history = load_history()
-    render_player_section(history, master)
+    st.session_state.pop(SELECTED_PLAYER_LABEL_KEY, None)
+    render_player_section(filtered_history(history), master)
     st.divider()
     render_history_section(history)
 
