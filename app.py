@@ -502,8 +502,17 @@ def ensure_master_files() -> None:
             csv.writer(f).writerows(rows)
 
 
-@st.cache_resource(show_spinner=False)
 def load_master_data() -> MasterData:
+    # ランク付き特殊能力の判定表は、Streamlitの再実行でモジュールの変数ごと空に戻るため、キャッシュの外で毎回設定する。
+    # （キャッシュ関数の中で設定すると、再実行後は空のままになり、ランク特能が通常の特殊能力として生成される）
+    global _CURRENT_ABILITIES_FOR_RANK_CHECK
+    master = _load_master_data_cached()
+    _CURRENT_ABILITIES_FOR_RANK_CHECK = master.abilities
+    return master
+
+
+@st.cache_resource(show_spinner=False)
+def _load_master_data_cached() -> MasterData:
     # CSV・JSONの読み直しは操作のたびに走らないようキャッシュする（生成処理はマスターデータを書き換えない）
     ensure_master_files()
     abilities = pd.read_csv(DATA_DIR / "special_abilities.csv")
@@ -519,8 +528,6 @@ def load_master_data() -> MasterData:
     abilities["kind"] = abilities["kind"].fillna("unknown").astype(str)
     abilities["power"] = abilities["power"].fillna("normal").astype(str)
     abilities["weight"] = pd.to_numeric(abilities["weight"], errors="coerce").fillna(0).astype(int)
-    global _CURRENT_ABILITIES_FOR_RANK_CHECK
-    _CURRENT_ABILITIES_FOR_RANK_CHECK = abilities.to_dict("records")
     return MasterData(
         names=normalize_name_master(json.loads((DATA_DIR / "names.json").read_text(encoding="utf-8"))),
         places=normalize_place_master(json.loads((DATA_DIR / "places.json").read_text(encoding="utf-8"))),
