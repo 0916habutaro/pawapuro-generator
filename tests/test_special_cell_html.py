@@ -59,6 +59,16 @@ class SpecialCellHtmlTest(unittest.TestCase):
                 self.assertIn(f'textLength="{4 * size}" lengthAdjust="spacing"', html)
         self.assertIn('lengthAdjust="spacingAndGlyphs"', app.special_cell_html("広角打法"))
 
+    def test_short_latin_names_are_not_spread(self):
+        # ローマ字の短い名字（韓国の Lee など）は、名前帯で字間を広げない
+        size = app.NAMEPLATE_FONT_PX
+        for name in ["Lee", "Ko", "Wu"]:
+            with self.subTest(name=name):
+                html = app.fit_text_svg(name, size, spread=True)
+                self.assertIn('lengthAdjust="spacingAndGlyphs"', html)
+                self.assertNotIn('lengthAdjust="spacing"', html)
+        self.assertIn(f'textLength="{4 * size}" lengthAdjust="spacing"', app.fit_text_svg("広岡", size, spread=True))
+
     def test_ranked_special_name_and_badge_are_separate(self):
         html = app.special_cell_html("ケガしにくさF")
         self.assertIn(">ケガしにくさ</text>", html)

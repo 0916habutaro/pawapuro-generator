@@ -9506,12 +9506,13 @@ def fit_text_svg(text: Any, font_size: float, *, spread: bool = False, align: st
 
     SVGの幅を「自然な幅」W（px）と枠の幅の小さい方にし、viewBox は W のままにすることで、
     枠が狭いときだけ preserveAspectRatio="none" で横に縮む。JSは使わない。
-    spread=True のとき、2〜3文字の名前は4文字分の幅に字間を広げる。
+    spread=True のとき、2〜3文字の全角の名前は4文字分の幅に字間を広げる（ローマ字は広げない）。
     """
     text = str(text or "")
     if not text:
         return ""
-    spread_out = spread and len(text) in (2, 3)
+    # 字間を広げるのは全角（漢字・かな）の名前だけ。ローマ字（例：Lee）は広げない
+    spread_out = spread and len(text) in (2, 3) and all(unicodedata.east_asian_width(char) in ("F", "W") for char in text)
     width = round((FIT_TEXT_SPREAD_CHARS if spread_out else text_em_width(text)) * font_size, 1)
     height = round(font_size * 1.25, 1)
     x = {"start": 0.0, "middle": width / 2, "end": width}.get(align, width / 2)
