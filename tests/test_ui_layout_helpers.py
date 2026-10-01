@@ -140,12 +140,26 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertGreater(len(cells), 32)
         self.assertEqual(len(cells) % 4, 0)
 
-    def test_header_has_no_overall_star(self):
+    def test_header_shows_rating_star_below_number(self):
+        # R-1：守備位置・適性の行を [守備位置・適性] [★査定値] の2列にする
         html = app.render_header_html({"role": "野手", "name": "山田", "position": "三塁手", "seed": 1, "batting_throwing": "右投右打"})
-        self.assertNotIn("★", html)
+        self.assertEqual(html.count("★"), 1)
         self.assertNotIn("pp-score", html)
         self.assertIn('<span class="pp-label pp-head-label">守備位置</span>', html)
         self.assertIn('<span class="pp-pos-item main">三</span>', html)
+        row = html[html.index('class="pp-pos-row"'):html.index('class="pp-face"')]
+        self.assertLess(row.index('class="pp-posline"'), row.index('class="pp-rating"'))
+        self.assertIn('<span class="pp-rating-star">★</span><span class="pp-rating-value">', row)
+        source = Path("app.py").read_text(encoding="utf-8")
+        # ★の列幅＝カテゴリマーク48px＋間5px＋背番号62px
+        self.assertIn(".pp-pos-row {display:grid; grid-template-columns:minmax(0, 1fr) 115px; gap:5px;", source)
+
+    def test_header_rating_is_same_for_all_tabs(self):
+        player = {"role": "投手", "name": "山田", "position": "先発", "seed": 1, "abilities": {"球速": "150 km/h", "コントロール": {"value": 60}, "スタミナ": {"value": 60}}, "starter_aptitude": "◎"}
+        expected = f'<span class="pp-rating-value">{app.player_rating(player)}</span>'
+        for tab in app.TAB_LABELS:
+            with self.subTest(tab=tab):
+                self.assertIn(expected, app.render_header_html(player, tab))
 
 
     def test_header_direct_children_are_three_blocks(self):
@@ -164,7 +178,7 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertIn('title="山田 太郎"', pitcher_html)
         for text in ["pp-category-mark", "pp-number-box", "pp-face", "成績", "フォーム", "投打", "適性"]:
             self.assertIn(text, pitcher_html)
-        for text in ["★", "pp-score", "seed", "タイプ"]:
+        for text in ["pp-score", "seed", "タイプ"]:
             self.assertNotIn(text, pitcher_html)
         fielder_html = app.render_header_html(fielder)
         self.assertIn('<span class="pp-label pp-head-label">守備位置</span>', fielder_html)

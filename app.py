@@ -22,12 +22,15 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from generator.foreign_names import generate_foreign_profile, name_group_display_nationalities, nation_name_orders
+from generator.rating import player_rating
 
 APP_VERSION = "1.0.0"
 APP_NAME = "パワプロ風 架空選手生成"
 APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
 DB_PATH = APP_DIR / "players.sqlite3"
+# 表示時に計算する★査定値の列（DBには保存しない。「全データを出力」にも含めない）
+RATING_COLUMN = "rating"
 JAPANESE_SURNAME_PATH = DATA_DIR / "japan_surname.csv"
 CATEGORIES = ["架空球団用", "ドラフト候補用", "助っ人外国人用"]
 GROWTH_TYPE_LABELS = {
@@ -7984,6 +7987,8 @@ def _load_history_cached(db_path: str, modified_ns: int) -> pd.DataFrame:
         history["誕生日"] = history.apply(lambda row: f"{int(row.get('birth_month') or 0)}月{int(row.get('birth_day') or 0)}日" if int(row.get('birth_month') or 0) and int(row.get('birth_day') or 0) else "", axis=1)
         history["投球フォーム"] = history.apply(lambda row: f"{row.get('pitching_form_type', '')} {int(row.get('pitching_form_number') or 0)}" if row.get('pitching_form_type') and int(row.get('pitching_form_number') or 0) else "", axis=1)
         history["打撃フォーム"] = history.apply(lambda row: f"{row.get('batting_form_type', '')} {int(row.get('batting_form_number') or 0)}" if row.get('batting_form_type') and int(row.get('batting_form_number') or 0) else "", axis=1)
+        # ★査定値は保存せず、表示用にここで計算する（並べ替えできるよう数値で持つ）
+        history[RATING_COLUMN] = history.apply(lambda row: player_rating(player_from_history_row(row)), axis=1).astype(int)
     return history
 
 
@@ -9175,7 +9180,7 @@ def inject_powerpro_ui_css() -> None:
     div[class*="st-key-latest_detail_shell"] > div {font-family:inherit;}
     /* Streamlitのmarkdown既定フォント（Source Sans）に上書きされないよう、カード内は!importantで指定 */
     div[class*="st-key-latest_detail_shell"] :is(div,span,p,summary,button,text) {font-family:var(--pp-font)!important;}
-    div[class*="st-key-latest_detail_shell"] :is(.pp-value,.pp-value *,.pp-number-box,.pp-defense-num,.pp-chip) {font-family:var(--pp-num-font)!important;}
+    div[class*="st-key-latest_detail_shell"] :is(.pp-value,.pp-value *,.pp-number-box,.pp-defense-num,.pp-chip,.pp-rating-value) {font-family:var(--pp-num-font)!important;}
     /* ===== ヘッダー：名前プレート・背番号・顔・成績欄 ===== */
     .pp-header {display:grid; grid-template-columns:minmax(330px, 1.2fr) 126px minmax(400px, 1.45fr); gap:8px; align-items:stretch; min-height:132px; margin-bottom:0; min-width:0;}
     .pp-header-main {display:grid; grid-template-rows:80px 44px; gap:6px; min-width:0;}
@@ -9194,6 +9199,11 @@ def inject_powerpro_ui_css() -> None:
     .pp-label.pp-head-label {flex:0 0 auto; margin:0; padding:4px 10px 4px calc(10px + .2em); font-size:21px; letter-spacing:.2em;}
     /* 守備位置・適性：ラベルピル＋大きな値 */
     .pp-posline {display:flex; align-items:center; gap:14px; height:43px; min-height:43px; padding:4px 8px; background:linear-gradient(180deg,#ffffff,#f3f8fb); border:2px solid #dbe7ee; border-radius:9px; color:#1b5f9e; font-size:20px; font-weight:700; letter-spacing:.04em; overflow:visible; white-space:nowrap;}
+    .pp-pos-row {display:grid; grid-template-columns:minmax(0, 1fr) 115px; gap:5px; min-width:0;}
+    .pp-pos-row .pp-posline {min-width:0;}
+    .pp-rating {display:flex; align-items:center; justify-content:center; gap:4px; height:43px; min-height:43px; background:linear-gradient(180deg,#1d4f8f,#0b2d5c); border:2px solid #061f42; border-radius:9px; box-shadow:inset 0 1px rgba(255,255,255,.28); white-space:nowrap; overflow:hidden;}
+    .pp-rating-star {color:#ffd21f; font-size:24px; line-height:1; text-shadow:0 1px 0 rgba(0,0,0,.35);}
+    .pp-rating-value {color:#ffffff; font-family:var(--pp-num-font); font-size:32px; line-height:1; font-weight:800; font-variant-numeric:tabular-nums;}
     .pp-pos-values {display:inline-flex; align-items:baseline; gap:10px; color:#1b5f9e; font-weight:700;}
     .pp-pos-item.main, .pp-pos-item.lv3 {font-size:30px;}
     .pp-pos-item.lv2 {font-size:24px;}
@@ -9353,17 +9363,6 @@ def player_from_history_row(row: pd.Series) -> dict[str, Any]:
         value = player.get(column, "")
         player[column] = "" if value is None or (isinstance(value, float) and pd.isna(value)) else str(value)
     return player
-
-
-def overall_score(p: dict[str, Any]) -> int:
-    abilities = p.get("abilities", {}) if isinstance(p.get("abilities"), dict) else {}
-    keys = ["コントロール", "スタミナ"] if p.get("role") == "投手" else ["ミート", "パワー", "走力", "肩力", "守備力", "捕球"]
-    values = [ability_numeric_value(abilities, key) for key in keys]
-    speed = pitcher_speed_value(abilities)
-    if p.get("role") == "投手" and speed:
-        values.append(max(1, min(99, int((speed - 120) * 2))))
-    numeric_values = [int(value) for value in values if isinstance(value, int | float)]
-    return round(sum(numeric_values) / max(1, len(numeric_values)))
 
 
 def render_player_icon_svg(p: dict[str, Any]) -> str:
@@ -10507,6 +10506,15 @@ def set_selected_tab(tab_key: str, label: str) -> None:
     st.session_state[tab_key] = label
 
 
+def header_rating_html(player: dict[str, Any]) -> str:
+    # ゲームの選手データ画面と同じく、背番号の下に★査定値を出す。タブに関係なく役割に応じた値。
+    try:
+        value = str(player_rating(player))
+    except (TypeError, ValueError):
+        value = "－"
+    return f'<div class="pp-rating" title="査定値"><span class="pp-rating-star">★</span><span class="pp-rating-value">{e(value)}</span></div>'
+
+
 def render_header_html(p: dict[str, Any], tab: str | None = None) -> str:
     category_mark = {"架空球団用": "架", "ドラフト候補用": "候", "助っ人外国人用": "外"}.get(str(p.get("category", "")), "球")
     nameplate_style = nameplate_background_css(get_player_nameplate_colors(p))
@@ -10520,7 +10528,10 @@ def render_header_html(p: dict[str, Any], tab: str | None = None) -> str:
             <div class="pp-category-mark" title="{e(p.get('category'))}">{e(category_mark)}</div>
             <div class="pp-number-box">{player_uniform_number(p)}</div>
           </div>
-          {header_position_html(p, header_position_kind(p, tab))}
+          <div class="pp-pos-row">
+            {header_position_html(p, header_position_kind(p, tab))}
+            {header_rating_html(p)}
+          </div>
         </div>
         <div class="pp-face">{render_player_icon_svg(p)}</div>
         <div class="pp-info">
@@ -10615,7 +10626,7 @@ PLAYER_SELECT_KEY = "selected_player_id"
 PLAYER_OPTION_LIMIT = 300
 HISTORY_TABLE_NONCE_KEY = "history_table_nonce"
 HISTORY_TABLE_IDS_KEY = "history_table_ids"
-HISTORY_DEFAULT_COLUMNS = ["name", "category", "position", "player_type", "age", "batting_throwing", "entry_route", "created_at"]
+HISTORY_DEFAULT_COLUMNS = ["name", "category", "position", "player_type", "age", RATING_COLUMN, "batting_throwing", "entry_route", "created_at"]
 # 詳細列でも出さない列（日本語の派生列と重複するもの、表に向かない入れ子の値）
 HISTORY_HIDDEN_COLUMNS = {*CLASSIFICATION_COLUMNS, "growth_type", "sub_positions"}
 HISTORY_COLUMN_LABELS = {
@@ -10626,6 +10637,7 @@ HISTORY_COLUMN_LABELS = {
     "category": "カテゴリ",
     "name": "名前",
     "age": "年齢",
+    RATING_COLUMN: "査定",
     "roster_origin": "所属区分",
     "foreign_route": "来日経路",
     "entry_route": "入団経路",
@@ -11106,11 +11118,12 @@ def render_history_exports(history: pd.DataFrame, view: pd.DataFrame) -> None:
         st.download_button(f"Excelで保存（表示中 {len(view)}件）", data=history_excel_bytes(view, sheet_name="表示中"), file_name=export_file_name("view", "xlsx", now), mime=EXCEL_MIME, use_container_width=True, key="export_view_excel")
     with st.expander("全データを出力（内部の列名・値のまま）"):
         st.caption("絞り込みや表示列に関係なく、保存済みの全選手・全列を出力します。")
+        raw = history.drop(columns=[RATING_COLUMN], errors="ignore")
         all_csv_col, all_excel_col, _all_spacer = st.columns([0.26, 0.26, 0.48], gap="small")
         with all_csv_col:
-            st.download_button(f"全データをCSVで保存（全 {len(history)}件）", data=history_csv_bytes(history), file_name=export_file_name("all", "csv", now), mime="text/csv", use_container_width=True, key="export_all_csv")
+            st.download_button(f"全データをCSVで保存（全 {len(history)}件）", data=history_csv_bytes(raw), file_name=export_file_name("all", "csv", now), mime="text/csv", use_container_width=True, key="export_all_csv")
         with all_excel_col:
-            st.download_button(f"全データをExcelで保存（全 {len(history)}件）", data=history_excel_bytes(history), file_name=export_file_name("all", "xlsx", now), mime=EXCEL_MIME, use_container_width=True, key="export_all_excel")
+            st.download_button(f"全データをExcelで保存（全 {len(history)}件）", data=history_excel_bytes(raw), file_name=export_file_name("all", "xlsx", now), mime=EXCEL_MIME, use_container_width=True, key="export_all_excel")
 
 
 class SeedSpecError(ValueError):
