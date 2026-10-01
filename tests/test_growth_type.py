@@ -1,3 +1,4 @@
+import re
 import random
 import sqlite3
 import sys
@@ -66,12 +67,13 @@ def test_db_migration_and_fallback(monkeypatch):
     assert app.player_from_history_row(hist.iloc[0])["growth_type"] == "normal"
 
 
-def test_usage_growth_type_green_cell_and_not_counted():
+def test_usage_growth_type_neutral_cell_and_not_counted():
     master = app.MasterData(names=[], places=[], abilities=[])
     player = {"role": "野手", "growth_type": "late", "special_abilities": []}
     html = app.render_usage_categories_html(player, master)
-    assert "晩成" in html
-    assert "成長タイプ" not in html
-    assert 'class="pp-special green"' in html
-    assert html.count("pp-usage-cell") % 4 == 0
+    # B-3：成長タイプは「成長：{ラベル}」として中立色のマスに出し、特殊能力としては数えない
+    assert "成長：晩成" in html
+    assert 'class="pp-special neutral pp-usage-growth"' in html
+    assert f'title="{app.GROWTH_CELL_TITLE}"' in html
+    assert len(re.findall(r'<div class="pp-special[ "]', html)) % 4 == 0
     assert app.collect_special_entries(player, master, "usage") == []

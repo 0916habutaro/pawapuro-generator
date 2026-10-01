@@ -113,8 +113,9 @@ def test_foreign_context_sqlite_roundtrip(tmp_path, monkeypatch):
     assert bool(restored["is_returnee"]) == player["is_returnee"]
 
 
-def test_profile_displays_foreign_route_and_tenure():
-    html = app.render_profile_right({
+def test_generation_info_displays_foreign_route_and_tenure():
+    # 加入区分・経由・NPB在籍はプロフィールから生成情報へ移した（C-2）
+    html = app.render_generation_info_html({
         "name": "TEST PLAYER",
         "age": 30,
         "roster_origin": "foreign_import",

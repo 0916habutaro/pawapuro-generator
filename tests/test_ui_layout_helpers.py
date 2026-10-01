@@ -5,6 +5,7 @@ import re
 import sys
 import tempfile
 import unittest
+import unittest.mock
 import unicodedata
 from html.parser import HTMLParser
 from pathlib import Path
@@ -94,58 +95,56 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertNotIn("ほか", html)
         self.assertGreaterEqual(special_cell_count(html), 44)
 
-    def test_pitcher_usage_categories_do_not_include_fielder_policy(self):
-        player = {"role": "投手", "special_abilities": ["速球中心", "テンポ○", "ミート多用", "フル出場", "人気者"]}
-        categories = app.usage_special_categories(player, self.master)
-        self.assertEqual(categories["投球方針"], ["速球中心", "テンポ○"])
-        self.assertEqual(categories["起用法"], ["フル出場"])
-        self.assertNotIn("ミート多用", str(categories))
+    def usage_cells(self, html):
+        return re.findall(r'<div class="(pp-special(?: [^"]*)?)"[^>]*>(.*?)</div>(?=<div class="pp-special|</div>$)', html)
 
-    def test_fielder_usage_categories_do_not_include_pitcher_policy(self):
-        player = {"role": "野手", "special_abilities": ["速球中心", "ミート多用", "積極盗塁", "積極守備", "人気者"]}
-        categories = app.usage_special_categories(player, self.master)
-        self.assertEqual(categories["打撃方針"], ["ミート多用"])
-        self.assertEqual(categories["走塁方針"], ["積極盗塁"])
-        self.assertEqual(categories["守備方針"], ["積極守備"])
-        self.assertNotIn("速球中心", str(categories))
-
-    def test_usage_categories_render_as_four_column_grid(self):
-        player = {"role": "投手", "special_abilities": ["フル出場", "速球中心", "テンポ○", "人気者"]}
+    def test_usage_grid_has_only_usage_heading_and_full_game_in_first_row(self):
+        # B-4：見出しは「起用法」だけ。1行目2列目は「フル出場」、3行目から他の起用系を見出しなしで並べる
+        player = {"role": "野手", "growth_type": "late", "special_abilities": ["積極盗塁", "フル出場", "強振多用", "人気者"]}
+        cells = self.usage_cells(app.render_usage_categories_html(player, self.master))
+        self.assertEqual(len(cells), 32)
+        self.assertIn("pp-usage-label", cells[0][0])
+        self.assertIn(">起用法<", cells[0][1])
+        self.assertIn(">フル出場<", cells[1][1])
+        self.assertEqual([cls for cls, _ in cells[2:4]], ["pp-special empty", "pp-special empty"])
+        self.assertIn("成長：晩成", cells[4][1])
+        self.assertEqual([cls for cls, _ in cells[5:8]], ["pp-special empty"] * 3)
+        names = [re.search(r">([^<>]+)</text>", body).group(1) for _cls, body in cells[8:11]]
+        self.assertEqual(sorted(names), sorted(["積極盗塁", "強振多用", "人気者"]))
+        self.assertTrue(all("green" in cls for cls, _ in cells[8:11]))
         html = app.render_usage_categories_html(player, self.master)
-        self.assertIn('class="pp-usage-grid"', html)
-        self.assertEqual(html.count('pp-usage-cell'), 32)
-        self.assertIn('pp-usage-label">起用法', html)
-        self.assertIn('pp-usage-value">速球中心', html)
+        for heading in ["打撃方針", "走塁方針", "守備方針", "投球方針", "その他"]:
+            self.assertNotIn(heading, html)
+        self.assertFalse(hasattr(app, "usage_special_categories"))
 
-    def test_usage_category_with_only_full_game(self):
-        # 起用法の分類は「フル出場」だけになったので、それ単独でも欄が正しく出ることを確認する。
-        for role in ("投手", "野手"):
-            player = {"role": role, "special_abilities": ["フル出場"]}
-            self.assertEqual(app.usage_special_categories(player, self.master), {"起用法": ["フル出場"]})
-            html = app.render_usage_categories_html(player, self.master)
-            self.assertIn('pp-usage-label">起用法', html)
-            self.assertIn('pp-usage-value">フル出場', html)
-            self.assertEqual(html.count('pp-usage-cell'), 32)
-
-    def test_empty_usage_categories_show_32_cells_without_setting_none(self):
-        player = {"role": "野手", "special_abilities": []}
+    def test_usage_grid_without_usage_specials_shows_label_and_growth_only(self):
+        # B-3：成長タイプは2行目1列目に「成長：{ラベル}」として中立色で出す（起用法の欄には置かない）
+        player = {"role": "投手", "growth_type": "normal", "special_abilities": []}
         html = app.render_usage_categories_html(player, self.master)
-        self.assertIn('class="pp-usage-grid"', html)
+        cells = self.usage_cells(html)
+        self.assertEqual(len(cells), 32)
+        self.assertEqual(cells[1][0], "pp-special empty")
+        self.assertIn("pp-special neutral pp-usage-growth", cells[4][0])
+        self.assertIn("成長：普通", html)
+        self.assertIn(f'title="{app.GROWTH_CELL_TITLE}"', html)
         self.assertNotIn("設定なし", html)
-        self.assertIn('pp-usage-label">起用法', html)
-        self.assertEqual(html.count('pp-usage-cell'), 32)
+        self.assertIn("--grid-rows:8", html)
 
-    def test_usage_categories_expand_by_four_after_32_cells(self):
-        player = {"role": "野手", "special_abilities": ["ミート多用", "強振多用", "積極打法"] * 11}
-        html = app.render_usage_categories_html(player, self.master)
-        self.assertGreater(html.count('pp-usage-cell'), 32)
-        self.assertEqual(html.count('pp-usage-cell') % 4, 0)
+    def test_usage_grid_keeps_role_filter_and_expands_by_rows_of_four(self):
+        pitcher = {"role": "投手", "special_abilities": ["速球中心", "テンポ○", "ミート多用", "フル出場", "人気者"]}
+        html = app.render_usage_categories_html(pitcher, self.master)
+        self.assertIn("速球中心", html)
+        self.assertNotIn("ミート多用", html)
+        many = {"role": "野手", "special_abilities": ["ミート多用", "強振多用", "積極打法"] * 11}
+        cells = self.usage_cells(app.render_usage_categories_html(many, self.master))
+        self.assertGreater(len(cells), 32)
+        self.assertEqual(len(cells) % 4, 0)
 
     def test_header_has_no_overall_star(self):
         html = app.render_header_html({"role": "野手", "name": "山田", "position": "三塁手", "seed": 1, "batting_throwing": "右投右打"})
         self.assertNotIn("★", html)
         self.assertNotIn("pp-score", html)
-        self.assertIn('<span class="pp-mini-label">守備位置</span>', html)
+        self.assertIn('<span class="pp-label pp-head-label">守備位置</span>', html)
         self.assertIn('<span class="pp-pos-item main">三</span>', html)
 
 
@@ -162,14 +161,54 @@ class UiLayoutHelpersTest(unittest.TestCase):
         pitcher = {"role": "投手", "name": "山田 太郎", "position": "先発", "seed": 1, "category": "架空球団用", "batting_throwing": "右投右打"}
         fielder = {"role": "野手", "name": "佐藤 次郎", "position": "三塁手", "seed": 2, "category": "ドラフト候補用", "batting_throwing": "左投左打"}
         pitcher_html = app.render_header_html(pitcher)
-        self.assertIn("山田 太郎", pitcher_html)
+        self.assertIn('title="山田 太郎"', pitcher_html)
         for text in ["pp-category-mark", "pp-number-box", "pp-face", "成績", "フォーム", "投打", "適性"]:
             self.assertIn(text, pitcher_html)
         for text in ["★", "pp-score", "seed", "タイプ"]:
             self.assertNotIn(text, pitcher_html)
         fielder_html = app.render_header_html(fielder)
-        self.assertIn('<span class="pp-mini-label">守備位置</span>', fielder_html)
+        self.assertIn('<span class="pp-label pp-head-label">守備位置</span>', fielder_html)
         self.assertIn('<span class="pp-pos-item main">三</span>', fielder_html)
+
+    def test_header_follows_selected_tab(self):
+        # A-2：投手能力・野手能力タブはタブの内容、守備・起用は守備位置＋本来の成績、プロフィールは本来の役割
+        pitcher = {"role": "投手", "name": "山田 太郎", "position": "先発", "seed": 1, "batting_throwing": "右投右打",
+                   "starter_aptitude": "◎", "pitching_form_type": "オーバースロー", "pitching_form_number": 9,
+                   "batting_form_type": "スタンダード", "batting_form_number": 3}
+        fielder = {"role": "野手", "name": "佐藤 次郎", "position": "三塁手", "seed": 2, "batting_throwing": "右投右打",
+                   "batting_form_type": "オープン", "batting_form_number": 5}
+        pitching_stats, batting_stats = "防----　--勝--敗--HP--S", "率-----　---本---点---盗"
+        expected = {
+            ("野手", "投手能力"): ("適性", "－－－", pitching_stats, "－－－－－－"),
+            ("野手", "野手能力"): ("守備位置", ">三<", batting_stats, "オープン 5"),
+            ("野手", "守備・起用"): ("守備位置", ">三<", batting_stats, "オープン 5"),
+            ("野手", "プロフィール"): ("守備位置", ">三<", batting_stats, "オープン 5"),
+            ("投手", "投手能力"): ("適性", ">先<", pitching_stats, "オーバースロー 9"),
+            ("投手", "野手能力"): ("守備位置", ">投<", batting_stats, "スタンダード 3"),
+            ("投手", "守備・起用"): ("守備位置", ">投<", pitching_stats, "オーバースロー 9"),
+            ("投手", "プロフィール"): ("適性", ">先<", pitching_stats, "オーバースロー 9"),
+        }
+        for (role, tab), (label, position, stats, form) in expected.items():
+            with self.subTest(role=role, tab=tab):
+                html = app.render_header_html(pitcher if role == "投手" else fielder, tab)
+                posline = html[html.index('class="pp-posline"'):html.index('class="pp-face"')]
+                self.assertIn(f'pp-head-label">{label}</span>', posline)
+                self.assertIn(position, posline)
+                self.assertIn(stats, html)
+                self.assertIn(f">{form}</text>", html)
+
+    def test_header_labels_use_ability_label_pill(self):
+        # A-6：成績・フォーム・投打・守備位置・適性のラベルは能力ラベルと同じピル・同じ文字サイズ
+        source = Path("app.py").read_text(encoding="utf-8")
+        head = css_block(source, ".pp-label.pp-head-label")
+        ability = css_block(source, ".pp-ability-row .pp-label, .pp-defense-label .pp-label, .pp-usage-label .pp-label")
+        for prop in ["font-size:21px", "letter-spacing:.2em"]:
+            self.assertIn(prop, head)
+            self.assertIn(prop, ability)
+        html = app.render_header_html({"role": "投手", "name": "山田", "position": "先発", "seed": 1})
+        for label in ["成績", "フォーム", "投打", "適性"]:
+            self.assertIn(f'<span class="pp-label pp-head-label">{label}</span>', html)
+        self.assertNotIn("pp-mini-label", html)
 
     def test_header_position_shows_sub_positions_and_sized_pitcher_aptitudes(self):
         fielder = {"role": "野手", "name": "佐藤", "position": "遊撃手", "seed": 2, "batting_throwing": "右投右打", "sub_positions": [{"position": "外野手", "aptitude": "△"}, {"position": "三塁手", "aptitude": "○"}]}
@@ -177,7 +216,7 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertIn('<span class="pp-pos-item main">遊</span><span class="pp-pos-item sub">三</span><span class="pp-pos-item sub">外</span>', html)
         pitcher = {"role": "投手", "name": "山田", "position": "中継ぎ", "seed": 1, "starter_aptitude": "○", "reliever_aptitude": "◎", "closer_aptitude": "－"}
         html = app.header_position_html(pitcher)
-        self.assertIn('<span class="pp-mini-label">適性</span>', html)
+        self.assertIn('<span class="pp-label pp-head-label">適性</span>', html)
         self.assertIn('class="pp-pos-item lv2" title="先○">先</span>', html)
         self.assertIn('class="pp-pos-item lv3" title="中◎">中</span>', html)
         self.assertNotIn(">抑<", html)
@@ -187,10 +226,11 @@ class UiLayoutHelpersTest(unittest.TestCase):
         html = app.render_header_html({"role": "野手", "name": name, "position": "三塁手", "seed": 1, "category": "架空球団用", "batting_throwing": "右投右打"})
         parser = ClassTreeParser()
         parser.feed(html)
+        # 名前帯は登録名（先頭の語）、title はフルネーム
         self.assertEqual(parser.name_attrs.get("title"), name)
-        self.assertEqual("".join(parser.name_text).strip(), name)
+        self.assertEqual("".join(parser.name_text).strip(), "A&B")
         self.assertIn('title="A&amp;B &lt;Ace&gt; &quot;Slugger&quot;"', html)
-        self.assertIn('A&amp;B &lt;Ace&gt; &quot;Slugger&quot;', html)
+        self.assertIn('>A&amp;B</text>', html)
         self.assertNotIn("<Ace>", html)
 
     def test_layout_css_has_three_header_columns_and_horizontal_info(self):
@@ -448,16 +488,17 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertNotIn(".pp-body {display:grid; grid-template-columns:36% 64%;", source)
         self.assertNotIn(".pp-body-pitcher {grid-template-columns:40% 60%;", source)
 
-    def test_ability_row_density_css_is_54px(self):
+    def test_ability_row_css_fills_left_column_rows(self):
         source = Path("app.py").read_text(encoding="utf-8")
         ability_row = css_block(source, ".pp-ability-row")
-        label = css_block(source, ".pp-ability-row .pp-label")
+        label = css_block(source, ".pp-ability-row .pp-label, .pp-defense-label .pp-label, .pp-usage-label .pp-label")
         rank = css_block(source, ".pp-rank")
         value = css_block(source, ".pp-value")
         self.assertIn("grid-template-columns:minmax(0,43%) minmax(0,17%) 1fr", ability_row)
-        self.assertIn("margin:4px 0", ability_row)
-        self.assertIn("min-height:54px", ability_row)
-        self.assertIn("height:54px", ability_row)
+        # A-3：行の高さは左列のグリッド（--rows 行の均等割り）で決める
+        self.assertIn("margin:0", ability_row)
+        self.assertIn("min-height:0", ability_row)
+        self.assertNotIn("height:54px", ability_row)
         self.assertIn("border-radius:8px", ability_row)
         self.assertIn("box-shadow:inset 0 1px rgba(255,255,255,.72)", ability_row)
         self.assertIn("font-size:21px", label)
@@ -482,15 +523,42 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertIn("border-color:#d3ebf2", empty)
         self.assertIn("box-shadow:none", empty)
         self.assertNotEqual(empty, blue)
-        usage = css_block(source, ".pp-usage-empty")
-        self.assertIn("box-shadow:none", usage)
+        # 起用欄の空きマスも特殊能力の空きマスと同じ
+        self.assertIn('<div class="pp-special empty">', app.render_usage_categories_html({"role": "野手", "special_abilities": []}, self.master))
 
-    def test_normal_blue_special_cell_keeps_42px_grid_cell_and_clear_outline(self):
+    def test_normal_blue_special_cell_fills_grid_row_with_clear_outline(self):
         source = Path("app.py").read_text(encoding="utf-8")
         block = css_block(source, ".pp-special")
         self.assertIn("background:linear-gradient(180deg,#f2feff 0%,#bff1f7 55%,#8fe0ec 100%)", block)
         self.assertIn("border:2px solid #3fb5cb", block)
-        self.assertIn("height:54px", block)
+        self.assertNotIn("height:54px", block)
+        grid = css_block(source, ".pp-special-grid")
+        self.assertIn("grid-template-rows:repeat(var(--grid-rows, 8), minmax(0,1fr))", grid)
+        self.assertIn("height:100%", grid)
+
+    def test_body_height_is_fixed_and_left_rows_match_each_tab(self):
+        # A-3・A-4：本文の高さは全タブ共通。左列は行数に応じて均等に割り、右列と下端をそろえる
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertIn("grid-template-rows:460px", css_block(source, ".pp-body"))
+        self.assertIn("grid-template-rows:repeat(var(--rows, 7), minmax(0,1fr))", css_block(source, ".pp-left"))
+        pitcher = {"role": "投手", "position": "先発", "seed": 1, "abilities": {}, "special_abilities": [], "breaking_balls": []}
+        fielder = {"role": "野手", "position": "三塁手", "seed": 2, "abilities": {"弾道": 2}, "special_abilities": []}
+        expected = {
+            (0, "投手能力"): ("pp-body-pitcher", 8, "grid-row:span 5"),
+            (1, "投手能力"): ("pp-body-pitcher", 8, "grid-row:span 5"),
+            (1, "野手能力"): ("pp-body-fielder", 7, None),
+            (0, "守備・起用"): ("pp-body-usage", 7, None),
+            (0, "プロフィール"): ("pp-body-profile", 7, "grid-row:span 4"),
+            (1, "プロフィール"): ("pp-body-profile", 7, None),
+        }
+        for (index, tab), (body_class, rows, chart_span) in expected.items():
+            with self.subTest(tab=tab, role=index):
+                html = app.render_detail_body_html([pitcher, fielder][index], self.master, tab)
+                self.assertIn(f'class="pp-body {body_class}"', html)
+                self.assertIn(f'<div class="pp-left" style="--rows:{rows}">', html)
+                if chart_span:
+                    self.assertIn(f'class="pp-chart-wrap" style="{chart_span}"', html)
+                self.assertNotIn("pp-pitcher-usage-row", html)
 
     def test_navigation_disabled_buttons_remain_legible(self):
         source = Path("app.py").read_text(encoding="utf-8")
@@ -641,6 +709,78 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertEqual(ids(app.filter_history_table(history, [], [], "7日以内", "", today)), [3, 2])
         self.assertEqual(ids(app.filter_history_table(history, [], [], "すべて", "tom", today)), [2])
 
+    def test_player_choices_follow_table_filter_and_keep_latest_first(self):
+        # E-3：前後ボタン・選択欄は表の絞り込み結果を移動し、今回生成した選手は絞り込みに関係なく先頭に置く
+        filtered_ids = ["db:5", "db:3"]
+        self.assertEqual(app.player_choice_ids(filtered_ids, ["db:9", "db:8"], None), ["db:9", "db:8", "db:5", "db:3"])
+        self.assertEqual(app.player_choice_ids(["db:9", "db:5"], ["db:9"], None), ["db:9", "db:5"])
+        history = pd.DataFrame([
+            {"id": 3, "created_at": "2026-09-30 10:00:00", "name": "山田 太郎", "category": "架空球団用", "position": "先発"},
+            {"id": 2, "created_at": "2026-09-26 10:00:00", "name": "Tom Sutton", "category": "助っ人外国人用", "position": "捕手"},
+        ])
+        state = {"history_filter_categories": ["助っ人外国人用"], "history_filter_period": None, "history_filter_name": ""}
+        with unittest.mock.patch.object(app.st, "session_state", state):
+            self.assertEqual(app.history_filter_values(), (["助っ人外国人用"], [], "すべて", ""))
+            self.assertEqual(app.filtered_history(history)["id"].tolist(), [2])
+        source = Path("app.py").read_text(encoding="utf-8")
+        page = source[source.index("def generation_page"):source.index("def balance_page() -> None")]
+        self.assertIn("render_player_section(filtered_history(history), master)", page)
+
+    def test_selected_player_line_links_to_card(self):
+        # E-4：表の直上に選択中の選手とカードへのページ内リンク
+        html = app.selected_player_line_html("山田 <太郎>｜先発")
+        self.assertIn("選択中：山田 &lt;太郎&gt;｜先発", html)
+        self.assertIn(f'<a href="#{app.CARD_ANCHOR_ID}">▲カードへ</a>', html)
+        source = Path("app.py").read_text(encoding="utf-8")
+        section = source[source.index("def render_player_section"):source.index("def seed_copy_text")]
+        self.assertIn('<div id="{CARD_ANCHOR_ID}"></div>', section)
+
+    def test_table_count_and_sidebar_radio_css(self):
+        css = app.app_chrome_css()
+        # E-2：件数はトグルの右隣に左寄せ（表のツールバーと重ならない）
+        self.assertIn("text-align:left", css_block(css, ".pp-table-count"))
+        source = Path("app.py").read_text(encoding="utf-8")
+        section = source[source.index("def render_history_section"):source.index("def render_history_exports")]
+        self.assertIn("st.columns([0.16, 0.84]", section)
+        # E-5：サイドバーの未選択ラジオボタンに白の枠線
+        self.assertIn('[data-testid="stSidebar"] [data-testid="stRadioOption"]:not([data-selected="true"]) > div > div > div:first-child {box-shadow:inset 0 0 0 2px #FFFFFF;}', css)
+
+    def test_history_is_cached_until_players_are_saved(self):
+        # E-1：操作のたびにDBを読み直さず、保存・削除の後だけ読み直す
+        original_db_path = app.DB_PATH
+        real_connect = app.sqlite3.connect
+        calls = []
+
+        def counting_connect(*args, **kwargs):
+            calls.append(args[0] if args else kwargs.get("database"))
+            return real_connect(*args, **kwargs)
+
+        player = {"seed": 1, "role": "野手", "category": "架空球団用", "name": "キャッシュ 確認", "age": 20, "nationality": "日本", "position": "捕手", "abilities": {}, "special_abilities": [], "breaking_balls": []}
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
+            app.DB_PATH = Path(tmp_dir) / "players.sqlite3"
+            try:
+                app.clear_history_cache()
+                self.assertTrue(app.load_history().empty)  # 初回はDBファイルを作るため、更新時刻が変わる
+                self.assertTrue(app.load_history().empty)
+                with unittest.mock.patch.object(app.sqlite3, "connect", counting_connect):
+                    first = app.load_history()
+                    first["name"] = "書き換え"
+                    self.assertEqual(calls, [])
+                    self.assertTrue(app.load_history().empty)
+                    app.save_players([player])
+                    calls.clear()
+                    reloaded = app.load_history()
+                    self.assertGreater(len(calls), 0)
+                    self.assertEqual(reloaded["name"].tolist(), ["キャッシュ 確認"])
+                    reloaded["name"] = "書き換え"
+                    self.assertEqual(app.load_history()["name"].tolist(), ["キャッシュ 確認"])
+                    app.delete_all_players()
+                    self.assertTrue(app.load_history().empty)
+            finally:
+                app.DB_PATH = original_db_path
+                app.clear_history_cache()
+        self.assertTrue(hasattr(app.load_master_data, "clear"))
+
     def test_player_area_is_limited_to_pre_change_card_width(self):
         source = Path("app.py").read_text(encoding="utf-8")
         self.assertEqual(app.CARD_MAX_WIDTH_PX, 1460)
@@ -688,21 +828,111 @@ class UiLayoutHelpersTest(unittest.TestCase):
         source = Path("app.py").read_text(encoding="utf-8")
         self.assertNotIn("pp-help", source)
         self.assertNotIn("球速、制球、スタミナ、変化球と投手特殊能力を確認します。", source)
-        profile_definition = source.index(".pp-profile-table {display:grid")
-        responsive_definition = source.index(".pp-profile-table {grid-template-columns:88px", profile_definition)
+        profile_definition = source.index(".pp-prof-row {display:grid")
+        responsive_definition = source.index(".pp-prof-row, .pp-prof-row.half {grid-template-columns:1fr;}", profile_definition)
         self.assertGreater(responsive_definition, profile_definition)
 
-    def test_profile_game_area_is_ordered_table_and_excludes_generation_fields(self):
-        player = {"name": "山田", "age": 20, "batting_throwing": "右投右打", "nationality": "日本", "birthplace": "東京", "height": 180, "weight": 80, "back_name": "YAMADA", "category": "架空球団用", "player_type": "巧打型", "seed": 123}
-        html = app.render_profile_right(player)
-        for cls in ["pp-profile-table", "pp-profile-label", "pp-profile-value", "pp-profile-span-3"]:
-            self.assertIn(cls, html)
-        labels = re.findall(r'<div class="pp-profile-label">([^<]+)</div>', html)
-        self.assertEqual(labels, ["氏名", "年齢", "投打", "国籍", "出身地", "身長", "体重", "表示名"])
-        self.assertIn('class="pp-profile-value pp-profile-span-3">山田</div>', html)
-        self.assertIn('class="pp-profile-value pp-profile-span-3">YAMADA</div>', html)
-        for text in ["seed", "カテゴリ", "タイプ", "pp-profile-grid", "pp-mini-card"]:
+    def profile_cells(self, html):
+        return re.findall(r'pp-prof-label"><svg[^>]*><text[^>]*>([^<]+)</text></svg></span>(.*?)</div>', html)
+
+    def test_profile_game_area_has_seven_rows_in_game_order(self):
+        # C-1：ゲームと同じ7行。よびかた・ボイスの代わりに投球・打撃フォーム、背ネームの右に肌色
+        player = {"role": "投手", "name": "山田 太郎", "age": 23, "birth_month": 6, "birth_day": 30, "nationality": "日本", "birthplace": "東京都",
+                  "entry_route": "大卒", "pro_years": 2, "skin_color": 2, "batting_throwing": "右投右打", "height": 180, "weight": 80,
+                  "pitching_form_type": "オーバースロー", "pitching_form_number": 9, "batting_form_type": "スタンダード", "batting_form_number": 3,
+                  "bat_color": "黒/木", "glove_color": "革", "wristband_left_enabled": 0, "wristband_left_color": "", "wristband_right_enabled": 1, "wristband_right_color": "青",
+                  "category": "架空球団用", "player_type": "巧打型", "seed": 123}
+        html = app.render_profile_right(player, 2026)
+        self.assertEqual(html.count('<div class="pp-prof-row wide">'), 4)
+        self.assertEqual(html.count('<div class="pp-prof-row half">'), 3)
+        labels = [label for label, _ in self.profile_cells(html)]
+        self.assertEqual(labels, ["氏名", "プロ", "誕生日", "年齢", "国・地域", "経歴", "背ネーム", "肌色", "投球フォーム", "打撃フォーム", "バット", "グラブ", "左リストバンド", "右リストバンド"])
+        values = {label: re.search(r'pp-prof-value"><svg[^>]*><text[^>]*>([^<]+)</text>', rest).group(1) for label, rest in self.profile_cells(html)}
+        self.assertEqual(values["氏名"], "山田 太郎")
+        self.assertEqual(values["誕生日"], "2002年6月30日")
+        self.assertEqual(values["年齢"], "23歳")
+        self.assertEqual(values["国・地域"], "東京都")
+        self.assertEqual(values["背ネーム"], "－")
+        self.assertEqual(values["肌色"], "2")
+        self.assertEqual(values["投球フォーム"], "オーバースロー 9")
+        self.assertEqual(values["打撃フォーム"], "スタンダード 3")
+        self.assertEqual(values["左リストバンド"], "なし")
+        for text in ["投打", "表示名", "身長", "体重", "seed", "カテゴリ", "よびかた", "ボイス", "pp-profile-table"]:
             self.assertNotIn(text, html)
+
+    def test_profile_for_foreign_fielder_uses_nationality_and_roman_back_name(self):
+        player = {"role": "野手", "name": "Marcin Rodríguez", "age": 30, "nationality": "ドミニカ共和国", "actual_nationality": "Dominican Republic", "birthplace": "サントドミンゴ"}
+        with unittest.mock.patch.object(app, "nation_name_orders", return_value=({"Dominican Republic": "given_surname"}, {})):
+            html = app.render_profile_right(player, 2026)
+        values = {label: rest for label, rest in self.profile_cells(html)}
+        self.assertIn(">ドミニカ共和国</text>", values["国・地域"])
+        self.assertIn(">RODRÍGUEZ</text>", values["背ネーム"])
+        self.assertIn(">－</text>", values["投球フォーム"])
+
+    def test_equipment_swatches(self):
+        # C-4：色見本（2色は斜めに塗り分け、なしは×、表にない色は出さない）
+        self.assertIn("background:#26282c", app.equipment_swatch_html("黒"))
+        self.assertIn("linear-gradient(135deg,#26282c 50%,#e0b273 50%)", app.equipment_swatch_html("黒/木"))
+        self.assertIn("pp-swatch-none", app.equipment_swatch_html("なし"))
+        self.assertEqual(app.equipment_swatch_html("金"), "")
+        self.assertEqual(app.equipment_swatch_html(""), "")
+        for color in ["木", "黒", "茶", "赤", "黄", "革", "オレンジ", "青", "ブロンド", "水色", "緑", "シルバー", "白", "グレー", "紫", "ピンク"]:
+            self.assertIn(color, app.EQUIPMENT_SWATCH_COLORS)
+
+    def test_birth_year_is_derived_from_age_at_april_first(self):
+        # C-3：保存されている年齢を基準日（ゲーム内の年の4月1日）時点の満年齢とみなす
+        cases = [
+            ({"age": 23, "birth_month": 6, "birth_day": 30}, 2026, "2002年6月30日"),
+            ({"age": 23, "birth_month": 6, "birth_day": 30}, 2030, "2006年6月30日"),
+            ({"age": 29, "birth_month": 10, "birth_day": 15}, 2026, "1996年10月15日"),
+            ({"age": 20, "birth_month": 4, "birth_day": 1}, 2026, "2006年4月1日"),
+            ({"age": 20, "birth_month": 4, "birth_day": 2}, 2026, "2005年4月2日"),
+            ({"age": 20, "birth_month": 2, "birth_day": 29}, 2026, "2006年2月28日"),
+            ({"age": 22, "birth_month": 2, "birth_day": 29}, 2026, "2004年2月29日"),
+            ({"age": 23, "birth_month": 0, "birth_day": 0}, 2026, ""),
+        ]
+        for player, year, expected in cases:
+            with self.subTest(player=player, year=year):
+                self.assertEqual(app.birthday_with_year_display(player, year), expected)
+
+    def test_game_year_setting_is_saved_to_json(self):
+        with tempfile.TemporaryDirectory() as tmp, unittest.mock.patch.object(app, "DISPLAY_SETTINGS_PATH", Path(tmp) / "config" / "display_settings.json"):
+            self.assertEqual(app.saved_game_year(), app.NPB_CURRENT_YEAR)
+            app.save_game_year(2030)
+            self.assertEqual(app.saved_game_year(), 2030)
+            self.assertEqual(json.loads(app.DISPLAY_SETTINGS_PATH.read_text(encoding="utf-8")), {"game_year": 2030})
+
+    def test_registered_name_uses_surname_by_name_order(self):
+        # A-7：名前帯は登録名（名字）。保存データの name は変えない
+        orders = ({"South Korea": "surname_given", "Venezuela": "given_surname"}, {"台湾": "surname_given", "韓国": "surname_given"})
+        cases = [
+            ({"name": "広岡 岳", "nationality": "日本"}, "広岡"),
+            ({"name": "広岡\u3000岳", "nationality": "日本"}, "広岡"),
+            ({"name": "Kim Tae-Goon", "nationality": "韓国", "actual_nationality": "South Korea"}, "Kim"),
+            ({"name": "Wu Chao-Ching", "nationality": "台湾", "actual_nationality": ""}, "Wu"),
+            ({"name": "Erikson De La Torre", "nationality": "ベネズエラ", "actual_nationality": "Venezuela"}, "De La Torre"),
+            ({"name": "Marcin Rodríguez", "nationality": "アメリカ", "actual_nationality": "Unknown"}, "Rodríguez"),
+            ({"name": "Ohtani", "nationality": "アメリカ"}, "Ohtani"),
+        ]
+        with unittest.mock.patch.object(app, "nation_name_orders", return_value=orders):
+            for player, expected in cases:
+                with self.subTest(name=player["name"]):
+                    self.assertEqual(app.registered_name(player), expected)
+                    html = app.render_header_html({**player, "role": "野手", "position": "外野手", "seed": 1})
+                    self.assertIn(f'>{expected}</text>', html)
+                    self.assertIn(f'title="{player["name"]}"', html)
+
+    def test_generation_info_holds_fields_moved_from_profile(self):
+        # C-2：身長・体重・加入区分などは生成情報へ。値が空の項目は出さない
+        html = app.render_generation_info_html({
+            "category": "助っ人外国人用", "seed": 1, "height_cm": 190, "weight_kg": 95, "roster_origin": "foreign_import",
+            "foreign_route": "north_america_pro", "npb_years": 2, "is_returnee": 1, "actual_nationality": "The United States",
+        })
+        for text in ["身長", "190cm", "体重", "95kg", "加入区分", "外国人補強", "経由", "北米プロ", "NPB在籍", "2年目", "再来日", "実国籍", "The United States"]:
+            self.assertIn(text, html)
+        self.assertIn('<span class="pp-label">身長</span>', html)
+        self.assertNotIn("ドラフト所属区分", html)
+        self.assertNotIn("投打", html)
 
     def test_generation_info_contains_seed_category_and_type(self):
         html = app.render_generation_info_html({"category": "架空球団用", "player_type": "巧打型", "seed": 123})
@@ -728,7 +958,10 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertEqual(html.count('class="pp-defense-pos'), 7)
         self.assertIn('<div class="pp-defense-pos main"><span class="pp-defense-short">投</span>', html)
         self.assertIn('<span class="pp-defense-num">◎ 52</span>', html)
-        self.assertIn("pp-pitcher-usage-row", html)
+        # B-2：起用適性の行はない（適性はヘッダーに出る）
+        self.assertNotIn("pp-pitcher-usage-row", html)
+        self.assertNotIn("起用適性", html)
+        self.assertFalse(hasattr(app, "pitcher_usage_row_html"))
 
     def test_sub_position_fielding_display_uses_aptitude_rates_and_floor(self):
         self.assertEqual(app.calculate_sub_position_fielding(73, "◎"), 73)
@@ -831,7 +1064,7 @@ class UiLayoutHelpersTest(unittest.TestCase):
     def test_pitch_chart_wrap_is_compact_and_clipped(self):
         source = Path("app.py").read_text(encoding="utf-8")
         block = css_block(source, ".pp-chart-wrap")
-        for expected in ["width:100%", "aspect-ratio:280 / 210", "overflow:hidden"]:
+        for expected in ["width:100%", "height:100%", "overflow:hidden"]:
             self.assertIn(expected, block)
         self.assertNotIn("height:346px", block)
         self.assertNotIn("overflow:visible", block)
@@ -884,7 +1117,7 @@ class PitchBlockChartTest(unittest.TestCase):
         self.assertIn('<rect x="5" y="5" width="270" height="200" rx="7" fill="#EDF5F6" stroke="#ffffff"', svg)
         source = Path("app.py").read_text(encoding="utf-8")
         wrap = css_block(source, ".pp-chart-wrap")
-        for expected in ("width:100%", "aspect-ratio:280 / 210", "overflow:hidden"):
+        for expected in ("width:100%", "height:100%", "overflow:hidden"):
             self.assertIn(expected, wrap)
 
     def test_every_direction_is_one_continuous_frame_with_seven_cells(self):
