@@ -196,9 +196,9 @@ class UiLayoutHelpersTest(unittest.TestCase):
     def test_layout_css_has_three_header_columns_and_horizontal_info(self):
         source = Path("app.py").read_text(encoding="utf-8")
         self.assertIn(".pp-header {display:grid; grid-template-columns:minmax(330px, 1.2fr) 126px minmax(400px, 1.45fr);", source)
-        self.assertIn(".pp-header-main {display:grid; grid-template-rows:76px 43px;", source)
+        self.assertIn(".pp-header-main {display:grid; grid-template-rows:80px 44px;", source)
         self.assertIn(".pp-name-line {display:grid; grid-template-columns:minmax(0, 1fr) 48px 62px;", source)
-        self.assertIn(".pp-info {display:grid; grid-template-columns:minmax(170px, 1.3fr) minmax(130px, 1fr) minmax(100px, .72fr);", source)
+        self.assertIn(".pp-info {display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); grid-template-rows:1fr 1fr;", source)
         self.assertNotIn("pp-header-left", source)
 
     def test_player_section_has_one_selector_and_one_card(self):
@@ -448,29 +448,38 @@ class UiLayoutHelpersTest(unittest.TestCase):
         self.assertNotIn(".pp-body {display:grid; grid-template-columns:36% 64%;", source)
         self.assertNotIn(".pp-body-pitcher {grid-template-columns:40% 60%;", source)
 
-    def test_ability_row_density_css_is_42px(self):
+    def test_ability_row_density_css_is_54px(self):
         source = Path("app.py").read_text(encoding="utf-8")
         ability_row = css_block(source, ".pp-ability-row")
-        label = css_block(source, ".pp-label")
+        label = css_block(source, ".pp-ability-row .pp-label")
         rank = css_block(source, ".pp-rank")
         value = css_block(source, ".pp-value")
-        self.assertIn("grid-template-columns:minmax(102px,38%) 50px 1fr", ability_row)
-        self.assertIn("margin:3px 0", ability_row)
-        self.assertIn("min-height:42px", ability_row)
-        self.assertIn("height:42px", ability_row)
-        self.assertIn("border-radius:7px", ability_row)
+        self.assertIn("grid-template-columns:minmax(0,43%) minmax(0,17%) 1fr", ability_row)
+        self.assertIn("margin:4px 0", ability_row)
+        self.assertIn("min-height:54px", ability_row)
+        self.assertIn("height:54px", ability_row)
+        self.assertIn("border-radius:8px", ability_row)
         self.assertIn("box-shadow:inset 0 1px rgba(255,255,255,.72)", ability_row)
-        self.assertIn("font-size:17px", label)
-        self.assertIn("padding:2px 7px", label)
-        self.assertIn("font-size:26px", rank)
-        self.assertIn("font-size:24px", value)
+        self.assertIn("font-size:21px", label)
+        self.assertIn("font-size:44px", rank)
+        self.assertIn("font-size:46px", value)
+
+    def test_card_css_defines_each_selector_once(self):
+        # E-6: 同じセレクタを上書きで積み重ねない（メディアクエリ内は別扱い）
+        source = Path("app.py").read_text(encoding="utf-8")
+        css = source[source.index("def inject_powerpro_ui_css"):source.index("def player_from_history_row")]
+        css = re.sub(r"@media[^{]+\{(?:[^{}]*\{[^}]*\})*\s*\}", "", css)
+        selectors = [selector.strip() for selector in re.findall(r"^\s*([^{}/\s][^{}]*?)\s*\{", css, flags=re.M)]
+        duplicates = sorted({selector for selector in selectors if selectors.count(selector) > 1})
+        self.assertEqual(duplicates, [])
+        self.assertNotIn("st-key-history_", css)
 
     def test_empty_special_and_usage_cells_are_pale(self):
         source = Path("app.py").read_text(encoding="utf-8")
         empty = css_block(source, ".pp-special.empty")
         blue = css_block(source, ".pp-special")
-        self.assertIn("#ffffff", empty)
-        self.assertIn("border-color:#dcebef", empty)
+        self.assertIn("#f3fbfe", empty)
+        self.assertIn("border-color:#d3ebf2", empty)
         self.assertIn("box-shadow:none", empty)
         self.assertNotEqual(empty, blue)
         usage = css_block(source, ".pp-usage-empty")
@@ -479,9 +488,9 @@ class UiLayoutHelpersTest(unittest.TestCase):
     def test_normal_blue_special_cell_keeps_42px_grid_cell_and_clear_outline(self):
         source = Path("app.py").read_text(encoding="utf-8")
         block = css_block(source, ".pp-special")
-        self.assertIn("background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%)", block)
+        self.assertIn("background:linear-gradient(180deg,#f2feff 0%,#bff1f7 55%,#8fe0ec 100%)", block)
         self.assertIn("border:2px solid #3fb5cb", block)
-        self.assertIn("height:42px", block)
+        self.assertIn("height:54px", block)
 
     def test_navigation_disabled_buttons_remain_legible(self):
         source = Path("app.py").read_text(encoding="utf-8")
@@ -500,7 +509,6 @@ class UiLayoutHelpersTest(unittest.TestCase):
     def test_control_text_colors_are_scoped_by_purpose(self):
         source = Path("app.py").read_text(encoding="utf-8")
         self.assertIn('div[class*="st-key-latest_tab_"] button *', source)
-        self.assertIn('div[class*="st-key-history_tab_"] button *', source)
         self.assertIn("color:#ffffff!important", source)
         css = app.app_chrome_css()
         self.assertIn('[data-testid="stSidebar"] label', css)
@@ -673,7 +681,7 @@ class UiLayoutHelpersTest(unittest.TestCase):
     def test_main_defense_position_has_distinct_emphasis(self):
         source = Path("app.py").read_text(encoding="utf-8")
         block = css_block(source, ".pp-defense-pos.main")
-        self.assertIn("background:#dff3ff", block)
+        self.assertIn("background:#e6f5ff", block)
         self.assertIn("box-shadow:inset 4px 0 0 #0b8fe0", block)
 
     def test_help_band_is_removed_and_profile_css_order_is_kept(self):
@@ -823,7 +831,7 @@ class UiLayoutHelpersTest(unittest.TestCase):
     def test_pitch_chart_wrap_is_compact_and_clipped(self):
         source = Path("app.py").read_text(encoding="utf-8")
         block = css_block(source, ".pp-chart-wrap")
-        for expected in ["height:286px", "min-height:286px", "max-height:286px", "overflow:hidden"]:
+        for expected in ["width:100%", "aspect-ratio:280 / 210", "overflow:hidden"]:
             self.assertIn(expected, block)
         self.assertNotIn("height:346px", block)
         self.assertNotIn("overflow:visible", block)
@@ -876,7 +884,7 @@ class PitchBlockChartTest(unittest.TestCase):
         self.assertIn('<rect x="5" y="5" width="270" height="200" rx="7" fill="#EDF5F6" stroke="#ffffff"', svg)
         source = Path("app.py").read_text(encoding="utf-8")
         wrap = css_block(source, ".pp-chart-wrap")
-        for expected in ("height:286px", "min-height:286px", "max-height:286px", "overflow:hidden"):
+        for expected in ("width:100%", "aspect-ratio:280 / 210", "overflow:hidden"):
             self.assertIn(expected, wrap)
 
     def test_every_direction_is_one_continuous_frame_with_seven_cells(self):

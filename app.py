@@ -9135,121 +9135,77 @@ def render_page_description(text: str) -> None:
 
 
 def inject_powerpro_ui_css() -> None:
+    # 能力カードのCSS。各クラスの定義は1か所にまとめ、上書きの積み重ねはしない（変更するときは同じクラスの既存ルールを書き換える）。
     st.markdown("""
     <style>
     @import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;800;900&family=Barlow+Condensed:wght@700;800&display=swap");
     .block-container {max-width:1680px; padding-top:3.5rem; padding-bottom:2rem;}
-    .pp-panel {background:#fff;}
-    div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {max-width:1560px; margin:0 auto; background:#fff; border:4px solid var(--pp-tab-color,#0876c9); border-radius:16px; padding:8px; box-shadow:0 7px 0 rgba(0,76,130,.18), inset 0 0 0 5px #e8f8ff; font-family:"Arial Rounded MT Bold","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo",sans-serif;}
-    div[class*="st-key-latest_detail_shell"] > div, div[class*="st-key-history_detail_shell"] > div {font-family:inherit;}
-    .pp-header {display:grid; grid-template-columns:minmax(330px, 1.2fr) 126px minmax(400px, 1.45fr); gap:7px; align-items:stretch; min-height:126px; margin-bottom:0; min-width:0;}
-    .pp-name {background:linear-gradient(#ffbbb5,#ff6e68); border:3px solid #e82e42; border-radius:8px; font-size:28px; font-weight:900; text-align:center; padding:4px 7px; min-height:44px; color:#022d55; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; position:relative; display:flex; align-items:center; justify-content:center; min-width:0;}
-    .pp-number-box {background:#fff; color:#075fbd; border:3px solid #c8e7ff; border-radius:5px; font-size:28px; line-height:1.38; font-weight:950; text-align:center; align-self:stretch; min-height:44px; display:flex; align-items:center; justify-content:center; min-width:0; height:100%;}
-    .pp-category-mark {background:linear-gradient(#fff,#e9f9ff); border:3px solid #c8e7ff; border-radius:5px; color:#075fbd; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:950; min-height:44px; min-width:0; height:100%;}
-    .pp-face {background:#f7fbff; border:2px solid #c8e7ff; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:126px; overflow:hidden; width:126px; min-width:126px; height:126px;}
-    .pp-face svg {width:72px; height:72px; flex:0 0 auto;}
-    .pp-info {display:grid; grid-template-columns:minmax(170px, 1.3fr) minmax(130px, 1fr) minmax(100px, .72fr); gap:5px; align-content:stretch; min-width:0;}
-    .pp-chip {background:#f7fbff; border:2px solid #d5edff; border-radius:9px; padding:5px 8px; color:#0a69b0; font-weight:800; font-size:17px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-    .pp-chip-wide {font-size:14px; letter-spacing:-.03em;}
-    .pp-score {background:#0368b8; color:white; border-radius:7px; padding:1px 8px; display:inline-block; font-weight:900;}
-    .pp-body {display:grid; grid-template-columns:33% 67%; gap:9px; background:#edf9fc; border:0; border-top:3px solid var(--pp-tab-color,#0876c9); border-radius:0 0 10px 10px; padding:9px; overflow:hidden; align-items:start; margin-top:0;}
-    .pp-body-pitcher {grid-template-columns:35% 65%; min-height:430px; overflow:visible;}
-    .pp-mini-label {font-size:12px; opacity:.75; display:block; margin-bottom:3px;}
-    .pp-ability-row {display:grid; grid-template-columns:minmax(102px,38%) 50px 1fr; align-items:center; margin:3px 0; background:#fff; border:2px solid #cfe9ff; border-radius:7px; min-height:42px; height:42px; overflow:hidden; box-shadow:inset 0 1px rgba(255,255,255,.72);}
-    .pp-label {font-size:17px; background:#fff; border-radius:7px; margin-left:6px; padding:2px 7px; color:#126bb0; font-weight:900; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-    .pp-rank {font-size:26px; font-weight:950; text-align:center; -webkit-text-stroke:.45px rgba(255,255,255,.75); text-shadow:0 1px rgba(255,255,255,.42); line-height:1; width:42px;}
-    .pp-value {font-size:24px; color:#0b72bd; font-weight:950; text-align:right; padding-right:12px; overflow-wrap:anywhere;}
-    .pp-special-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:3px;}
-    .pp-special {height:42px; min-width:0; border-radius:7px; border:2px solid #3fb5cb; background:linear-gradient(180deg,#f0fdff 0%,#b8eef4 58%,#83dce7 100%); color:#075f94; font-weight:850; display:grid; grid-template-columns:minmax(0,1fr); place-items:center; padding:0 6px; font-size:17px; box-shadow:inset 0 1px rgba(255,255,255,.72),0 1px 1px rgba(7,95,148,.14);}
-    .pp-special-name {overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; max-width:100%; text-align:center;}
-    .pp-special-ranked {display:grid; grid-template-columns:minmax(0,1fr) 26px; padding:0; overflow:hidden; gap:0; align-items:stretch;}
-    .pp-special-ranked .pp-special-name {display:flex; align-items:center; justify-content:center; padding:0 4px; min-width:0;}
-    .pp-special-rank-badge {display:flex; align-items:center; justify-content:center; align-self:stretch; width:26px; color:#fff; font-size:19px; line-height:1; font-weight:950; text-align:center; text-shadow:0 1px rgba(0,42,70,.32);}
-    .pp-special.long .pp-special-name {font-size:15px; letter-spacing:-.065em;}
-    .pp-special.xlong .pp-special-name {font-size:13px; letter-spacing:-.085em;}
-    .pp-special.red {background:linear-gradient(#fff8f8,#ffe0e0); border-color:#f29a9a; color:#bd1624;}
-    .pp-special.green {background:linear-gradient(180deg,#effff2 0%,#bcebc7 100%); border-color:#36aa5b; color:#086b30;}
-    .pp-special.neutral {background:linear-gradient(180deg,#f9fdff 0%,#e0f2f6 100%); border-color:#82bdca; color:#285e75;}
-    .pp-special.gold {background:linear-gradient(#fffdf1,#fff0ad); border-color:#e0be3c; color:#836200;}
-    .pp-special.mixed {background:linear-gradient(to right,#b8eef4 0%,#83dce7 50%,#ffe0e0 50%,#ffadad 100%); border-color:#3fb5cb; color:#073f68; text-shadow:0 1px rgba(255,255,255,.68);}
-    .pp-special-ranked.rank-ab {background:linear-gradient(180deg,#eefcff 0%,#ade8ef 58%,#78d3df 100%); border-color:#39afc4; color:#075f94;}
-    .pp-special-ranked.rank-ab .pp-special-rank-badge {background:linear-gradient(180deg,#38c9dc 0%,#1595b5 100%); color:#fff;}
-    .pp-special-ranked.rank-cde {background:linear-gradient(180deg,#fbfdff 0%,#e3f1f5 55%,#c9e5eb 100%); border-color:#78b5c2; color:#285e75;}
-    .pp-special-ranked.rank-cde .pp-special-rank-badge {background:linear-gradient(180deg,#72c5d2 0%,#388fa3 100%); color:#fff;}
-    .pp-special-ranked.rank-fg {background:linear-gradient(180deg,#fff5f5 0%,#ffd3d3 55%,#ffadad 100%); border-color:#ef6c72; color:#c71c24;}
-    .pp-special-ranked.rank-fg .pp-special-rank-badge {background:linear-gradient(180deg,#ed5a60 0%,#c8212b 100%); color:#fff;}
-    .pp-special.empty {height:42px; background:linear-gradient(180deg,#ffffff 0%,#fbfdfe 58%,#f5fafb 100%); border-color:#dcebef; color:transparent; box-shadow:none;}
-    .pp-section-title {color:#075f9e; font-weight:900; font-size:17px; margin:2px 0 7px;}
     div[data-testid="stButton"] > button {min-height:2.2rem;}
     button[kind="primary"], button[kind="primary"] * {color:#ffffff!important;}
-    @media (max-width: 980px) {
-      .pp-header {grid-template-columns:1fr;}
-      .pp-face {width:100%;}
-      .pp-profile-table {grid-template-columns:88px minmax(0, 1fr);}
-      .pp-profile-span-3 {grid-column:span 1;}
-      .pp-info {grid-template-columns:1fr;}
-      .pp-body,.pp-body-pitcher {grid-template-columns:1fr; min-height:0;}
-      .pp-special-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
-      .pp-usage-grid {grid-template-columns:repeat(4,minmax(0,1fr));}
-      .pp-defense-compact {width:100%;}
-    }
-    .pp-aptitude-line {background:#f9fdff; border:2px solid #cfe9ff; border-radius:9px; color:#0a69b0; font-weight:900; padding:5px 9px; margin-bottom:6px; white-space:nowrap; font-size:15px;}
-    .pp-pitcher-usage-row,.pp-pitcher-defense-row {display:grid; grid-template-columns:40% 1fr; align-items:center; margin:4px 0; background:#fff; border:2px solid #cfe9ff; border-radius:9px; min-height:39px; overflow:hidden; box-shadow:inset 0 2px rgba(255,255,255,.8);}
-    .pp-pitcher-usage-values {display:flex; gap:14px; align-items:center; justify-content:space-around; min-width:0; white-space:nowrap; color:#0b72bd; font-weight:950; font-size:18px;}
-    .pp-pitcher-usage-item {white-space:nowrap; display:inline-flex; gap:2px; align-items:baseline;}
-    .pp-pitcher-defense-values {display:flex; gap:10px; align-items:baseline; justify-content:flex-end; padding-right:12px; white-space:nowrap; color:#0b72bd; font-weight:950;}
-    @media (max-width: 980px) {.pp-pitcher-usage-values {font-size:15px; gap:8px;}}
-    .pp-chart-wrap {height:286px; min-height:286px; max-height:286px; margin-top:6px; overflow:hidden;}
-    .pp-trajectory-row {overflow:hidden;}
-    .pp-trajectory-icon {display:flex; align-items:center; justify-content:center; width:50px; height:100%; overflow:visible;}
-    .pp-trajectory-icon svg {overflow:visible;}
-    .pp-trajectory-icon.trajectory-1 svg {transform:rotate(0deg); transform-origin:6px 25px;}
-    .pp-trajectory-icon.trajectory-2 svg {transform:rotate(-18deg); transform-origin:6px 25px;}
-    .pp-trajectory-icon.trajectory-3 svg {transform:rotate(-34deg); transform-origin:6px 25px;}
-    .pp-trajectory-icon.trajectory-4 svg {transform:rotate(-58deg); transform-origin:6px 25px;}
-    .pp-trajectory-value {color:#0b72bd;}
-    .pp-defense-grid,.pp-profile-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px;}
-    .pp-defense-compact {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px; margin:5px 0; border:2px solid #a9d4e8; border-radius:9px; overflow:hidden; background:#a9d4e8;}
-    .pp-defense-pos {display:grid; grid-template-columns:34px 34px minmax(0,1fr); align-items:center; gap:4px; background:#f7fbfd; border:0; border-radius:0; padding:8px; color:#28617f; font-weight:850; min-height:42px; min-width:0;}
-    .pp-defense-short {text-align:left; color:#245c78;}
-    .pp-defense-rank {text-align:center; font-size:18px; font-weight:950;}
-    .pp-defense-num {text-align:right; color:#0b629d; font-variant-numeric:tabular-nums;}
-    .pp-defense-empty {grid-column:2 / 4; text-align:center; color:#aec5d1; font-weight:800;}
-    .pp-defense-pos.main {background:#dff3ff; box-shadow:inset 4px 0 0 #0b8fe0; color:#063f68; font-weight:950;}
-    .pp-usage-grid {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px;}
-    .pp-usage-cell {min-height:46px; border:2px solid #bde7f0; border-radius:7px; display:flex; align-items:center; justify-content:center; padding:0 6px; font-weight:900; color:#0b72bd; background:rgba(235,250,253,.46); min-width:0; text-align:center;}
-    .pp-usage-label {background:linear-gradient(180deg,#fff 0%,#e9f9fd 100%); color:#126bb0;}
-    .pp-usage-value {background:linear-gradient(180deg,#f3fff5 0%,#c9f2d2 100%); border-color:#56c978; color:#13783a;}
-    .pp-usage-empty {color:transparent; background:linear-gradient(180deg,#fbfeff 0%,#f2fbfd 58%,#e3f5f8 100%); border-color:#c7e5eb; box-shadow:none;}
-    .pp-header-main {display:grid; grid-template-rows:76px 43px; gap:5px; min-width:0;}
+    /* ===== カードの枠・フォント ===== */
+    div[class*="st-key-latest_detail_shell"] {--pp-font:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans CJK JP",sans-serif; --pp-num-font:"Barlow Condensed","Roboto Condensed","Arial Narrow","M PLUS Rounded 1c","Noto Sans CJK JP",sans-serif; max-width:1560px; margin:0 auto; background:#f4fbfd; border:5px solid var(--pp-tab-color,#0876c9); border-radius:16px; padding:8px; box-shadow:0 8px 0 rgba(0,70,120,.16), inset 0 0 0 4px #ffffff; font-family:var(--pp-font);}
+    div[class*="st-key-latest_detail_shell"] > div {font-family:inherit;}
+    /* Streamlitのmarkdown既定フォント（Source Sans）に上書きされないよう、カード内は!importantで指定 */
+    div[class*="st-key-latest_detail_shell"] :is(div,span,p,summary,button,text) {font-family:var(--pp-font)!important;}
+    div[class*="st-key-latest_detail_shell"] :is(.pp-value,.pp-value *,.pp-number-box,.pp-defense-num,.pp-chip) {font-family:var(--pp-num-font)!important;}
+    /* ===== ヘッダー：名前プレート・背番号・顔・成績欄 ===== */
+    .pp-header {display:grid; grid-template-columns:minmax(330px, 1.2fr) 126px minmax(400px, 1.45fr); gap:8px; align-items:stretch; min-height:132px; margin-bottom:0; min-width:0;}
+    .pp-header-main {display:grid; grid-template-rows:80px 44px; gap:6px; min-width:0;}
     .pp-name-line {display:grid; grid-template-columns:minmax(0, 1fr) 48px 62px; gap:5px; min-width:0;}
-    .pp-posline {background:#f7fbff; border:2px solid #d5edff; border-radius:9px; padding:5px 8px; color:#0a69b0; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; height:43px; min-height:43px;}
-    .pp-profile-table {display:grid; grid-template-columns:92px minmax(0, 1fr) 92px minmax(0, 1fr); border:2px solid #c4e3ec; border-radius:7px; overflow:hidden; background:#ffffff;}
-    .pp-profile-label {min-height:44px; display:flex; align-items:center; padding:0 9px; background:#f5fbfd; border-right:1px solid #cfe8ee; border-bottom:1px solid #cfe8ee; color:#1973a5; font-size:14px; font-weight:850;}
-    .pp-profile-value {min-height:44px; display:flex; align-items:center; padding:0 10px; background:#ffffff; border-right:1px solid #cfe8ee; border-bottom:1px solid #cfe8ee; color:#123f61; font-size:17px; font-weight:800; min-width:0; overflow-wrap:anywhere;}
-    .pp-profile-span-3 {grid-column:span 3;}
-    @media (max-width: 980px) {
-      .pp-profile-table {grid-template-columns:88px minmax(0,1fr);}
-      .pp-profile-span-3 {grid-column:span 1;}
-    }
-    .pp-generation-grid {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px;}
-    .pp-generation-card {background:#f8fcff; border:2px solid #cce8ff; border-radius:9px; padding:7px; color:#0a69b0; font-weight:900; min-height:50px;}
-    div[class*="st-key-latest_tab_"], div[class*="st-key-history_tab_"] {margin-bottom:-2px;}
-    div[class*="st-key-latest_tab_"] button, div[class*="st-key-history_tab_"] button {background:#06396f!important; color:white!important; border-color:#052e5a!important; font-weight:900; border-radius:11px 11px 0 0!important; margin-right:0!important; min-height:3rem;}
-    div[class*="st-key-latest_tab_"] button *, div[class*="st-key-history_tab_"] button * {color:#ffffff!important;}
-    div[class*="st-key-latest_tab_"] button[kind="primary"], div[class*="st-key-history_tab_"] button[kind="primary"] {border-bottom-color:transparent!important;}
-    div[class*="st-key-latest_tab_player"] button[kind="primary"], div[class*="st-key-history_tab_player"] button[kind="primary"] {background:#075fbd!important; border-color:#075fbd!important;}
-    div[class*="st-key-latest_tab_pitcher"] button[kind="primary"], div[class*="st-key-history_tab_pitcher"] button[kind="primary"] {background:#d7193f!important; border-color:#d7193f!important;}
-    div[class*="st-key-latest_tab_fielder"] button[kind="primary"], div[class*="st-key-history_tab_fielder"] button[kind="primary"] {background:#0876c9!important; border-color:#0876c9!important;}
-    div[class*="st-key-latest_tab_usage"] button[kind="primary"], div[class*="st-key-history_tab_usage"] button[kind="primary"] {background:#d49a00!important; border-color:#d49a00!important;}
-    div[class*="st-key-latest_tab_profile"] button[kind="primary"], div[class*="st-key-history_tab_profile"] button[kind="primary"] {background:#087d23!important; border-color:#087d23!important;}
-    /* ===== ゲーム画面寄せ（見た目のみの上書き。上の既存ルールより後に置くことで優先されます） ===== */
-    div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {font-family:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans CJK JP",sans-serif; background:#f4fbfd; border-width:5px; box-shadow:0 8px 0 rgba(0,70,120,.16), inset 0 0 0 4px #ffffff;}
-    div[class*="st-key-latest_detail_shell"] .pp-value, div[class*="st-key-history_detail_shell"] .pp-value, .pp-number-box, .pp-defense-num {font-family:"Barlow Condensed","Roboto Condensed","Arial Narrow","M PLUS Rounded 1c","Noto Sans CJK JP",sans-serif;}
-    /* ラベル：白いピル型 */
-    .pp-label {background:linear-gradient(180deg,#ffffff 0%,#f1f5f8 100%); border:2px solid #d4dde4; border-radius:12px; box-shadow:0 2px 0 #c6d1da; color:#2a6aa9; font-weight:800; letter-spacing:.18em; margin:0 6px; padding:3px 6px;}
-    /* 基礎能力行 */
-    .pp-trajectory-value {color:#163b6e;}
+    .pp-name {display:flex; align-items:center; justify-content:center; position:relative; min-width:0; min-height:44px; padding:0 10px 0 calc(10px + .18em); background:linear-gradient(#ffbbb5,#ff6e68); border:3px solid #e82e42; border-radius:8px; box-shadow:inset 0 2px 0 rgba(255,255,255,.55), 0 2px 0 rgba(0,0,0,.18); color:#161616; font-size:34px; font-weight:900; letter-spacing:.18em; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-category-mark {display:flex; align-items:center; justify-content:center; min-width:0; min-height:44px; height:100%; background:linear-gradient(#fff,#e9f9ff); border:3px solid #d4e4ee; border-radius:5px; color:#163b6e; font-size:20px; font-weight:950;}
+    .pp-number-box {display:flex; align-items:center; justify-content:center; align-self:stretch; min-width:0; min-height:44px; height:100%; background:linear-gradient(180deg,#ffffff,#eef6fb); border:3px solid #d4e4ee; border-radius:5px; color:#163b6e; font-size:42px; line-height:1.38; font-weight:800; text-align:center;}
+    .pp-face {display:flex; align-items:center; justify-content:center; width:132px; min-width:132px; height:132px; min-height:132px; overflow:hidden; background:linear-gradient(180deg,#ffffff,#f1f8fc); border:3px solid #d4e4ee; border-radius:10px;}
+    .pp-face svg {width:112px; height:112px; flex:0 0 auto;}
+    .pp-info {display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); grid-template-rows:1fr 1fr; gap:6px; align-content:stretch; min-width:0;}
+    .pp-info .pp-chip:first-child {grid-column:1 / -1;}
+    .pp-chip {display:flex; align-items:center; gap:10px; min-width:0; padding:4px 8px; background:linear-gradient(180deg,#ffffff,#f3f8fb); border:2px solid #dbe7ee; border-radius:9px; color:#163b6e; font-size:30px; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-chip.pp-chip-wide {font-size:24px; letter-spacing:-.02em;}
+    .pp-mini-label {font-size:12px; opacity:.75; display:block; margin-bottom:3px;}
+    .pp-chip .pp-mini-label, .pp-posline .pp-mini-label {flex:0 0 auto; display:inline-block; margin:0; opacity:1; padding:3px 10px; background:linear-gradient(180deg,#ffffff 0%,#eef3f7 100%); border:2px solid #d4dde4; border-radius:11px; box-shadow:0 2px 0 #c6d1da; color:#2a6aa9; font-size:16px; font-weight:800; letter-spacing:.2em;}
+    /* 守備位置・適性：ラベルピル＋大きな値 */
+    .pp-posline {display:flex; align-items:center; gap:14px; height:43px; min-height:43px; padding:4px 8px; background:linear-gradient(180deg,#ffffff,#f3f8fb); border:2px solid #dbe7ee; border-radius:9px; color:#1b5f9e; font-size:20px; font-weight:900; letter-spacing:.04em; overflow:visible; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-pos-values {display:inline-flex; align-items:baseline; gap:10px; color:#1b5f9e; font-weight:900;}
+    .pp-pos-item.main, .pp-pos-item.lv3 {font-size:30px;}
+    .pp-pos-item.lv2 {font-size:24px;}
+    .pp-pos-item.sub, .pp-pos-item.lv1 {font-size:20px;}
+    /* ===== タブ：選択中はタブ色、非選択はタブごとの暗い色 ===== */
+    div[class*="st-key-latest_tab_"] {margin-bottom:-2px;}
+    div[class*="st-key-latest_tab_"] button {background:#06396f!important; color:white!important; border-color:#052e5a!important; border-radius:11px 11px 0 0!important; margin-right:0!important; min-height:3rem; font-size:20px; font-weight:900; letter-spacing:.06em;}
+    div[class*="st-key-latest_tab_"] button * {color:#ffffff!important;}
+    div[class*="st-key-latest_tab_"] button p {font-size:22px!important; font-weight:900!important; letter-spacing:.08em;}
+    div[class*="st-key-latest_tab_"] button[kind="primary"] {border-bottom-color:transparent!important;}
+    div[class*="st-key-latest_tab_pitcher"] button[kind="primary"] {background:#d7193f!important; border-color:#d7193f!important;}
+    div[class*="st-key-latest_tab_fielder"] button[kind="primary"] {background:#0876c9!important; border-color:#0876c9!important;}
+    div[class*="st-key-latest_tab_usage"] button[kind="primary"] {background:#d49a00!important; border-color:#d49a00!important;}
+    div[class*="st-key-latest_tab_profile"] button[kind="primary"] {background:#087d23!important; border-color:#087d23!important;}
+    div[class*="st-key-latest_tab_pitcher"] button[kind="secondary"] {background:#6f1024!important; border-color:#560b1b!important;}
+    div[class*="st-key-latest_tab_fielder"] button[kind="secondary"] {background:#0b3a78!important; border-color:#082c5c!important;}
+    div[class*="st-key-latest_tab_usage"] button[kind="secondary"] {background:#6b4a06!important; border-color:#553a03!important;}
+    div[class*="st-key-latest_tab_profile"] button[kind="secondary"] {background:#0c4d1c!important; border-color:#083a14!important;}
+    div[class*="st-key-latest_tab_"] button[kind="secondary"] * {color:rgba(255,255,255,.6)!important;}
+    /* ===== 本文 ===== */
+    .pp-body {display:grid; grid-template-columns:33% 67%; gap:9px; align-items:start; margin-top:0; padding:9px; background:#edf9fc; border:0; border-top:3px solid var(--pp-tab-color,#0876c9); border-radius:0 0 10px 10px; overflow:hidden;}
+    .pp-body-pitcher {grid-template-columns:35% 65%; min-height:430px; overflow:visible;}
+    /* 基礎能力行：ラベル・ランク・数値をゲームと同じ比率で（ランクは行の中央寄り、数値は右端から少し内側） */
+    .pp-ability-row {display:grid; grid-template-columns:minmax(0,43%) minmax(0,17%) 1fr; align-items:center; height:54px; min-height:54px; margin:4px 0; background:linear-gradient(180deg,#ffffff 0%,#f6fafc 100%); border:2px solid #dfe9ef; border-radius:8px; box-shadow:inset 0 1px rgba(255,255,255,.72); overflow:hidden;}
+    .pp-ability-row > div {align-self:stretch; display:flex; align-items:center; min-height:0;}
+    .pp-ability-row > .pp-label {align-self:center; display:block;}
+    .pp-label {margin:0 6px; padding:3px 6px; background:linear-gradient(180deg,#ffffff 0%,#f1f5f8 100%); border:2px solid #d4dde4; border-radius:12px; box-shadow:0 2px 0 #c6d1da; color:#2a6aa9; font-size:17px; font-weight:800; letter-spacing:.18em; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+    .pp-ability-row .pp-label {margin:0 8px; padding:4px 4px 4px calc(4px + .2em); font-size:21px; letter-spacing:.2em;}
+    .pp-rank {justify-content:center; width:auto; font-size:44px; line-height:1; font-weight:900; text-align:center; -webkit-text-stroke:0; text-shadow:none; filter:drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff) drop-shadow(0 2px 1px rgba(0,40,80,.35));}
+    .pp-value {justify-content:flex-end; padding-right:14%; color:#163b6e; font-size:46px; line-height:1; font-weight:800; letter-spacing:.01em; text-align:right; overflow-wrap:anywhere; font-variant-numeric:tabular-nums;}
+    /* 球速：数字を大きく、km/h を小さく、ラベルのすぐ右に */
+    .pp-speed-row {grid-template-columns:minmax(0,43%) 0 1fr;}
+    .pp-speed-row .pp-value {justify-content:flex-start; align-items:baseline; gap:6px; padding:0 0 0 6%; line-height:54px;}
+    .pp-speed-row .pp-unit {font-size:24px;}
+    /* 弾道の矢印：ランク文字と同じ列の中央に、行の高さ内で回転 */
+    .pp-trajectory-icon {display:flex; align-items:center; justify-content:center; width:auto; height:100%; overflow:visible;}
+    .pp-trajectory-icon svg {width:42px; height:42px; overflow:visible; transform-origin:50% 50%;}
+    .pp-trajectory-icon.trajectory-1 svg {transform:rotate(0deg);}
+    .pp-trajectory-icon.trajectory-2 svg {transform:rotate(-22deg);}
+    .pp-trajectory-icon.trajectory-3 svg {transform:rotate(-45deg);}
+    .pp-trajectory-icon.trajectory-4 svg {transform:rotate(-65deg);}
     /* ランク文字のグラデーション（S〜G）：ゲーム画面の文字色を上・中・下で採色した値 */
     .gr-S,.gr-A,.gr-B,.gr-C,.gr-D,.gr-E,.gr-F,.gr-G {-webkit-background-clip:text; background-clip:text; color:transparent!important;}
     .gr-S {background-image:linear-gradient(180deg,#ffb3d2 0%,#ff7cb1 42%,#ff5c9f 100%);}
@@ -9260,146 +9216,81 @@ def inject_powerpro_ui_css() -> None:
     .gr-E {background-image:linear-gradient(180deg,#95ea66 0%,#5ad814 40%,#30bb08 100%);}
     .gr-F {background-image:linear-gradient(180deg,#78d4ff 0%,#2eb0ff 40%,#1a90f5 100%);}
     .gr-G {background-image:linear-gradient(180deg,#d2d2d2 0%,#a0a0a0 40%,#818181 100%);}
-    /* ヘッダー：名前プレート・背番号・顔・成績欄 */
-    .pp-header {min-height:132px; gap:8px;}
-    .pp-header-main {grid-template-rows:80px 44px; gap:6px;}
-    .pp-name {font-size:34px; font-weight:900; color:#161616; letter-spacing:.18em; padding:0 10px 0 calc(10px + .18em); border-width:3px; box-shadow:inset 0 2px 0 rgba(255,255,255,.55), 0 2px 0 rgba(0,0,0,.18);}
-    .pp-number-box {font-size:42px; font-weight:800; color:#163b6e; background:linear-gradient(180deg,#ffffff,#eef6fb); border-color:#d4e4ee;}
-    .pp-category-mark {font-size:20px; color:#163b6e; border-color:#d4e4ee;}
-    .pp-posline {display:flex; align-items:center; font-size:20px; color:#1b5f9e; background:linear-gradient(180deg,#ffffff,#f3f8fb); border-color:#dbe7ee; letter-spacing:.04em;}
-    .pp-face {width:132px; min-width:132px; height:132px; min-height:132px; background:linear-gradient(180deg,#ffffff,#f1f8fc); border:3px solid #d4e4ee;}
-    .pp-face svg {width:112px; height:112px;}
-    .pp-info {grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); grid-template-rows:1fr 1fr; gap:6px;}
-    .pp-info .pp-chip:first-child {grid-column:1 / -1;}
-    .pp-chip {display:flex; align-items:center; gap:10px; background:linear-gradient(180deg,#ffffff,#f3f8fb); border-color:#dbe7ee; color:#163b6e; font-size:24px; font-weight:900; padding:4px 8px;}
-    .pp-chip.pp-chip-wide {font-size:19px; letter-spacing:-.02em;}
-    .pp-chip .pp-mini-label {flex:0 0 auto; display:inline-block; margin:0; opacity:1; font-size:16px; font-weight:800; color:#2a6aa9; letter-spacing:.2em; background:linear-gradient(180deg,#ffffff 0%,#eef3f7 100%); border:2px solid #d4dde4; border-radius:11px; box-shadow:0 2px 0 #c6d1da; padding:3px 10px;}
-    /* 特殊能力グリッド */
-    .pp-special-grid {gap:4px;}
+    /* 変化球の図：左列の幅いっぱいに表示 */
+    .pp-chart-wrap {width:100%; height:auto; min-height:0; aspect-ratio:280 / 210; margin-top:6px; overflow:hidden;}
+    .pp-chart-wrap svg {display:block; width:100%; height:100%;}
+    /* ===== 特殊能力グリッド ===== */
+    .pp-special-grid {display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:4px;}
+    .pp-special {container-type:inline-size; display:grid; grid-template-columns:minmax(0,1fr); place-items:center; height:54px; min-width:0; padding:0 4px; background:linear-gradient(180deg,#f2feff 0%,#bff1f7 55%,#8fe0ec 100%); border:2px solid #3fb5cb; border-radius:6px; box-shadow:inset 0 1px rgba(255,255,255,.72),0 1px 1px rgba(7,95,148,.14); color:#1276bd; font-size:17px; font-weight:800;}
     .pp-special.red {background:linear-gradient(180deg,#fff2f2 0%,#ffc2c2 55%,#ff9a9a 100%); border-color:#ef6c72; color:#c8141f;}
     .pp-special.green {background:linear-gradient(180deg,#f0fff2 0%,#c6f1cf 55%,#98e0a9 100%); border-color:#47b867; color:#0b6d2f;}
+    .pp-special.neutral {background:linear-gradient(180deg,#f9fdff 0%,#e0f2f6 100%); border-color:#82bdca; color:#285e75;}
     .pp-special.gold {background:linear-gradient(180deg,#fffbe0 0%,#ffe680 55%,#ffcd3a 100%); border-color:#d9a514; color:#7a5200;}
-    /* 標準〜低めのランク（C〜E）は、ゲームと同じく薄く表示 */
-    .pp-special-ranked.rank-cde {background:linear-gradient(180deg,#f5fcff 0%,#dcf1f8 100%); border-color:#c4e2ec; color:#6fa9c4;}
-    .pp-special.empty {height:50px; background:linear-gradient(180deg,#f3fbfe 0%,#e6f6fb 100%); border-color:#d3ebf2;}
-    .pp-usage-cell {min-height:50px; font-size:20px;}
-    .pp-usage-label {background:linear-gradient(180deg,#ffffff 0%,#f1f5f8 100%); border-color:#d4dde4; color:#2a6aa9; box-shadow:0 2px 0 #c6d1da;}
-    .pp-usage-empty {background:linear-gradient(180deg,#f3fbfe 0%,#e6f6fb 100%); border-color:#d3ebf2;}
-    /* 守備・起用：守備力の枠（ラベル＋投捕一二三遊外の2列） */
-    .pp-defense-compact {background:#ffffff; border:2px solid #dfe9ef; gap:0; border-radius:8px;}
-    .pp-defense-label {display:flex; align-items:center; background:#ffffff; min-height:50px; border-bottom:1px solid #e3edf2;}
-    .pp-defense-label .pp-label {flex:1; margin:0 8px;}
-    .pp-defense-pos {grid-template-columns:34px 40px minmax(0,1fr); background:#ffffff; border-bottom:1px solid #e3edf2; min-height:50px; font-size:22px; color:#b9cbd6;}
-    .pp-defense-pos:nth-child(even) {border-left:1px solid #e3edf2;}
-    .pp-defense-pos.main {background:#e6f5ff; color:#163b6e;}
-    .pp-defense-rank {font-size:30px; font-weight:900; filter:drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff) drop-shadow(0 1px 1px rgba(0,40,80,.35));}
-    .pp-defense-num {font-size:28px; font-weight:800; color:#163b6e;}
-    .pp-defense-empty {color:#c3d3dc;}
-    /* タブ：非選択もタブごとの暗い色にする */
-    div[class*="st-key-latest_tab_"] button[kind="secondary"], div[class*="st-key-history_tab_"] button[kind="secondary"] {font-size:20px;}
-    div[class*="st-key-latest_tab_"] button, div[class*="st-key-history_tab_"] button {font-size:20px; letter-spacing:.06em;}
-    div[class*="st-key-latest_tab_pitcher"] button[kind="secondary"], div[class*="st-key-history_tab_pitcher"] button[kind="secondary"] {background:#6f1024!important; border-color:#560b1b!important;}
-    div[class*="st-key-latest_tab_fielder"] button[kind="secondary"], div[class*="st-key-history_tab_fielder"] button[kind="secondary"] {background:#0b3a78!important; border-color:#082c5c!important;}
-    div[class*="st-key-latest_tab_usage"] button[kind="secondary"], div[class*="st-key-history_tab_usage"] button[kind="secondary"] {background:#6b4a06!important; border-color:#553a03!important;}
-    div[class*="st-key-latest_tab_profile"] button[kind="secondary"], div[class*="st-key-history_tab_profile"] button[kind="secondary"] {background:#0c4d1c!important; border-color:#083a14!important;}
-    div[class*="st-key-latest_tab_"] button[kind="secondary"] *, div[class*="st-key-history_tab_"] button[kind="secondary"] * {color:rgba(255,255,255,.6)!important;}
-    /* プロフィール表：ラベル折り返し防止、全幅項目は必ず行頭から、文字サイズを他の欄に合わせる */
-    .pp-profile-table {border-color:#dfe9ef; border-radius:8px;}
-    @media (min-width: 981px) {.pp-profile-table {grid-template-columns:130px minmax(0,1fr) 130px minmax(0,1fr);}}
-    .pp-profile-label {white-space:nowrap; font-size:16px; letter-spacing:.02em; color:#2a6aa9; min-height:48px;}
-    .pp-profile-label:has(+ .pp-profile-span-3) {grid-column-start:1;}
-    .pp-profile-value {font-size:20px; color:#163b6e; min-height:48px;}
-    .pp-generation-info summary {color:#1b5f9e; font-weight:800; cursor:pointer; margin-top:8px;}
-    /* 基礎能力行：ランクと数値を枠の縦中央にそろえる */
-    .pp-ability-row {height:50px; min-height:50px; grid-template-columns:minmax(110px,40%) 58px 1fr; background:linear-gradient(180deg,#ffffff 0%,#f6fafc 100%); border:2px solid #dfe9ef; border-radius:8px; margin:4px 0;}
-    .pp-ability-row > div {align-self:stretch; display:flex; align-items:center; min-height:0;}
-    .pp-ability-row > .pp-label {align-self:center; display:block;}
-    .pp-rank {justify-content:center; font-size:34px; line-height:1; font-weight:900; width:52px; -webkit-text-stroke:0; text-shadow:none; filter:drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff) drop-shadow(0 2px 1px rgba(0,40,80,.35));}
-    .pp-value {justify-content:flex-end; font-size:36px; line-height:1; font-weight:800; color:#163b6e; letter-spacing:.01em; font-variant-numeric:tabular-nums;}
-    /* 特殊能力：セル幅÷文字数で文字を大きく表示（ゲームと同じくセルいっぱいに文字が並ぶ） */
-    .pp-special {container-type:inline-size; height:50px; padding:0 4px; font-weight:800; color:#1276bd; border-radius:6px; background:linear-gradient(180deg,#f2feff 0%,#bff1f7 55%,#8fe0ec 100%);}
-    .pp-special .pp-special-name, .pp-special.long .pp-special-name, .pp-special.xlong .pp-special-name {display:block; width:100%; text-align:center; white-space:nowrap; overflow:visible; line-height:1; letter-spacing:0; text-indent:0; padding:0; font-size:min(30px, calc((100cqw - 4px) / var(--n, 4)));}
+    .pp-special.mixed {background:linear-gradient(to right,#b8eef4 0%,#83dce7 50%,#ffe0e0 50%,#ffadad 100%); border-color:#3fb5cb; color:#073f68; text-shadow:0 1px rgba(255,255,255,.68);}
+    .pp-special.empty {background:linear-gradient(180deg,#f3fbfe 0%,#e6f6fb 100%); border-color:#d3ebf2; color:transparent; box-shadow:none;}
+    /* 名前：セル幅÷文字数で文字を大きく表示。2〜3文字の能力（盗塁・逆境○など）だけ字間を空ける */
+    .pp-special-name {display:block; width:100%; min-width:0; max-width:100%; padding:0; font-size:min(36px, calc((100cqw - 4px) / var(--n, 4))); line-height:1; letter-spacing:0; text-indent:0; text-align:center; white-space:nowrap; overflow:visible; text-overflow:ellipsis;}
     .pp-special.sp2 .pp-special-name {letter-spacing:.9em; text-indent:.9em;}
     .pp-special.sp3 .pp-special-name {letter-spacing:.45em; text-indent:.45em;}
-    .pp-special-ranked {grid-template-columns:minmax(0,1fr) 32px; padding:0 2px 0 4px;}
-    .pp-special-ranked .pp-special-name, .pp-special-ranked.long .pp-special-name, .pp-special-ranked.xlong .pp-special-name {align-self:center; font-size:min(30px, calc((100cqw - 40px) / var(--n, 4)));}
-    /* ランク文字：C〜Eは白フチ付きの縁取り文字、A・Bは青、F・Gは赤の四角に白文字 */
-    .pp-special-rank-badge {width:32px; height:40px; margin:0; align-self:center; font-size:34px; line-height:1; font-weight:900; border-radius:5px; background:transparent; text-shadow:none;}
-    .pp-special-ranked.rank-cde .pp-special-rank-badge {background:transparent; color:#8cc3db; filter:drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff) drop-shadow(0 0 1px #5d9dbb);}
-    .pp-special-ranked.rank-ab .pp-special-rank-badge {background:linear-gradient(180deg,#2f8fe0 0%,#1057b0 100%); color:#fff; font-size:26px; height:38px; width:30px;}
-    .pp-special-ranked.rank-fg .pp-special-rank-badge {background:linear-gradient(180deg,#ff5a60 0%,#c8161f 100%); color:#fff; font-size:26px; height:38px; width:30px;}
-    /* タブ文字・起用適性行 */
-    div[class*="st-key-latest_tab_"] button p, div[class*="st-key-history_tab_"] button p {font-size:22px!important; font-weight:900!important; letter-spacing:.08em;}
-    .pp-pitcher-usage-row {min-height:50px;}
-    .pp-pitcher-usage-values {font-size:24px; color:#163b6e;}
-    /* フォント統一：Streamlitのmarkdown既定フォント（Source Sans）に上書きされないよう、詳細パネル内は!importantで指定 */
-    div[class*="st-key-latest_detail_shell"], div[class*="st-key-history_detail_shell"] {--pp-font:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans CJK JP",sans-serif; --pp-num-font:"Barlow Condensed","Roboto Condensed","Arial Narrow","M PLUS Rounded 1c","Noto Sans CJK JP",sans-serif;}
-    div[class*="st-key-latest_detail_shell"] :is(div,span,p,summary,button,text), div[class*="st-key-history_detail_shell"] :is(div,span,p,summary,button,text) {font-family:var(--pp-font)!important;}
-    div[class*="st-key-latest_detail_shell"] :is(.pp-value,.pp-value *,.pp-number-box,.pp-defense-num,.pp-chip), div[class*="st-key-history_detail_shell"] :is(.pp-value,.pp-value *,.pp-number-box,.pp-defense-num,.pp-chip) {font-family:var(--pp-num-font)!important;}
-    div[class*="st-key-latest_detail_shell"] .pp-chip .pp-mini-label, div[class*="st-key-history_detail_shell"] .pp-chip .pp-mini-label {font-family:var(--pp-font)!important;}
-    /* ===== 実画面（M PLUS Rounded 1c）での表示バランス調整 ===== */
-    /* 基礎能力行：ラベル・ランク・数値をゲームと同じ比率で大きく（ランクは行の中央寄り、数値は右端から少し内側） */
-    .pp-ability-row {height:54px; min-height:54px; grid-template-columns:minmax(0,43%) minmax(0,17%) 1fr;}
-    .pp-ability-row .pp-label {font-size:21px; letter-spacing:.2em; padding:4px 4px 4px calc(4px + .2em); margin:0 8px;}
-    .pp-rank {width:auto; font-size:44px;}
-    .pp-value {font-size:46px; padding-right:14%;}
-    .pp-speed-row {grid-template-columns:minmax(0,43%) 0 1fr;}
-    .pp-speed-row .pp-value {justify-content:flex-start; align-items:baseline; padding:0 0 0 6%; gap:6px; line-height:54px;}
-    .pp-speed-row .pp-unit {font-size:24px;}
-    .pp-trajectory-icon svg {width:60px; height:38px;}
-    /* ヘッダー：守備位置・適性をラベルピル＋大きな値に */
-    .pp-posline {gap:14px; padding:4px 8px; overflow:visible;}
-    .pp-posline .pp-mini-label {flex:0 0 auto; display:inline-block; margin:0; opacity:1; font-size:16px; font-weight:800; color:#2a6aa9; letter-spacing:.2em; background:linear-gradient(180deg,#ffffff 0%,#eef3f7 100%); border:2px solid #d4dde4; border-radius:11px; box-shadow:0 2px 0 #c6d1da; padding:3px 10px;}
-    .pp-pos-values {display:inline-flex; align-items:baseline; gap:10px; color:#1b5f9e; font-weight:900;}
-    .pp-pos-item.main, .pp-pos-item.lv3 {font-size:30px;}
-    .pp-pos-item.lv2 {font-size:24px;}
-    .pp-pos-item.sub, .pp-pos-item.lv1 {font-size:20px;}
-    .pp-chip {font-size:30px;}
-    .pp-chip.pp-chip-wide {font-size:24px;}
-    /* 特殊能力：文字をさらに大きく（上限36px）、薄い表示は水色＋縁取り */
-    .pp-special .pp-special-name, .pp-special.long .pp-special-name, .pp-special.xlong .pp-special-name {font-size:min(36px, calc((100cqw - 4px) / var(--n, 4)));}
-    .pp-special-ranked .pp-special-name, .pp-special-ranked.long .pp-special-name, .pp-special-ranked.xlong .pp-special-name {font-size:min(36px, calc((100cqw - 44px) / var(--n, 4)));}
-    .pp-special, .pp-special.empty {height:54px;}
+    /* ランク付き特殊能力：右側の帯（上下につながる）＋白抜きのランク文字。A・Bは青、C〜Eは薄い水色、F・Gは赤の帯 */
+    .pp-special-ranked {--strip:#a8dcf2; display:grid; grid-template-columns:minmax(0,1fr) 34px; gap:0; align-items:stretch; padding:3px 0 3px 3px; background:var(--strip); border:0; border-color:transparent; border-radius:6px; box-shadow:none; color:#86c9ec; overflow:hidden;}
+    .pp-special-ranked.rank-ab {--strip:#14a0cf; color:#075f94;}
     .pp-special-ranked.rank-cde {color:#7dbde2;}
-    .pp-special-ranked.rank-cde .pp-special-name {filter:drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff) drop-shadow(0 -1px 0 #fff);}
-    .pp-special-rank-badge {font-size:38px;}
-    .pp-special-ranked.rank-cde .pp-special-rank-badge {color:#a9d8f0; filter:drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff) drop-shadow(1px 0 0 #2f6f98) drop-shadow(-1px 0 0 #2f6f98) drop-shadow(0 1px 0 #2f6f98) drop-shadow(0 -1px 0 #2f6f98);}
-    .pp-special-ranked.rank-ab .pp-special-rank-badge, .pp-special-ranked.rank-fg .pp-special-rank-badge {font-size:30px; height:42px;}
-    /* 守備・起用：守備力の枠と起用欄も同じ文字サイズ感に */
-    .pp-defense-label, .pp-defense-pos {min-height:56px;}
-    .pp-defense-pos {font-size:26px;}
-    .pp-defense-rank {font-size:38px; line-height:1;}
-    .pp-defense-num {font-size:36px; line-height:1;}
-    .pp-usage-cell {min-height:54px; font-size:24px;}
-    /* 守れないポジションは位置の文字も薄く（ゲームと同じ）、守れるポジションだけ濃く */
-    .pp-defense-pos .pp-defense-short {color:#c3d3dc;}
-    .pp-defense-pos:has(.pp-defense-rank) .pp-defense-short {color:#163b6e;}
-    /* 変化球の図：ゲームと同じく左列の幅いっぱいに表示 */
-    .pp-chart-wrap {width:100%; height:auto; min-height:0; max-height:none; aspect-ratio:280 / 210; margin-top:6px;}
-    .pp-chart-wrap svg {display:block; width:100%; height:100%;}
-    /* ===== ランク付き特殊能力：右側の帯（上下につながる）＋白抜きのランク文字 ===== */
-    .pp-special-ranked {--strip:#a8dcf2; background:var(--strip); border:0; border-radius:6px; padding:3px 0 3px 3px; grid-template-columns:minmax(0,1fr) 34px; box-shadow:none; color:#86c9ec;}
-    .pp-special-ranked.rank-ab {--strip:#14a0cf;}
-    .pp-special-ranked.rank-fg {--strip:#e4575e;}
-    .pp-special-ranked .pp-special-name, .pp-special-ranked.long .pp-special-name, .pp-special-ranked.xlong .pp-special-name {height:100%; line-height:48px; border-radius:5px; background:linear-gradient(180deg,#f5fcff 0%,#e3f5fc 48%,#d3eef9 52%,#e6f6fc 100%); box-shadow:inset 0 0 0 1px rgba(255,255,255,.9); filter:none; font-size:min(36px, calc((100cqw - 44px) / var(--n, 4)));}
-    .pp-special-ranked.rank-cde .pp-special-name {color:#86c9ec; filter:none;}
+    .pp-special-ranked.rank-fg {--strip:#e4575e; color:#c71c24;}
+    .pp-special-ranked .pp-special-name {align-self:center; height:100%; background:linear-gradient(180deg,#f5fcff 0%,#e3f5fc 48%,#d3eef9 52%,#e6f6fc 100%); border-radius:5px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.9); font-size:min(36px, calc((100cqw - 44px) / var(--n, 4))); line-height:48px; filter:none;}
     .pp-special-ranked.rank-ab .pp-special-name {color:#0d4f9e; background:linear-gradient(180deg,#effdff 0%,#c3f2fd 48%,#a4e9fb 52%,#c9f4fd 100%);}
+    .pp-special-ranked.rank-cde .pp-special-name {color:#86c9ec;}
     .pp-special-ranked.rank-fg .pp-special-name {color:#d0121b; background:linear-gradient(180deg,#fff4f4 0%,#ffd6d6 48%,#ffc2c2 52%,#ffd9d9 100%);}
-    .pp-special-rank-badge, .pp-special-ranked.rank-cde .pp-special-rank-badge, .pp-special-ranked.rank-ab .pp-special-rank-badge, .pp-special-ranked.rank-fg .pp-special-rank-badge {width:34px; height:100%; margin:0; border-radius:0; background:transparent; color:#ffffff; font-size:36px; line-height:1; font-weight:900; align-self:stretch; display:flex; align-items:center; justify-content:center;}
-    .pp-special-ranked.rank-cde .pp-special-rank-badge {filter:drop-shadow(1.5px 0 0 #3f7690) drop-shadow(-1.5px 0 0 #3f7690) drop-shadow(0 1.5px 0 #3f7690) drop-shadow(0 -1.5px 0 #3f7690);}
+    .pp-special-rank-badge {display:flex; align-items:center; justify-content:center; align-self:stretch; width:34px; height:100%; margin:0; background:transparent; border-radius:0; color:#ffffff; font-size:36px; line-height:1; font-weight:900; text-align:center; text-shadow:none;}
     .pp-special-ranked.rank-ab .pp-special-rank-badge {filter:drop-shadow(1.5px 0 0 #0a3f63) drop-shadow(-1.5px 0 0 #0a3f63) drop-shadow(0 1.5px 0 #0a3f63) drop-shadow(0 -1.5px 0 #0a3f63);}
+    .pp-special-ranked.rank-cde .pp-special-rank-badge {filter:drop-shadow(1.5px 0 0 #3f7690) drop-shadow(-1.5px 0 0 #3f7690) drop-shadow(0 1.5px 0 #3f7690) drop-shadow(0 -1.5px 0 #3f7690);}
     .pp-special-ranked.rank-fg .pp-special-rank-badge {filter:drop-shadow(1.5px 0 0 #8c0f17) drop-shadow(-1.5px 0 0 #8c0f17) drop-shadow(0 1.5px 0 #8c0f17) drop-shadow(0 -1.5px 0 #8c0f17);}
-    .pp-special.pp-special-ranked.rank-cde, .pp-special.pp-special-ranked.rank-ab, .pp-special.pp-special-ranked.rank-fg {background:var(--strip); border:0; border-color:transparent;}
     /* 1段目と2段目の帯を、間のすき間ごと上下につなげる */
     .pp-special-grid > .pp-special-ranked:nth-child(-n+4) {border-bottom-left-radius:0; border-bottom-right-radius:0; box-shadow:0 4px 0 0 var(--strip);}
     .pp-special-grid > .pp-special-ranked:nth-child(n+5):nth-child(-n+8) {border-top-left-radius:0; border-top-right-radius:0;}
-    /* 弾道の矢印：ランク文字と同じ列の中央に、行の高さ内で回転 */
-    .pp-trajectory-row .pp-trajectory-icon {width:auto; justify-content:center; overflow:visible;}
-    .pp-trajectory-icon svg, .pp-trajectory-icon.trajectory-1 svg, .pp-trajectory-icon.trajectory-2 svg, .pp-trajectory-icon.trajectory-3 svg, .pp-trajectory-icon.trajectory-4 svg {width:42px; height:42px; transform-origin:50% 50%;}
-    .pp-trajectory-icon.trajectory-1 svg {transform:rotate(0deg);}
-    .pp-trajectory-icon.trajectory-2 svg {transform:rotate(-22deg);}
-    .pp-trajectory-icon.trajectory-3 svg {transform:rotate(-45deg);}
-    .pp-trajectory-icon.trajectory-4 svg {transform:rotate(-65deg);}
+    /* ===== 守備・起用：守備力の枠（ラベル＋投捕一二三遊外の2列）と起用欄 ===== */
+    .pp-defense-compact {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0; margin:5px 0; background:#ffffff; border:2px solid #dfe9ef; border-radius:8px; overflow:hidden;}
+    .pp-defense-label {display:flex; align-items:center; min-height:56px; background:#ffffff; border-bottom:1px solid #e3edf2;}
+    .pp-defense-label .pp-label {flex:1; margin:0 8px;}
+    .pp-defense-pos {display:grid; grid-template-columns:34px 40px minmax(0,1fr); align-items:center; gap:4px; min-width:0; min-height:56px; padding:8px; background:#ffffff; border:0; border-bottom:1px solid #e3edf2; border-radius:0; color:#b9cbd6; font-size:26px; font-weight:850;}
+    .pp-defense-pos:nth-child(even) {border-left:1px solid #e3edf2;}
+    .pp-defense-pos.main {background:#e6f5ff; box-shadow:inset 4px 0 0 #0b8fe0; color:#163b6e; font-weight:950;}
+    /* 守れないポジションは位置の文字も薄く、守れるポジションだけ濃く */
+    .pp-defense-short {text-align:left; color:#c3d3dc;}
+    .pp-defense-pos:has(.pp-defense-rank) .pp-defense-short {color:#163b6e;}
+    .pp-defense-rank {text-align:center; font-size:38px; line-height:1; font-weight:900; filter:drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff) drop-shadow(0 1px 1px rgba(0,40,80,.35));}
+    .pp-defense-num {text-align:right; color:#163b6e; font-size:36px; line-height:1; font-weight:800; font-variant-numeric:tabular-nums;}
+    .pp-defense-empty {grid-column:2 / 4; text-align:center; color:#c3d3dc; font-weight:800;}
+    .pp-pitcher-usage-row {display:grid; grid-template-columns:40% 1fr; align-items:center; min-height:50px; margin:4px 0; background:#fff; border:2px solid #cfe9ff; border-radius:9px; box-shadow:inset 0 2px rgba(255,255,255,.8); overflow:hidden;}
+    .pp-pitcher-usage-values {display:flex; gap:14px; align-items:center; justify-content:space-around; min-width:0; white-space:nowrap; color:#163b6e; font-size:24px; font-weight:950;}
+    .pp-pitcher-usage-item {white-space:nowrap; display:inline-flex; gap:2px; align-items:baseline;}
+    .pp-usage-grid {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px;}
+    .pp-usage-cell {display:flex; align-items:center; justify-content:center; min-width:0; min-height:54px; padding:0 6px; background:rgba(235,250,253,.46); border:2px solid #bde7f0; border-radius:7px; color:#0b72bd; font-size:24px; font-weight:900; text-align:center;}
+    .pp-usage-label {background:linear-gradient(180deg,#ffffff 0%,#f1f5f8 100%); border-color:#d4dde4; box-shadow:0 2px 0 #c6d1da; color:#2a6aa9;}
+    .pp-usage-value {background:linear-gradient(180deg,#f3fff5 0%,#c9f2d2 100%); border-color:#56c978; color:#13783a;}
+    .pp-usage-empty {background:linear-gradient(180deg,#f3fbfe 0%,#e6f6fb 100%); border-color:#d3ebf2; box-shadow:none; color:transparent;}
+    /* ===== プロフィール ===== */
+    .pp-profile-table {display:grid; grid-template-columns:92px minmax(0, 1fr) 92px minmax(0, 1fr); background:#ffffff; border:2px solid #dfe9ef; border-radius:8px; overflow:hidden;}
+    .pp-profile-label {display:flex; align-items:center; min-height:48px; padding:0 9px; background:#f5fbfd; border-right:1px solid #cfe8ee; border-bottom:1px solid #cfe8ee; color:#2a6aa9; font-size:16px; font-weight:850; letter-spacing:.02em; white-space:nowrap;}
+    /* 全幅項目は必ず行頭から */
+    .pp-profile-label:has(+ .pp-profile-span-3) {grid-column-start:1;}
+    .pp-profile-value {display:flex; align-items:center; min-width:0; min-height:48px; padding:0 10px; background:#ffffff; border-right:1px solid #cfe8ee; border-bottom:1px solid #cfe8ee; color:#163b6e; font-size:20px; font-weight:800; overflow-wrap:anywhere;}
+    .pp-profile-span-3 {grid-column:span 3;}
+    .pp-generation-info summary {color:#1b5f9e; font-weight:800; cursor:pointer; margin-top:8px;}
+    .pp-generation-grid {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px;}
+    .pp-generation-card {background:#f8fcff; border:2px solid #cce8ff; border-radius:9px; padding:7px; color:#0a69b0; font-weight:900; min-height:50px;}
+    @media (min-width: 981px) {
+      .pp-profile-table {grid-template-columns:130px minmax(0,1fr) 130px minmax(0,1fr);}
+    }
+    @media (max-width: 980px) {
+      .pp-header {grid-template-columns:1fr;}
+      .pp-body,.pp-body-pitcher {grid-template-columns:1fr; min-height:0;}
+      .pp-special-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
+      .pp-defense-compact {width:100%;}
+      .pp-pitcher-usage-values {gap:8px;}
+      .pp-profile-table {grid-template-columns:88px minmax(0,1fr);}
+      .pp-profile-span-3 {grid-column:span 1;}
+    }
     </style>
     """, unsafe_allow_html=True)
 
