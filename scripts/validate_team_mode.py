@@ -410,8 +410,8 @@ UNIFORM_AGE_TARGETS = {
     ("投手", "11-21"): (28.5, 0.00, 0.32), ("投手", "22-30"): (27.7, None, None), ("投手", "31-69"): (26.1, 0.28, 0.15),
 }
 UNIFORM_HIGH_PERCENTILE_REAL = 0.365
-# 修正前（PR #102 第2版の背番号の重み）で520球団を生成したときの、番号ごとの使用率と実在の相関。これより悪化しないこと
-UNIFORM_USE_RATE_CORR_BEFORE = 0.9857
+# 番号ごとの使用率と実在の相関の下限（固定）。PR #102 第2版の背番号の重みでは0.9857、選手の査定・年齢が変わると少し動くため固定の下限にした
+UNIFORM_USE_RATE_CORR_MIN = 0.980
 
 
 def _range_text(low: float | None, high: float | None) -> str:
@@ -493,11 +493,11 @@ def uniform_detail_tables(records: list[dict[str, Any]]) -> tuple[dict[str, pd.D
     real_rates = [stats[n]["use_rate"] for n in team_lib.UNIFORM_NUMBERS]
     gen_rates = [teams_used[n] / len(records) for n in team_lib.UNIFORM_NUMBERS]
     corr = float(pd.Series(real_rates).corr(pd.Series(gen_rates)))
-    passes.append((f"番号ごとの使用率と実在の相関が修正前（{UNIFORM_USE_RATE_CORR_BEFORE}）から悪化しない（生成 {corr:.4f}）", corr >= UNIFORM_USE_RATE_CORR_BEFORE))
+    passes.append((f"番号ごとの使用率と実在の相関が{UNIFORM_USE_RATE_CORR_MIN:.3f}以上（生成 {corr:.4f}）", corr >= UNIFORM_USE_RATE_CORR_MIN))
     high = pd.DataFrame([
         {"項目": "70〜98番の査定の百分位の平均", "実在": UNIFORM_HIGH_PERCENTILE_REAL, "生成": round(high_mean, 3)},
         {"項目": "70〜98番の使用数（1球団あたり）", "実在": 5.2, "生成": round(high_count, 2)},
-        {"項目": "番号ごとの使用率と実在の相関", "実在": f"修正前 {UNIFORM_USE_RATE_CORR_BEFORE}", "生成": round(corr, 4)},
+        {"項目": "番号ごとの使用率と実在の相関", "実在": f"下限 {UNIFORM_USE_RATE_CORR_MIN:.3f}", "生成": round(corr, 4)},
     ])
     return {"foreign_rate": foreign_rate, "foreign_range": foreign_range, "age": age_table, "high": high}, passes
 
