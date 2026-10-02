@@ -86,3 +86,5 @@ reports/team_mode/*
 !reports/age_profile/
 reports/age_profile/*
 !reports/age_profile/calibration.md
+!reports/age_profile/young_before.md
+!reports/age_profile/young_after.md

@@ -14,7 +14,7 @@ REGRESSION_KEYS = [
     "sub_positions",
 ]
 SEED_REGRESSION = {
-    ("投手", "架空球団用", 246810): "bcbbaca07edfa085475d067be7ca48794463925d80541458d3135d4b8b61d697",
+    ("投手", "架空球団用", 246810): "aabfd5a8d454903fce173a0fe82c634b31f095f1267f181c45bb342a0cd4d0e9",
     ("野手", "架空球団用", 246811): "a919be3daf07b875ae34a9b6a1cbef9461d8a187dd646447423cb9f498ae1df5",
     ("投手", "ドラフト候補用", 135790): "4a6e65206503a2f1ee8eeb48aef9b6c01d0132ad5a1c1495a5a24e95518b83c0",
     ("野手", "ドラフト候補用", 135791): "debaf11f861abc72218a861cf9e0be71fbc7fbcef87eab20c3f5a606705ec9e7",
