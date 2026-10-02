@@ -3,7 +3,7 @@
 固定seedで球団を生成し、実在データ（data/reference/ と 2026年版実在12球団の選手データ）と比べて
 reports/team_mode/ にレポートを出す。
 
-    python scripts/validate_team_mode.py                 # 既定: 構成・背番号200球団、戦力600球団、カラー7×200球団
+    python scripts/validate_team_mode.py                 # 既定: 構成・背番号500球団、戦力600球団、カラー7×200球団
     python scripts/validate_team_mode.py --teams 50 --strength-teams 100 --color-teams 30   # 簡易版
 
 出力:
@@ -125,6 +125,7 @@ def _team_record(team: dict[str, Any]) -> dict[str, Any]:
         "uniform_rows": [
             {
                 "number": str(p.get("uniform_number")),
+                "role": "投手" if p.get("role") == "投手" else "野手",
                 "group": team_lib.uniform_player_group(p),
                 "foreign": p.get("roster_origin") == "foreign_import",
                 "percentile": percentiles[i],
@@ -226,13 +227,21 @@ def describe(values: list[float]) -> dict[str, float]:
     }
 
 
+# 年齢帯の判定から除くチームカラー（年齢構成を動かすカラーなので、実在の範囲から少しはみ出してよい。背番号補正_改修指示.md §6）
+AGE_COLORS = {"若手育成", "ベテラン重視"}
+
+
 def composition_compare(records: list[dict[str, Any]]) -> pd.DataFrame:
+    age_columns = {band for band, _low, _high in team_lib.AGE_BANDS}
+    age_records = [r for r in records if r["color"] not in AGE_COLORS and r["sub_color"] not in AGE_COLORS]
     rows = []
     for column, label in team_lib.COMPOSITION_ITEMS:
         real = describe(team_lib.real_composition_values(column))
-        gen = describe([record[f"comp_{column}"] for record in records])
+        targets = age_records if column in age_columns else records
+        gen = describe([record[f"comp_{column}"] for record in targets])
         ok = gen["10%"] >= real["最小"] and gen["90%"] <= real["最大"]
-        rows.append({"項目": label, "列": column, **{f"実在{k}": v for k, v in real.items()}, **{f"生成{k}": v for k, v in gen.items()}, "合否": "OK" if ok else "NG"})
+        note = f"若手育成・ベテラン重視を除く{len(targets)}球団" if column in age_columns else ""
+        rows.append({"項目": label, "列": column, **{f"実在{k}": v for k, v in real.items()}, **{f"生成{k}": v for k, v in gen.items()}, "合否": "OK" if ok else "NG", "備考": note})
     return pd.DataFrame(rows)
 
 
@@ -381,6 +390,114 @@ def uniform_tables(records: list[dict[str, Any]]) -> tuple[pd.DataFrame, pd.Data
     return usage, bands, summary
 
 
+# 背番号補正_改修指示.md §1・§3 の実在の値と目標（実在は日本人・外国人を分けた集計、年齢は2026年版の日本人）
+UNIFORM_FOREIGN_RATE_TARGETS = {
+    # 番号: (実在の外国人の割合, 下限, 上限)。下限・上限が None の番号は表に出すだけ
+    "99": (0.48, 0.38, 0.58), "42": (0.76, 0.65, 0.85), "91": (0.38, 0.20, 0.50), "95": (0.31, 0.20, 0.45),
+    "98": (0.35, 0.20, 0.50), "96": (0.20, 0.10, 0.30), "97": (0.10, None, None),
+    "1": (0.0, None, 0.03), "17": (0.0, None, 0.03), "18": (0.0, None, 0.03), "19": (0.0, None, 0.03),
+    "0": (0.06, None, None), "00": (0.11, None, None),
+}
+UNIFORM_FOREIGN_RANGE_REAL = {"0-10": 0.111, "11-21": 0.056, "22-30": 0.127, "31-69": 0.515, "70-89": 0.029, "90-99": 0.162}
+UNIFORM_FOREIGN_RANGE_TARGETS = {"11-21": (None, 0.08), "90-99": (0.12, 0.20)}
+UNIFORM_AGE_TARGETS = {
+    # (役割, 番号の範囲): (実在の平均年齢, 実在の23歳以下の割合, 実在の31歳以上の割合)。目標は平均年齢±1.0
+    ("野手", "0-10"): (29.3, 0.11, 0.41), ("野手", "22-30"): (29.5, None, None), ("野手", "31-69"): (25.6, 0.31, 0.11),
+    ("投手", "11-21"): (28.5, 0.00, 0.32), ("投手", "22-30"): (27.7, None, None), ("投手", "31-69"): (26.1, 0.28, 0.15),
+}
+UNIFORM_HIGH_PERCENTILE_REAL = 0.365
+# 修正前（PR #102 第2版の背番号の重み）で520球団を生成したときの、番号ごとの使用率と実在の相関。これより悪化しないこと
+UNIFORM_USE_RATE_CORR_BEFORE = 0.9857
+
+
+def _range_text(low: float | None, high: float | None) -> str:
+    if low is None and high is None:
+        return "今のまま（表示のみ）"
+    if low is None:
+        return f"{high}以下"
+    return f"{low}〜{high}"
+
+
+def uniform_detail_tables(records: list[dict[str, Any]]) -> tuple[dict[str, pd.DataFrame], list[tuple[str, bool]]]:
+    """背番号補正_改修指示.md §3 の確認項目（外国人の番号、年齢、70〜98番、使用率の相関）。"""
+    stats = team_lib.load_uniform_number_stats()
+    by_number: dict[str, Counter] = defaultdict(Counter)
+    teams_used: Counter = Counter()
+    foreign_by_band: Counter = Counter()
+    ages: dict[tuple[str, str], list[int]] = defaultdict(list)
+    high_percentiles: list[float] = []
+    for record in records:
+        used = set()
+        for row in record["uniform_rows"]:
+            number = row["number"]
+            used.add(number)
+            by_number[number]["all"] += 1
+            by_number[number]["foreign"] += int(row["foreign"])
+            band = team_lib.uniform_number_band(number)
+            if row["foreign"]:
+                foreign_by_band[band] += 1
+            else:
+                ages[(row["role"], band)].append(row["age"])
+            if number != "00" and 70 <= int(number) <= 98:
+                high_percentiles.append(row["percentile"])
+        teams_used.update(used)
+    passes: list[tuple[str, bool]] = []
+
+    rows = []
+    for number, (real, low, high) in UNIFORM_FOREIGN_RATE_TARGETS.items():
+        rate = by_number[number]["foreign"] / by_number[number]["all"] if by_number[number]["all"] else 0.0
+        ok = (low is None or rate >= low) and (high is None or rate <= high)
+        target = _range_text(low, high)
+        rows.append({"番号": number, "実在": real, "生成": round(rate, 3), "目標": target, "合否": "OK" if ok else "NG"})
+        if low is not None or high is not None:
+            passes.append((f"{number}番の外国人の割合 {target}（生成 {rate:.3f}）", ok))
+    foreign_rate = pd.DataFrame(rows)
+
+    total_foreign = sum(foreign_by_band.values()) or 1
+    rows = []
+    for band in team_lib.UNIFORM_BANDS:
+        share = foreign_by_band[band] / total_foreign
+        low, high = UNIFORM_FOREIGN_RANGE_TARGETS.get(band, (None, None))
+        ok = (low is None or share >= low) and (high is None or share <= high)
+        target = _range_text(low, high) if band in UNIFORM_FOREIGN_RANGE_TARGETS else ""
+        rows.append({"番号の範囲": band, "実在": UNIFORM_FOREIGN_RANGE_REAL[band], "生成": round(share, 3), "目標": target, "合否": "OK" if ok else "NG"})
+        if band in UNIFORM_FOREIGN_RANGE_TARGETS:
+            passes.append((f"外国人のうち {band} 番の割合 {target}（生成 {share:.3f}）", ok))
+    foreign_range = pd.DataFrame(rows)
+
+    rows = []
+    for (role, band), (real_mean, real_u23, real_o31) in UNIFORM_AGE_TARGETS.items():
+        values = ages[(role, band)]
+        mean = statistics.fmean(values)
+        u23 = sum(a <= 23 for a in values) / len(values)
+        o31 = sum(a >= 31 for a in values) / len(values)
+        ok = abs(mean - real_mean) <= 1.0
+        rows.append({"区分": role, "番号の範囲": band, "人数": len(values), "平均年齢 実在": real_mean, "平均年齢 生成": round(mean, 2),
+                     "23歳以下 実在": real_u23, "23歳以下 生成": round(u23, 3), "31歳以上 実在": real_o31, "31歳以上 生成": round(o31, 3),
+                     "合否": "OK" if ok else "NG"})
+        passes.append((f"日本人{role}の{band}番の平均年齢 {real_mean - 1:.1f}〜{real_mean + 1:.1f}（生成 {mean:.2f}）", ok))
+        if (role, band) == ("野手", "31-69"):
+            passes.append((f"日本人野手の31〜69番で31歳以上が16%以下（生成 {o31 * 100:.1f}%）", o31 <= 0.16))
+        if (role, band) == ("野手", "0-10"):
+            passes.append((f"日本人野手の0〜10番で31歳以上が33%以上（生成 {o31 * 100:.1f}%）", o31 >= 0.33))
+    age_table = pd.DataFrame(rows)
+
+    high_mean = statistics.fmean(high_percentiles) if high_percentiles else math.nan
+    high_count = len(high_percentiles) / len(records)
+    passes.append((f"70〜98番の査定の百分位の平均 0.30〜0.45（生成 {high_mean:.3f}、実在 {UNIFORM_HIGH_PERCENTILE_REAL}）", 0.30 <= high_mean <= 0.45))
+    passes.append((f"70〜98番の使用数 1球団あたり4.2〜6.2個（生成 {high_count:.2f}）", 4.2 <= high_count <= 6.2))
+    real_rates = [stats[n]["use_rate"] for n in team_lib.UNIFORM_NUMBERS]
+    gen_rates = [teams_used[n] / len(records) for n in team_lib.UNIFORM_NUMBERS]
+    corr = float(pd.Series(real_rates).corr(pd.Series(gen_rates)))
+    passes.append((f"番号ごとの使用率と実在の相関が修正前（{UNIFORM_USE_RATE_CORR_BEFORE}）から悪化しない（生成 {corr:.4f}）", corr >= UNIFORM_USE_RATE_CORR_BEFORE))
+    high = pd.DataFrame([
+        {"項目": "70〜98番の査定の百分位の平均", "実在": UNIFORM_HIGH_PERCENTILE_REAL, "生成": round(high_mean, 3)},
+        {"項目": "70〜98番の使用数（1球団あたり）", "実在": 5.2, "生成": round(high_count, 2)},
+        {"項目": "番号ごとの使用率と実在の相関", "実在": f"修正前 {UNIFORM_USE_RATE_CORR_BEFORE}", "生成": round(corr, 4)},
+    ])
+    return {"foreign_rate": foreign_rate, "foreign_range": foreign_range, "age": age_table, "high": high}, passes
+
+
 def svg_scatter(frame: pd.DataFrame, x: str, y: str, title: str, width: int = 520, height: int = 360) -> str:
     colors = {"強豪": "#d9480f", "中位": "#1971c2", "弱小": "#5c940d"}
     pad = 46
@@ -412,7 +529,7 @@ def to_markdown(frame: pd.DataFrame) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="球団生成モードの検証レポートを作ります。")
-    parser.add_argument("--teams", type=int, default=200, help="構成・背番号の確認に使う球団数")
+    parser.add_argument("--teams", type=int, default=500, help="構成・背番号の確認に使う球団数")
     parser.add_argument("--strength-teams", type=int, default=600, help="戦力レベルの確認に使う球団数")
     parser.add_argument("--color-teams", type=int, default=200, help="チームカラーの確認に使う、カラーごとの球団数（t=1.0固定）")
     parser.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2))
@@ -455,6 +572,8 @@ def main() -> None:
     passes.append((f"70〜98の使用数の平均が5.2±2（生成 {uni['high_used']['平均']}）", abs(uni["high_used"]["平均"] - 5.2) <= 2))
     passes.append((f"99の使用率が80%±15%（生成 {uni['rate_99'] * 100:.1f}%）", abs(uni["rate_99"] - 0.80) <= 0.15))
     passes.append((f"11〜21番の投手率90%以上（生成 {uni['pitcher_rate_11_21'] * 100:.1f}%）", uni["pitcher_rate_11_21"] >= 0.90))
+    uniform_detail, uniform_detail_passes = uniform_detail_tables(main_records)
+    passes += uniform_detail_passes
     passes.append((f"2・27番の捕手率30%以上（生成 2番 {uni['catcher_rate']['2'] * 100:.1f}%・27番 {uni['catcher_rate']['27'] * 100:.1f}%）", min(uni["catcher_rate"].values()) >= 0.30))
 
     elapsed = frame["elapsed"]
@@ -513,6 +632,11 @@ def main() -> None:
         "",
         "主な番号:", "", to_markdown(focus), "",
         "番号帯ごとの査定百分位と年齢:", "", to_markdown(bands), "",
+        "### 外国人の番号（背番号補正_改修指示.md §1-1）", "",
+        "番号ごとの、その番号を使った選手のうち外国人の割合:", "", to_markdown(uniform_detail["foreign_rate"]), "",
+        "外国人全体のうち、その範囲の番号を持つ割合:", "", to_markdown(uniform_detail["foreign_range"]), "",
+        "### 年齢と背番号（日本人、§1-2）", "", to_markdown(uniform_detail["age"]), "",
+        "### 70〜98番（§1-3）", "", to_markdown(uniform_detail["high"]), "",
         "全番号の表: uniform_number_usage.csv", "",
     ]
     (args.output / "summary.md").write_text("\n".join(lines), encoding="utf-8")

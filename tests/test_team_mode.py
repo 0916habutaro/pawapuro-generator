@@ -165,6 +165,31 @@ class TeamTargetsTest(unittest.TestCase):
         numbers = ["10", "00", "2", "0", "99", "1"]
         self.assertEqual(sorted(numbers, key=team_lib.uniform_number_sort_key), ["0", "00", "1", "2", "10", "99"])
 
+    def test_uniform_age_multiplier_is_continuous(self):
+        for band in team_lib.UNIFORM_BANDS:
+            self.assertAlmostEqual(team_lib.uniform_age_multiplier(band, team_lib.UNIFORM_AGE_PIVOT), 1.0)
+            # 27歳の前後で段差がない
+            below = team_lib.uniform_age_multiplier(band, team_lib.UNIFORM_AGE_PIVOT - 0.001)
+            above = team_lib.uniform_age_multiplier(band, team_lib.UNIFORM_AGE_PIVOT + 0.001)
+            self.assertAlmostEqual(below, above, places=3)
+        # 若手は小さい番号を避けて31〜69番へ、ベテランは逆
+        self.assertLess(team_lib.uniform_age_multiplier("0-10", 22), 1.0)
+        self.assertGreater(team_lib.uniform_age_multiplier("31-69", 22), 1.0)
+        self.assertGreater(team_lib.uniform_age_multiplier("0-10", 33), 1.0)
+        self.assertLess(team_lib.uniform_age_multiplier("31-69", 33), 1.0)
+
+    def test_foreign_weight_follows_real_foreign_usage(self):
+        stats = team_lib.load_uniform_number_stats()
+        foreign = {"role": "投手", "position": "先発", "roster_origin": "foreign_import", "age": 27}
+        domestic = {**foreign, "roster_origin": "domestic"}
+        self.assertEqual(stats["18"]["foreign"], 0)
+        # 実在で外国人がいない番号は、外国人にとって国内選手より大幅に重みが小さい
+        self.assertLess(
+            team_lib.uniform_number_weight("18", foreign, 0.5, stats) / team_lib.uniform_number_weight("18", domestic, 0.5, stats), 0.05,
+        )
+        # 42番は外国人の重みが国内選手より大きい
+        self.assertGreater(team_lib.uniform_number_weight("42", foreign, 0.5, stats), team_lib.uniform_number_weight("42", domestic, 0.5, stats))
+
 
 class GenerateTeamTest(TeamModeTestBase):
     def test_same_seed_gives_same_team(self):

@@ -62,7 +62,7 @@ AGE_BAND_SWAP_RATE = 0.5
 # ---------------------------------------------------------------------------
 STRENGTH_NAMESPACE = "team_mode_strength_v2"
 STRENGTH_LEVELS = (
-    ("強豪", 25, (0.40, 1.00)),
+    ("強豪", 25, (0.50, 1.00)),
     ("中位", 50, (-0.35, 0.35)),
     ("弱小", 25, (-1.00, -0.40)),
 )
@@ -73,7 +73,10 @@ STRENGTH_ROLE_CLAMP = 1.2
 # 基準倍率は s = ±STRENGTH_REFERENCE_INDEX のときの値
 STRENGTH_REFERENCE_INDEX = 0.7
 PLAYER_CLASSES = ("スター級", "一軍主力級", "一軍控え級", "二軍級", "若手素材型", "ベテラン型")
-STRONG_CLASS_BASE = {"スター級": 2.1, "一軍主力級": 1.4, "一軍控え級": 1.0, "二軍級": 0.8, "若手素材型": 0.85, "ベテラン型": 1.0}
+STRONG_CLASS_BASE = {"スター級": 2.0, "一軍主力級": 1.35, "一軍控え級": 1.0, "二軍級": 1.0, "若手素材型": 1.0, "ベテラン型": 1.0}
+# 役割ごとの強豪側の基準の上書き（書いていない選手格は STRONG_CLASS_BASE）。
+# 投手の上位13人平均は選手ごとのばらつきが大きく、強豪と中位の差が埋もれやすいため、投手だけ強める
+STRONG_CLASS_BASE_BY_ROLE: dict[str, dict[str, float]] = {"投手": {"スター級": 2.8, "一軍主力級": 1.7}}
 WEAK_CLASS_BASE = {"スター級": 0.3, "一軍主力級": 0.54, "一軍控え級": 1.0, "二軍級": 1.2, "若手素材型": 1.15, "ベテラン型": 1.0}
 # 倍率1つずつにかける揺らぎ（球団ごとに1回）
 CLASS_MULTIPLIER_JITTER = (0.9, 1.1)
@@ -137,24 +140,50 @@ UNIFORM_BOTTOM_PERCENTILE = 0.35
 UNIFORM_BANDS = ("0-10", "11-21", "22-30", "31-69", "70-89", "90-99")
 UNIFORM_TIER_MULTIPLIERS = {
     ("投手", "上位"): {"0-10": 1.0, "11-21": 3.0, "22-30": 1.2, "31-69": 0.6, "70-89": 1.0, "90-99": 0.5},
-    ("投手", "下位"): {"0-10": 1.0, "11-21": 0.25, "22-30": 1.0, "31-69": 1.3, "70-89": 1.0, "90-99": 1.3},
+    ("投手", "中位"): {"70-89": 2.5, "90-99": 2.5},
+    ("投手", "下位"): {"0-10": 1.0, "11-21": 0.25, "22-30": 1.0, "31-69": 1.3, "70-89": 0.5, "90-99": 0.5},
     ("野手", "上位"): {"0-10": 3.0, "11-21": 1.0, "22-30": 1.5, "31-69": 0.6, "70-89": 1.0, "90-99": 0.6},
-    ("野手", "下位"): {"0-10": 0.25, "11-21": 0.5, "22-30": 1.0, "31-69": 1.3, "70-89": 1.0, "90-99": 1.2},
+    ("野手", "中位"): {"70-89": 2.5, "90-99": 2.5},
+    ("野手", "下位"): {"0-10": 0.25, "11-21": 0.5, "22-30": 1.0, "31-69": 1.3, "70-89": 0.5, "90-99": 0.5},
 }
-# ↑ 野手・下位の11〜21番は指示書の1.0から0.5に下げた（後半に残った12・13番などを野手が取り、11〜21番の投手率が90%を割るため）
-UNIFORM_FOREIGN_BOOST = 4.0
-# 実在で外国人率が UNIFORM_FOREIGN_NUMBER_RATE 以上の番号（42番など）だけ、外国人の倍率を強める
-UNIFORM_FOREIGN_NUMBER_RATE = 0.5
-UNIFORM_FOREIGN_NUMBER_BOOST = 15.0
-UNIFORM_DOMESTIC_PENALTY = 0.8
+# ↑ 書いていない番号の範囲は1.0。
+# ・野手・下位の11〜21番は指示書の1.0から0.5に下げた（後半に残った12・13番などを野手が取り、11〜21番の投手率が90%を割るため）
+# ・70〜98番は、実在では査定の百分位が平均0.37の選手（中位）が使う。下位の倍率（指示書では1.3・1.2）を1.0にしても
+#   最下位の選手に偏ったまま（百分位0.25）だったため、中位を2.5、下位を0.5にした（背番号補正_改修指示.md §2-3）
 UNIFORM_USAGE_PRIOR = 0.5
-# 22歳以下かつプロ2年目以内の選手
-UNIFORM_YOUNG_MAX_AGE = 22
-UNIFORM_YOUNG_MAX_PRO_YEARS = 2
-UNIFORM_YOUNG_MULTIPLIERS = {"low": 0.5, "31-69": 1.3}
-# 70〜98番の全員共通の倍率。CSVの使用数だけだと、後半に割り当てる選手が空いている0〜69番より
+# 国内選手：実在の外国人率が高い番号を避ける（1 − ペナルティ × 外国人率、下限 UNIFORM_DOMESTIC_MIN_FACTOR）。
+# 42番は外国人のいない球団でも国内選手が使えるよう弱め、99番は外国人の割合を上げるため強めにする
+UNIFORM_DOMESTIC_PENALTY = 1.0
+UNIFORM_DOMESTIC_PENALTY_BY_NUMBER: dict[str, float] = {"42": 0.8, "99": 1.2}
+UNIFORM_DOMESTIC_MIN_FACTOR = 0.05
+# 外国人：実在の「外国人の使用数」（CSVの foreign 列）を重みの基準にする。
+# 重み ∝ (foreign + UNIFORM_FOREIGN_PRIOR) × その番号を使った選手のうち自分の区分（投手・捕手・内野手・外野手）の割合。
+# foreign が0の番号（1・17・18・19番など、実在で外国人がいない番号）は UNIFORM_FOREIGN_ABSENT_MULTIPLIER をかけて大きく下げる。
+UNIFORM_FOREIGN_PRIOR = 0.3
+UNIFORM_FOREIGN_ABSENT_MULTIPLIER = 0.1
+# 外国人の番号別の倍率。42番は実在で外国人の76%が付けるため、1球団約6人の外国人のだれかが取りやすくする
+UNIFORM_FOREIGN_NUMBER_MULTIPLIERS: dict[str, float] = {"42": 2.5}
+# 外国人には査定の順位の倍率（UNIFORM_TIER_MULTIPLIERS）をかけない。実在の外国人の使用数に能力の傾向が含まれていて、
+# かけると外国人が11〜21番・0〜10番に寄りすぎる
+UNIFORM_FOREIGN_USE_TIER = False
+# 年齢の連続な倍率 exp(γ × (年齢 − UNIFORM_AGE_PIVOT) / 5)。γ は番号の範囲ごと、27歳より若い側と上の側で別の値
+# （27歳で1.0になり、段差はない）。若手は小さい番号を避けて31〜69番へ、ベテランは小さい番号へ寄る。
+# 例: 23歳は 0〜10番 ×0.62、31〜69番 ×1.32。32歳は 0〜10番 ×1.65、31〜69番 ×0.67。
+UNIFORM_AGE_PIVOT = 27
+UNIFORM_AGE_GAMMA: dict[str, tuple[float, float]] = {
+    # 番号の範囲: (27歳より若い側の γ, 27歳より上の側の γ)
+    "0-10": (0.6, 0.5),
+    "11-21": (0.6, 0.5),
+    "22-30": (0.3, 0.4),
+    "31-69": (-0.35, -0.4),
+    "70-89": (0.0, 0.0),
+    "90-99": (0.0, 0.0),
+}
+# 70〜98番の国内選手の倍率。CSVの使用数だけだと、後半に割り当てる選手が空いている0〜69番より
 # 70〜98番を選びやすく、70〜98番の使用数が実在（平均5.2個）より多くなるため下げる（99番は対象外）。
-UNIFORM_HIGH_NUMBER_MULTIPLIER = 0.3
+UNIFORM_HIGH_NUMBER_MULTIPLIER = 0.35
+# 外国人の70〜98番の倍率（外国人の重みは実在の外国人の使用数なので、国内選手より弱めにかける）
+UNIFORM_HIGH_NUMBER_FOREIGN_MULTIPLIER = 0.6
 
 # 査定指標（3-3(4)）。上位28人は一軍登録の人数の目安
 TOP_TEAM_COUNT = 28
@@ -399,9 +428,10 @@ class TeamProfile:
         return f"{self.color}＋{self.sub_color}" if self.sub_color else self.color
 
 
-def strength_class_multiplier(player_class: str, index: float) -> float:
+def strength_class_multiplier(player_class: str, index: float, role: str = "") -> float:
     if index >= 0:
-        return STRONG_CLASS_BASE.get(player_class, 1.0) ** (index / STRENGTH_REFERENCE_INDEX)
+        base = {**STRONG_CLASS_BASE, **STRONG_CLASS_BASE_BY_ROLE.get(role, {})}
+        return base.get(player_class, 1.0) ** (index / STRENGTH_REFERENCE_INDEX)
     return WEAK_CLASS_BASE.get(player_class, 1.0) ** (-index / STRENGTH_REFERENCE_INDEX)
 
 
@@ -486,7 +516,7 @@ def build_team_profile(
     for role, role_index in (("投手", index_pitcher), ("野手", index_fielder)):
         base = TEAM_BASE_CLASS_MULTIPLIERS.get(role, {})
         class_multipliers[role] = {
-            label: base.get(label, 1.0) * strength_class_multiplier(label, role_index) * jitter[role][label] for label in PLAYER_CLASSES
+            label: base.get(label, 1.0) * strength_class_multiplier(label, role_index, role) * jitter[role][label] for label in PLAYER_CLASSES
         }
     archetype_multipliers: dict[str, dict[str, float]] = {}
     age_slope = 0.0
@@ -572,29 +602,34 @@ def role_percentiles(players: list[dict[str, Any]]) -> list[float]:
     return percentiles
 
 
+def uniform_age_multiplier(band: str, age: int) -> float:
+    young_gamma, old_gamma = UNIFORM_AGE_GAMMA.get(band, (0.0, 0.0))
+    gamma = young_gamma if age < UNIFORM_AGE_PIVOT else old_gamma
+    return math.exp(gamma * (age - UNIFORM_AGE_PIVOT) / 5)
+
+
 def uniform_number_weight(number: str, player: dict[str, Any], percentile: float, stats: dict[str, dict[str, float]]) -> float:
     row = stats.get(number, {})
     group = uniform_player_group(player)
-    weight = row.get(group, 0.0) + UNIFORM_USAGE_PRIOR
-    role = "投手" if player.get("role") == "投手" else "野手"
-    tier = "上位" if percentile >= UNIFORM_TOP_PERCENTILE else "下位" if percentile < UNIFORM_BOTTOM_PERCENTILE else ""
-    band = uniform_number_band(number)
-    if tier:
-        weight *= UNIFORM_TIER_MULTIPLIERS[(role, tier)][band]
     used = sum(row.get(key, 0.0) for key in ("pitcher", "catcher", "infielder", "outfielder"))
     ratio = row.get("foreign", 0.0) / used if used else 0.0
     if player.get("roster_origin") == "foreign_import":
-        boost = UNIFORM_FOREIGN_NUMBER_BOOST if ratio >= UNIFORM_FOREIGN_NUMBER_RATE else UNIFORM_FOREIGN_BOOST
-        weight *= 1 + boost * ratio
+        foreign = row.get("foreign", 0.0)
+        group_share = (row.get(group, 0.0) + UNIFORM_USAGE_PRIOR) / (used + 4 * UNIFORM_USAGE_PRIOR)
+        weight = (foreign + UNIFORM_FOREIGN_PRIOR) * group_share * UNIFORM_FOREIGN_NUMBER_MULTIPLIERS.get(number, 1.0)
+        if foreign <= 0:
+            weight *= UNIFORM_FOREIGN_ABSENT_MULTIPLIER
     else:
-        weight *= 1 - UNIFORM_DOMESTIC_PENALTY * ratio
+        weight = row.get(group, 0.0) + UNIFORM_USAGE_PRIOR
+        weight *= max(UNIFORM_DOMESTIC_MIN_FACTOR, 1 - UNIFORM_DOMESTIC_PENALTY_BY_NUMBER.get(number, UNIFORM_DOMESTIC_PENALTY) * ratio)
+    role = "投手" if player.get("role") == "投手" else "野手"
+    tier = "上位" if percentile >= UNIFORM_TOP_PERCENTILE else "下位" if percentile < UNIFORM_BOTTOM_PERCENTILE else "中位"
+    band = uniform_number_band(number)
+    if UNIFORM_FOREIGN_USE_TIER or player.get("roster_origin") != "foreign_import":
+        weight *= UNIFORM_TIER_MULTIPLIERS.get((role, tier), {}).get(band, 1.0)
     if number != "00" and 70 <= int(number) <= 98:
-        weight *= UNIFORM_HIGH_NUMBER_MULTIPLIER
-    if int(player.get("age") or 99) <= UNIFORM_YOUNG_MAX_AGE and int(player.get("pro_years") or 0) <= UNIFORM_YOUNG_MAX_PRO_YEARS:
-        if band in ("0-10", "11-21"):
-            weight *= UNIFORM_YOUNG_MULTIPLIERS["low"]
-        elif band == "31-69":
-            weight *= UNIFORM_YOUNG_MULTIPLIERS["31-69"]
+        weight *= UNIFORM_HIGH_NUMBER_FOREIGN_MULTIPLIER if player.get("roster_origin") == "foreign_import" else UNIFORM_HIGH_NUMBER_MULTIPLIER
+    weight *= uniform_age_multiplier(band, int(player.get("age") or UNIFORM_AGE_PIVOT))
     return max(weight, 1e-9)
 
 
