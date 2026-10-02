@@ -355,13 +355,15 @@ python scripts/validate_team_mode.py
 ### `scripts/check_age_profile.py`
 
 架空球団用（日本人）の特殊能力の数（青特・赤特・緑特）、ランク特能（ランク点・B以上の数）、査定値を年齢帯別（〜21、22〜25、26〜29、30〜33、34以上）に集計し、実在（`data/reference/real_age_profile_2022_2026.csv` を平滑化した目標）と比べて判定します。
+若手（〜19、20〜21、22〜23）の能力（投手: 球速・コントロール・スタミナ・変化量、野手: ミート〜捕球・弾道）の平均・標準偏差・10〜90%タイルも集計し、`若手能力の幅_改修指示.md` の目標と比べます。
 
 ```powershell
-python scripts/check_age_profile.py                        # 個別生成 投手・野手 各5000人 ＋ 球団生成 500球団
+python scripts/check_age_profile.py                        # 個別生成 投手・野手 各30000人 ＋ 球団生成 500球団
 python scripts/check_age_profile.py --players 1000 --teams 0   # 簡易版
 ```
 
-- `--save` で選手ごとの値をCSVに保存し、`--compare <保存したCSV>` で修正前と並べた表を出せます。
+- 若手（〜19歳）は日本人の約4%なので、年齢帯ごとに1000人以上になるよう個別生成の既定を30000人にしています。特能・ランクの判定は、基準を決めたときと同じ seed 1〜5000 で行います。
+- `--save` で選手ごとの値をCSVに保存し、`--compare <保存したCSV>` で修正前と並べた表を出せます。若手の能力は、同じ選手どうしの順位相関（0.98以上）と位置ごとの差（修正前の ±30% 以内）も判定します。
 - 全項目合格なら終了コード0、不合格があれば1です。
 
 ### `scripts/validate_ability_balance.py`

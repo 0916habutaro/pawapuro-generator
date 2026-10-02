@@ -7209,6 +7209,108 @@ def fictional_age_adjust_specials(
     return selected
 
 
+# ---------------------------------------------------------------------------
+# 若手（〜21歳）の能力の幅・水準（若手能力の幅_改修指示.md）
+# 既存処理は選手格・型・個人差の上乗せを年齢によらず同じ幅で掛け、最後の実在準拠の変換も全年齢の平均・幅に
+# 写すため、若手の幅が成人と同じになる（実在の若手は低い値に固まる）。上乗せの処理はドラフト候補・外国人と
+# 共通で、変えると他カテゴリの seed 再現性が崩れるので、架空球団用の日本人の最後で順位を保つ線形変換をかける:
+#   v' = μ(年齢) + Δ(年齢) + kp(年齢)·dev(位置) + k(年齢)·(v − μ(年齢) − dev(位置))
+# μ は修正前の年齢ごとの平均、dev は修正前の位置（投手は役割）ごとの平均との差（どちらも21歳以下、
+# scripts/check_age_profile.py の個別30000人＋球団500球団で測定）。k は幅の倍率、Δ は平均のずれ、
+# kp は位置ごとの差の倍率（差を消さない範囲で少し縮める）。k・kp は 18.5歳・20.5歳の値から 22歳（=1）へ
+# 線形につなぎ、Δ は 20.5歳の値を21歳まで保って22歳で0にする（20歳と21歳でずれが違うと、同じ年齢帯の中の
+# 順位が入れ替わるため。実在も 20〜21歳から22〜23歳で平均が大きく上がる）。22歳以上は修正前と同じ。乱数は使わない。
+# 値は reports/age_profile/young_after.md で確認して決めた。
+# ---------------------------------------------------------------------------
+FICTIONAL_YOUNG_MAX_AGE = 21
+FICTIONAL_YOUNG_ANCHOR_AGES = (18.5, 20.5, 22)
+FICTIONAL_YOUNG_FIELDER_MEANS = {
+    # 年齢: (ミート, パワー, 走力, 肩力, 守備力, 捕球)
+    18: (28.9, 42.5, 61.2, 62.1, 45.7, 42.5),
+    19: (29.2, 43.6, 61.5, 63.0, 46.2, 42.8),
+    20: (31.6, 44.7, 64.3, 63.8, 47.4, 43.5),
+    21: (33.7, 46.8, 64.4, 64.4, 47.9, 43.9),
+}
+FICTIONAL_YOUNG_FIELDER_POSITION_DEVS = {
+    "一塁手": (0.8, 3.1, -10.3, -7.7, -11.3, -2.6),
+    "三塁手": (2.0, 4.5, -7.0, -2.7, -7.7, -9.8),
+    "二塁手": (7.5, -0.6, 9.5, -6.4, 9.0, 5.6),
+    "外野手": (0.5, 0.6, 5.7, 0.9, -0.7, -2.2),
+    "捕手": (-3.1, -0.7, -11.8, 4.0, -0.3, 4.0),
+    "遊撃手": (-3.4, -3.7, 5.2, 1.3, 4.3, 2.6),
+}
+# 能力ごとの (k 18.5歳, k 20.5歳, Δ 18.5歳, Δ 20.5歳, kp 18.5歳, kp 20.5歳)
+FICTIONAL_YOUNG_FIELDER_TRANSFORM = {
+    "ミート": (0.62, 0.78, 1.5, 1.5, 1.0, 1.0),
+    "パワー": (0.85, 0.80, 0.5, 2.0, 1.0, 1.0),
+    "走力": (0.88, 0.86, 0.0, -3.5, 1.0, 1.0),
+    "肩力": (0.95, 0.98, 4.5, 1.5, 1.0, 1.0),
+    "守備力": (0.62, 0.80, -8.5, -6.5, 0.78, 0.9),
+    "捕球": (0.62, 0.78, -6.0, -5.0, 0.75, 0.9),
+}
+# 弾道のスコアに足す値（実在の高卒はパワーのわりに弾道が高い。ドラフト候補の高卒の補正と同じ考え方）
+FICTIONAL_YOUNG_TRAJECTORY_BONUS = (6.0, 3.0)
+FICTIONAL_YOUNG_PITCHER_MEANS = {
+    # 年齢: (球速, コントロール, スタミナ)
+    18: (151.2, 41.9, 41.7),
+    19: (151.2, 42.3, 43.2),
+    20: (151.6, 45.1, 48.4),
+    21: (151.9, 46.1, 49.4),
+}
+FICTIONAL_YOUNG_PITCHER_ROLE_DEVS = {
+    "先発": (-0.8, 2.6, 5.0),
+    "中継ぎ": (0.5, -2.5, -4.4),
+    "抑え": (3.3, -1.9, -8.8),
+}
+FICTIONAL_YOUNG_PITCHER_TRANSFORM = {
+    "球速": (0.86, 0.92, -0.7, -0.4, 1.0, 1.0),
+    "コントロール": (0.82, 0.90, -0.5, 0.0, 1.0, 1.0),
+    "スタミナ": (0.55, 0.80, -1.8, -3.8, 0.75, 0.9),
+}
+# 19歳以下の変化球: 決め球（最も変化量の大きい球）は3まで、ほかの球は1段階下げる（最低1）。
+FICTIONAL_YOUNG_BREAKING_MAX_AGE = 19
+FICTIONAL_YOUNG_FINISHER_MAX_MOVEMENT = 3
+
+
+def fictional_young_anchor(age: int, young: float, mid: float, adult: float) -> float:
+    young_age, mid_age, adult_age = FICTIONAL_YOUNG_ANCHOR_AGES
+    return interpolate_age_chance(age, [(young_age, young), (mid_age, mid), (adult_age, adult)])
+
+
+def fictional_young_transform(
+    values: dict[str, float],
+    age: int,
+    means: dict[int, tuple[float, ...]],
+    devs: tuple[float, ...],
+    transform: dict[str, tuple[float, float, float, float, float, float]],
+) -> None:
+    """21歳以下の能力を、同じ年齢・位置の中の順位を保ったまま縮めてずらす（values を書き換える）。"""
+    if not age or age > FICTIONAL_YOUNG_MAX_AGE:
+        return
+    age_means = means[max(min(means), min(age, max(means)))]
+    for index, (key, (k_young, k_mid, d_young, d_mid, p_young, p_mid)) in enumerate(transform.items()):
+        mean, dev = age_means[index], devs[index]
+        k = fictional_young_anchor(age, k_young, k_mid, 1.0)
+        delta = interpolate_age_chance(age, [(18.5, d_young), (20.5, d_mid), (FICTIONAL_YOUNG_MAX_AGE, d_mid), (22, 0.0)])
+        kp = fictional_young_anchor(age, p_young, p_mid, 1.0)
+        values[key] = mean + delta + kp * dev + k * (values[key] - mean - dev)
+
+
+def fictional_young_breaking_balls(breaking_balls: list[dict[str, Any]], age: int) -> list[dict[str, Any]]:
+    """19歳以下の変化量を小さくする（実在の高卒1〜2年目は最大変化量4以上がほぼいない）。乱数は使わない。"""
+    if not age or age > FICTIONAL_YOUNG_BREAKING_MAX_AGE:
+        return breaking_balls
+    balls = [dict(ball) for ball in breaking_balls]
+    breaking = [ball for ball in balls if ball.get("kind") == "breaking"]
+    finisher = max(breaking, key=pitch_movement, default=None)
+    for ball in breaking:
+        movement = min(pitch_movement(ball), FICTIONAL_YOUNG_FINISHER_MAX_MOVEMENT) - (0 if ball is finisher else 1)
+        movement = max(int(BREAKING_BY_NAME[str(ball["name"])].get("min_movement", 1)), movement)
+        ball["movement"] = ball["level"] = movement
+    enforce_second_pitch_movement_order(balls)
+    return balls
+
+
 def fictional_pitcher_breaking_balls(rng: random.Random, breaking_balls: list[dict[str, Any]], batting_throwing: str, position: str) -> list[dict[str, Any]]:
     """チェンジアップ系を左投手に寄せ、抑え（守護神格）の決め球を鋭くする。方向の構成は変えない。"""
     balls = [dict(ball) for ball in breaking_balls]
@@ -7292,12 +7394,23 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     stamina += FICTIONAL_STAMINA_PER_CONTROL * (control - FICTIONAL_PITCHER_CONTROL_CENTER)
     stamina += FICTIONAL_STAMINA_PER_SPEED * (speed - FICTIONAL_PITCHER_SPEED_CENTER)
     stamina = clamp(round(stamina), 15, 100)
+    age = int(player.get("age") or 0)
+    if age and age <= FICTIONAL_YOUNG_MAX_AGE:
+        young = {"球速": float(speed), "コントロール": float(control), "スタミナ": float(stamina)}
+        fictional_young_transform(
+            young, age, FICTIONAL_YOUNG_PITCHER_MEANS,
+            FICTIONAL_YOUNG_PITCHER_ROLE_DEVS.get(position, (0.0, 0.0, 0.0)), FICTIONAL_YOUNG_PITCHER_TRANSFORM,
+        )
+        speed = round(young["球速"])
+        control = clamp(round(young["コントロール"]), 15, 95)
+        stamina = clamp(round(young["スタミナ"]), 15, 100)
     set_pitcher_speed(abilities, speed)
     abilities["コントロール"] = ability(control)
     abilities["スタミナ"] = ability(stamina)
     abilities["肩力"] = ability(clamp(speed - 81 + weighted_choice(rng, [(-1, 15), (0, 35), (1, 35), (2, 15)]), 49, 82))
 
     player["breaking_balls"] = fictional_pitcher_breaking_balls(rng, list(player.get("breaking_balls", [])), batting_throwing, position)
+    player["breaking_balls"] = fictional_young_breaking_balls(player["breaking_balls"], age)
     player["special_abilities"] = fictional_adjust_specials(
         rng, master, "投手", str(player.get("player_class", "")), list(player.get("special_abilities", [])),
         {"球速": speed, "コントロール": control},
@@ -7324,8 +7437,8 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     return player
 
 
-def fictional_fielder_abilities(rng: random.Random, abilities: dict[str, Any], position: str) -> dict[str, Any]:
-    """能力の平均・幅・相関を実在に写し、弾道をパワーから確率的に決め直す。"""
+def fictional_fielder_abilities(rng: random.Random, abilities: dict[str, Any], position: str, age: int = 0) -> dict[str, Any]:
+    """能力の平均・幅・相関を実在に写し、弾道をパワーから確率的に決め直す。21歳以下は若手の幅・水準に縮める。"""
     z = [
         ((ability_numeric_value(abilities, key) or mean) - mean) / sd
         for key, mean, sd in zip(FICTIONAL_FIELDER_ABILITY_KEYS, FICTIONAL_FIELDER_CURRENT_MEANS, FICTIONAL_FIELDER_CURRENT_SDS)
@@ -7337,11 +7450,16 @@ def fictional_fielder_abilities(rng: random.Random, abilities: dict[str, Any], p
     # 実在は走力・守備力の上側が厚く、守備力の下側が薄い。
     values["走力"] = compress_tail(values["走力"], 70.0, 1.25, upper=True)
     values["守備力"] = compress_tail(compress_tail(values["守備力"], 55.0, 1.15, upper=True), 34.0, 0.5, upper=False)
+    fictional_young_transform(
+        values, age, FICTIONAL_YOUNG_FIELDER_MEANS,
+        FICTIONAL_YOUNG_FIELDER_POSITION_DEVS.get(position, (0.0,) * 6), FICTIONAL_YOUNG_FIELDER_TRANSFORM,
+    )
     result = dict(abilities)
     for key in FICTIONAL_FIELDER_ABILITY_KEYS:
         result[key] = ability(clamp(round(values[key]), 1, 100))
     power = result["パワー"]["value"]
-    score = power + rng.gauss(0.0, FICTIONAL_TRAJECTORY_NOISE_SD)
+    young_bonus = fictional_young_anchor(age, *FICTIONAL_YOUNG_TRAJECTORY_BONUS, 0.0) if age and age <= FICTIONAL_YOUNG_MAX_AGE else 0.0
+    score = power + young_bonus + rng.gauss(0.0, FICTIONAL_TRAJECTORY_NOISE_SD)
     trajectory = 1 + sum(score >= threshold for threshold in FICTIONAL_TRAJECTORY_THRESHOLDS)
     if trajectory == 1 and power > FICTIONAL_TRAJECTORY_ONE_MAX_POWER:
         trajectory = 2
@@ -7373,7 +7491,7 @@ def apply_fictional_fielder_balance(player: dict[str, Any], seed: int, master: M
     position = str(player.get("position", ""))
     batting_throwing = str(player.get("batting_throwing", ""))
     old_abilities = dict(player.get("abilities", {}))
-    abilities = fictional_fielder_abilities(rng, old_abilities, position)
+    abilities = fictional_fielder_abilities(rng, old_abilities, position, int(player.get("age") or 0))
     sub_positions = fictional_fielder_sub_positions(rng, position, batting_throwing)
     player["sub_positions"] = sub_positions
     values = {key: float(abilities[key]["value"]) for key in FICTIONAL_FIELDER_ABILITY_KEYS}
