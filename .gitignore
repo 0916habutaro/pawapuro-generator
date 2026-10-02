@@ -83,3 +83,6 @@ docs/screenshots/
 reports/team_mode/*
 !reports/team_mode/summary.md
 !reports/team_mode/calibration.md
+!reports/age_profile/
+reports/age_profile/*
+!reports/age_profile/calibration.md

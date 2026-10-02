@@ -1,0 +1,261 @@
+﻿group,role,band,metric,n,mean,sd,source
+special,野手,18-19,n_pos,70,1.07,1.55,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,18-19,n_neg,70,0.2,0.44,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,18-19,n_green,70,0.56,0.88,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,18-19,rk_pts,70,-1.96,5.28,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,18-19,rk_hi,70,0.09,0.28,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,18-19,rk_lo,70,1.43,1.14,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,20-21,n_pos,117,1.1,1.4,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,20-21,n_neg,117,0.43,0.59,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,20-21,n_green,117,0.63,0.91,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,20-21,rk_pts,117,-0.08,5.34,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,20-21,rk_hi,117,0.17,0.5,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,20-21,rk_lo,117,1.26,1.03,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,22-23,n_pos,217,1.59,1.61,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,22-23,n_neg,217,0.54,0.68,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,22-23,n_green,217,0.91,0.99,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,22-23,rk_pts,217,-0.42,6.17,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,22-23,rk_hi,217,0.17,0.42,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,22-23,rk_lo,217,1.52,1.18,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,24-25,n_pos,242,1.89,1.93,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,24-25,n_neg,242,0.6,0.72,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,24-25,n_green,242,0.93,0.94,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,24-25,rk_pts,242,0.97,6.98,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,24-25,rk_hi,242,0.28,0.57,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,24-25,rk_lo,242,1.46,1.21,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,26-27,n_pos,207,2.57,1.96,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,26-27,n_neg,207,0.66,0.7,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,26-27,n_green,207,1.3,1.08,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,26-27,rk_pts,207,2.36,6.46,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,26-27,rk_hi,207,0.4,0.63,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,26-27,rk_lo,207,1.39,1.22,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,28-29,n_pos,144,2.84,1.93,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,28-29,n_neg,144,0.74,0.82,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,28-29,n_green,144,1.51,1.17,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,28-29,rk_pts,144,3.8,7.22,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,28-29,rk_hi,144,0.55,0.84,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,28-29,rk_lo,144,1.22,1.17,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,30-31,n_pos,105,2.98,2.0,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,30-31,n_neg,105,0.73,0.72,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,30-31,n_green,105,1.73,1.36,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,30-31,rk_pts,105,4.66,8.35,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,30-31,rk_hi,105,0.92,1.02,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,30-31,rk_lo,105,1.36,1.06,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,32-33,n_pos,91,3.41,2.22,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,32-33,n_neg,91,1.0,0.84,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,32-33,n_green,91,1.84,1.46,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,32-33,rk_pts,91,3.84,7.59,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,32-33,rk_hi,91,0.79,0.93,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,32-33,rk_lo,91,1.26,1.31,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,34-35,n_pos,52,4.08,2.05,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,34-35,n_neg,52,1.06,0.98,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,34-35,n_green,52,1.87,1.51,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,34-35,rk_pts,52,4.46,6.77,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,34-35,rk_hi,52,0.65,0.81,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,34-35,rk_lo,52,0.92,0.99,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,36+,n_pos,50,4.42,2.07,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,36+,n_neg,50,0.8,0.76,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,36+,n_green,50,1.54,0.99,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,36+,rk_pts,50,2.88,6.2,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,36+,rk_hi,50,0.5,0.71,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,野手,36+,rk_lo,50,1.32,1.13,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,18-19,n_pos,58,1.16,1.2,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,18-19,n_neg,58,0.95,0.96,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,18-19,n_green,58,0.17,0.63,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,18-19,rk_pts,58,-0.45,4.91,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,18-19,rk_hi,58,0.05,0.22,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,18-19,rk_lo,58,0.95,1.03,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,20-21,n_pos,85,1.6,1.54,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,20-21,n_neg,85,0.8,0.83,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,20-21,n_green,85,0.19,0.45,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,20-21,rk_pts,85,0.07,5.5,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,20-21,rk_hi,85,0.07,0.3,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,20-21,rk_lo,85,1.06,0.89,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,22-23,n_pos,192,1.93,1.51,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,22-23,n_neg,192,1.0,1.0,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,22-23,n_green,192,0.17,0.43,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,22-23,rk_pts,192,-0.15,6.72,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,22-23,rk_hi,192,0.17,0.58,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,22-23,rk_lo,192,1.17,1.06,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,24-25,n_pos,254,2.44,1.68,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,24-25,n_neg,254,0.95,0.91,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,24-25,n_green,254,0.25,0.45,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,24-25,rk_pts,254,1.72,7.56,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,24-25,rk_hi,254,0.26,0.64,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,24-25,rk_lo,254,1.05,1.06,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,26-27,n_pos,237,2.97,1.92,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,26-27,n_neg,237,0.98,0.99,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,26-27,n_green,237,0.3,0.47,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,26-27,rk_pts,237,3.5,8.0,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,26-27,rk_hi,237,0.4,0.73,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,26-27,rk_lo,237,1.03,1.06,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,28-29,n_pos,147,3.41,1.91,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,28-29,n_neg,147,0.91,0.92,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,28-29,n_green,147,0.35,0.49,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,28-29,rk_pts,147,4.21,8.63,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,28-29,rk_hi,147,0.62,0.85,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,28-29,rk_lo,147,1.24,1.12,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,30-31,n_pos,91,3.33,2.02,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,30-31,n_neg,91,1.05,1.0,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,30-31,n_green,91,0.44,0.58,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,30-31,rk_pts,91,4.57,8.96,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,30-31,rk_hi,91,0.66,0.91,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,30-31,rk_lo,91,1.08,1.19,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,32-33,n_pos,70,3.09,1.65,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,32-33,n_neg,70,1.19,0.97,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,32-33,n_green,70,0.54,0.61,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,32-33,rk_pts,70,5.26,8.83,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,32-33,rk_hi,70,0.69,0.91,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,32-33,rk_lo,70,1.14,1.11,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,34-35,n_pos,48,3.52,1.81,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,34-35,n_neg,48,1.4,1.09,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,34-35,n_green,48,0.73,0.64,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,34-35,rk_pts,48,4.06,9.39,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,34-35,rk_hi,48,0.73,0.92,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,34-35,rk_lo,48,1.27,1.14,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,36+,n_pos,36,4.58,1.42,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,36+,n_neg,36,1.17,0.91,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,36+,n_green,36,0.83,0.88,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,36+,rk_pts,36,2.28,7.16,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,36+,rk_hi,36,0.58,0.6,"2022-2026 roster (domestic, age back-calculated from 2026)"
+special,投手,36+,rk_lo,36,1.44,1.08,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,18-19,speed,57,150.09,2.68,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,18-19,control,57,40.39,9.59,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,18-19,stamina,57,39.93,5.03,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,18-19,nb,57,2.6,0.49,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,18-19,mvsum,57,4.67,0.81,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,18-19,mvmax,57,2.46,0.5,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,20-21,speed,84,151.23,3.2,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,20-21,control,84,45.39,11.1,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,20-21,stamina,84,45.76,7.89,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,20-21,nb,84,2.65,0.48,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,20-21,mvsum,84,5.77,1.44,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,20-21,mvmax,84,3.01,0.78,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,22-23,speed,190,152.29,3.24,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,22-23,control,190,48.5,10.77,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,22-23,stamina,190,51.31,8.26,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,22-23,nb,190,2.82,0.39,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,22-23,mvsum,190,6.38,1.26,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,22-23,mvmax,190,3.21,0.77,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,24-25,speed,252,152.08,3.87,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,24-25,control,252,50.82,11.06,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,24-25,stamina,252,53.24,9.18,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,24-25,nb,252,2.73,0.45,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,24-25,mvsum,252,6.88,1.44,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,24-25,mvmax,252,3.62,0.9,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,26-27,speed,237,152.02,4.24,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,26-27,control,237,52.39,11.44,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,26-27,stamina,237,54.23,10.57,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,26-27,nb,237,2.72,0.47,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,26-27,mvsum,237,7.2,1.33,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,26-27,mvmax,237,3.89,0.94,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,28-29,speed,146,151.83,4.49,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,28-29,control,146,55.18,12.75,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,28-29,stamina,146,54.69,10.24,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,28-29,nb,146,2.75,0.47,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,28-29,mvsum,146,7.4,1.53,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,28-29,mvmax,146,4.01,1.05,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,30-31,speed,90,150.16,4.44,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,30-31,control,90,58.76,12.41,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,30-31,stamina,90,54.8,9.72,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,30-31,nb,90,2.78,0.49,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,30-31,mvsum,90,7.4,1.24,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,30-31,mvmax,90,3.87,0.95,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,32-33,speed,70,149.87,3.99,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,32-33,control,70,61.07,12.69,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,32-33,stamina,70,55.3,10.26,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,32-33,nb,70,2.84,0.44,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,32-33,mvsum,70,7.59,1.2,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,32-33,mvmax,70,3.76,0.82,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,34-35,speed,48,148.92,4.14,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,34-35,control,48,64.23,10.74,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,34-35,stamina,48,57.08,11.49,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,34-35,nb,48,2.94,0.38,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,34-35,mvsum,48,7.48,1.22,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,34-35,mvmax,48,3.69,0.8,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,36+,speed,36,146.67,5.71,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,36+,control,36,67.17,9.24,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,36+,stamina,36,53.56,8.87,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,36+,nb,36,3.0,0.53,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,36+,mvsum,36,7.06,1.22,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,投手,36+,mvmax,36,3.53,0.7,"2022-2026 roster (domestic, age back-calculated from 2026)"
+ability,野手,18-19,contact,14,31.79,6.17,2026 only (domestic)
+ability,野手,18-19,power,14,41.07,10.96,2026 only (domestic)
+ability,野手,18-19,run,14,62.5,10.38,2026 only (domestic)
+ability,野手,18-19,arm,14,68.07,8.3,2026 only (domestic)
+ability,野手,18-19,field,14,35.57,6.52,2026 only (domestic)
+ability,野手,18-19,catch,14,34.29,5.37,2026 only (domestic)
+ability,野手,20-21,contact,20,33.6,7.79,2026 only (domestic)
+ability,野手,20-21,power,20,47.65,7.58,2026 only (domestic)
+ability,野手,20-21,run,20,59.4,13.16,2026 only (domestic)
+ability,野手,20-21,arm,20,65.95,10.72,2026 only (domestic)
+ability,野手,20-21,field,20,40.7,8.02,2026 only (domestic)
+ability,野手,20-21,catch,20,37.15,8.07,2026 only (domestic)
+ability,野手,22-23,contact,53,39.21,9.2,2026 only (domestic)
+ability,野手,22-23,power,53,51.85,10.09,2026 only (domestic)
+ability,野手,22-23,run,53,64.38,13.42,2026 only (domestic)
+ability,野手,22-23,arm,53,66.32,8.48,2026 only (domestic)
+ability,野手,22-23,field,53,46.47,11.02,2026 only (domestic)
+ability,野手,22-23,catch,53,43.26,7.18,2026 only (domestic)
+ability,野手,24-25,contact,64,41.05,9.79,2026 only (domestic)
+ability,野手,24-25,power,64,52.58,11.26,2026 only (domestic)
+ability,野手,24-25,run,64,64.91,15.14,2026 only (domestic)
+ability,野手,24-25,arm,64,65.2,10.91,2026 only (domestic)
+ability,野手,24-25,field,64,51.33,11.28,2026 only (domestic)
+ability,野手,24-25,catch,64,46.3,10.5,2026 only (domestic)
+ability,野手,26-27,contact,62,43.52,9.6,2026 only (domestic)
+ability,野手,26-27,power,62,55.0,12.25,2026 only (domestic)
+ability,野手,26-27,run,62,68.58,13.83,2026 only (domestic)
+ability,野手,26-27,arm,62,67.6,12.01,2026 only (domestic)
+ability,野手,26-27,field,62,52.55,10.84,2026 only (domestic)
+ability,野手,26-27,catch,62,47.23,7.16,2026 only (domestic)
+ability,野手,28-29,contact,47,45.04,10.92,2026 only (domestic)
+ability,野手,28-29,power,47,53.89,12.12,2026 only (domestic)
+ability,野手,28-29,run,47,65.15,13.8,2026 only (domestic)
+ability,野手,28-29,arm,47,70.28,9.45,2026 only (domestic)
+ability,野手,28-29,field,47,54.7,9.24,2026 only (domestic)
+ability,野手,28-29,catch,47,50.79,10.12,2026 only (domestic)
+ability,野手,30-31,contact,27,48.96,11.62,2026 only (domestic)
+ability,野手,30-31,power,27,55.89,11.58,2026 only (domestic)
+ability,野手,30-31,run,27,70.19,14.12,2026 only (domestic)
+ability,野手,30-31,arm,27,64.33,12.79,2026 only (domestic)
+ability,野手,30-31,field,27,58.96,11.4,2026 only (domestic)
+ability,野手,30-31,catch,27,56.15,12.06,2026 only (domestic)
+ability,野手,32-33,contact,33,45.15,11.52,2026 only (domestic)
+ability,野手,32-33,power,33,51.91,8.72,2026 only (domestic)
+ability,野手,32-33,run,33,65.0,15.67,2026 only (domestic)
+ability,野手,32-33,arm,33,66.79,10.15,2026 only (domestic)
+ability,野手,32-33,field,33,61.42,9.32,2026 only (domestic)
+ability,野手,32-33,catch,33,55.73,11.22,2026 only (domestic)
+ability,野手,34-35,contact,16,44.62,6.52,2026 only (domestic)
+ability,野手,34-35,power,16,59.12,15.03,2026 only (domestic)
+ability,野手,34-35,run,16,58.19,15.15,2026 only (domestic)
+ability,野手,34-35,arm,16,66.38,11.85,2026 only (domestic)
+ability,野手,34-35,field,16,54.75,11.12,2026 only (domestic)
+ability,野手,34-35,catch,16,54.19,12.45,2026 only (domestic)
+ability,野手,36+,contact,21,45.81,11.24,2026 only (domestic)
+ability,野手,36+,power,21,52.19,10.16,2026 only (domestic)
+ability,野手,36+,run,21,53.48,14.87,2026 only (domestic)
+ability,野手,36+,arm,21,58.81,12.53,2026 only (domestic)
+ability,野手,36+,field,21,50.43,9.91,2026 only (domestic)
+ability,野手,36+,catch,21,56.19,12.25,2026 only (domestic)
+rating,野手,18-19,rating,14,178.14,21.8,2026 only (domestic)
+rating,野手,20-21,rating,20,199.9,32.96,2026 only (domestic)
+rating,野手,22-23,rating,53,231.58,40.38,2026 only (domestic)
+rating,野手,24-25,rating,64,244.62,48.6,2026 only (domestic)
+rating,野手,26-27,rating,62,268.26,53.45,2026 only (domestic)
+rating,野手,28-29,rating,47,273.32,52.1,2026 only (domestic)
+rating,野手,30-31,rating,27,296.07,58.42,2026 only (domestic)
+rating,野手,32-33,rating,33,272.18,61.39,2026 only (domestic)
+rating,野手,34-35,rating,16,281.75,48.89,2026 only (domestic)
+rating,野手,36+,rating,21,260.43,53.36,2026 only (domestic)
+rating,投手,18-19,rating,13,198.54,23.75,2026 only (domestic)
+rating,投手,20-21,rating,22,235.14,55.45,2026 only (domestic)
+rating,投手,22-23,rating,50,261.08,41.24,2026 only (domestic)
+rating,投手,24-25,rating,58,291.29,55.66,2026 only (domestic)
+rating,投手,26-27,rating,73,296.15,61.78,2026 only (domestic)
+rating,投手,28-29,rating,63,305.7,58.94,2026 only (domestic)
+rating,投手,30-31,rating,25,330.36,55.72,2026 only (domestic)
+rating,投手,32-33,rating,20,299.6,44.59,2026 only (domestic)
+rating,投手,34-35,rating,23,320.43,55.76,2026 only (domestic)
+rating,投手,36+,rating,15,316.07,32.82,2026 only (domestic)
