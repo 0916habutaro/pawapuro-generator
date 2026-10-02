@@ -350,6 +350,19 @@ python scripts/validate_team_mode.py
 - 既定では、構成・背番号の確認に200球団、戦力レベルの確認に600球団、チームカラーの確認にカラーごと200球団（効き具合 t=1.0・サブカラーなしに固定）を作ります。並列で数分〜十数分かかります。
 - `--teams`、`--strength-teams`、`--color-teams`、`--workers` で球団数と並列数を変えられます。`--skip-color`、`--skip-strength` で一部を省けます。
 - 戦力レベルの比較には、2026年版実在12球団の選手データ（`reports/real_powerpro_players_12teams/`）を `generator/rating.py` で査定した値を使います。
+- 構成確認用の球団の日本人選手で、`scripts/check_age_profile.py` の年齢帯別チェックも行います。
+
+### `scripts/check_age_profile.py`
+
+架空球団用（日本人）の特殊能力の数（青特・赤特・緑特）、ランク特能（ランク点・B以上の数）、査定値を年齢帯別（〜21、22〜25、26〜29、30〜33、34以上）に集計し、実在（`data/reference/real_age_profile_2022_2026.csv` を平滑化した目標）と比べて判定します。
+
+```powershell
+python scripts/check_age_profile.py                        # 個別生成 投手・野手 各5000人 ＋ 球団生成 500球団
+python scripts/check_age_profile.py --players 1000 --teams 0   # 簡易版
+```
+
+- `--save` で選手ごとの値をCSVに保存し、`--compare <保存したCSV>` で修正前と並べた表を出せます。
+- 全項目合格なら終了コード0、不合格があれば1です。
 
 ### `scripts/validate_ability_balance.py`
 

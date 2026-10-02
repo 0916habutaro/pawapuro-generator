@@ -32,11 +32,14 @@ from typing import Any
 
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
+sys.path.insert(0, str(APP_DIR / "scripts"))
 
 import pandas as pd  # noqa: E402
 
 from generator import team as team_lib  # noqa: E402
 from generator.rating import player_rating  # noqa: E402
+
+import check_age_profile  # noqa: E402
 
 OUTPUT_DIR = APP_DIR / "reports" / "team_mode"
 REAL_PLAYERS_DIR = APP_DIR / "reports" / "real_powerpro_players_12teams"
@@ -122,6 +125,7 @@ def _team_record(team: dict[str, Any]) -> dict[str, Any]:
         "retired_used": len(set(numbers) & set(team["retired_numbers"])),
         "retired_numbers": ",".join(team["retired_numbers"]),
         "retired_count": len(team["retired_numbers"]),
+        "age_rows": [check_age_profile.player_metrics(p, "球団") for p in players if check_age_profile.is_target(p)],
         "uniform_rows": [
             {
                 "number": str(p.get("uniform_number")),
@@ -406,8 +410,8 @@ UNIFORM_AGE_TARGETS = {
     ("投手", "11-21"): (28.5, 0.00, 0.32), ("投手", "22-30"): (27.7, None, None), ("投手", "31-69"): (26.1, 0.28, 0.15),
 }
 UNIFORM_HIGH_PERCENTILE_REAL = 0.365
-# 修正前（PR #102 第2版の背番号の重み）で520球団を生成したときの、番号ごとの使用率と実在の相関。これより悪化しないこと
-UNIFORM_USE_RATE_CORR_BEFORE = 0.9857
+# 番号ごとの使用率と実在の相関の下限（固定）。PR #102 第2版の背番号の重みでは0.9857、選手の査定・年齢が変わると少し動くため固定の下限にした
+UNIFORM_USE_RATE_CORR_MIN = 0.980
 
 
 def _range_text(low: float | None, high: float | None) -> str:
@@ -489,11 +493,11 @@ def uniform_detail_tables(records: list[dict[str, Any]]) -> tuple[dict[str, pd.D
     real_rates = [stats[n]["use_rate"] for n in team_lib.UNIFORM_NUMBERS]
     gen_rates = [teams_used[n] / len(records) for n in team_lib.UNIFORM_NUMBERS]
     corr = float(pd.Series(real_rates).corr(pd.Series(gen_rates)))
-    passes.append((f"番号ごとの使用率と実在の相関が修正前（{UNIFORM_USE_RATE_CORR_BEFORE}）から悪化しない（生成 {corr:.4f}）", corr >= UNIFORM_USE_RATE_CORR_BEFORE))
+    passes.append((f"番号ごとの使用率と実在の相関が{UNIFORM_USE_RATE_CORR_MIN:.3f}以上（生成 {corr:.4f}）", corr >= UNIFORM_USE_RATE_CORR_MIN))
     high = pd.DataFrame([
         {"項目": "70〜98番の査定の百分位の平均", "実在": UNIFORM_HIGH_PERCENTILE_REAL, "生成": round(high_mean, 3)},
         {"項目": "70〜98番の使用数（1球団あたり）", "実在": 5.2, "生成": round(high_count, 2)},
-        {"項目": "番号ごとの使用率と実在の相関", "実在": f"修正前 {UNIFORM_USE_RATE_CORR_BEFORE}", "生成": round(corr, 4)},
+        {"項目": "番号ごとの使用率と実在の相関", "実在": f"下限 {UNIFORM_USE_RATE_CORR_MIN:.3f}", "生成": round(corr, 4)},
     ])
     return {"foreign_rate": foreign_rate, "foreign_range": foreign_range, "age": age_table, "high": high}, passes
 
@@ -574,6 +578,8 @@ def main() -> None:
     passes.append((f"11〜21番の投手率90%以上（生成 {uni['pitcher_rate_11_21'] * 100:.1f}%）", uni["pitcher_rate_11_21"] >= 0.90))
     uniform_detail, uniform_detail_passes = uniform_detail_tables(main_records)
     passes += uniform_detail_passes
+    age_lines, age_failures = check_age_profile.report(pd.DataFrame([row for record in main_records for row in record["age_rows"]]))
+    passes.append((f"年齢帯別の特能・ランク（check_age_profile.py、日本人）の不合格が0（不合格 {age_failures}）", age_failures == 0))
     passes.append((f"2・27番の捕手率30%以上（生成 2番 {uni['catcher_rate']['2'] * 100:.1f}%・27番 {uni['catcher_rate']['27'] * 100:.1f}%）", min(uni["catcher_rate"].values()) >= 0.30))
 
     elapsed = frame["elapsed"]
@@ -587,6 +593,8 @@ def main() -> None:
         "",
         "## 構成（実在60チームと生成）", "",
         to_markdown(comp.drop(columns=["列"])), "",
+        "## 年齢帯別の特能・ランク（特能ランク年齢補正_改修指示.md、日本人）", "",
+        *age_lines,
     ]
 
     # --- 戦力 ---
@@ -594,7 +602,7 @@ def main() -> None:
         real = real_team_metrics()
         strength_table, strength_checks = strength_tables(strength_records, real)
         strength_table.to_csv(args.output / "strength_metrics.csv", index=False, encoding="utf-8-sig")
-        sframe = pd.DataFrame(strength_records).drop(columns=["uniform_rows"])
+        sframe = pd.DataFrame(strength_records).drop(columns=["uniform_rows", "age_rows"])
         sframe.to_csv(args.output / "strength_teams.csv", index=False, encoding="utf-8-sig")
         html = ["<!doctype html><meta charset='utf-8'><title>戦力指数と査定指標</title><body style='font-family:sans-serif'>",
                 "<p>色: <span style='color:#d9480f'>強豪</span> / <span style='color:#1971c2'>中位</span> / <span style='color:#5c940d'>弱小</span></p><div style='display:flex;flex-wrap:wrap;gap:12px'>"]

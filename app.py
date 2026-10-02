@@ -23,7 +23,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from generator.foreign_names import generate_foreign_profile, name_group_display_nationalities, nation_name_orders
-from generator.rating import player_rating
+from generator.rating import player_rating, ranked_points
 from generator.team import (
     COMPOSITION_ITEMS,
     PITCHER_ROLE_ORDER,
@@ -6984,8 +6984,13 @@ def fictional_ranked_specials(
     current: dict[str, str],
     link_shift: Any,
     weights_key: Any = None,
+    role: str = "",
+    age: int | None = None,
 ) -> dict[str, str]:
-    """ランク特能を実在の分布から引き直す。能力・選手格による補正では A・G を新たに作らない。"""
+    """ランク特能を実在の分布から引き直す。能力・選手格による補正では A・G を新たに作らない。
+
+    role・age を渡すと、年齢でランクの重みを傾ける（fictional_age_rank_weights）。重みを変えても乱数の消費は同じ。
+    """
     names_by_group = ranked_special_names_by_group(master)
     up_rate, down_rate = FICTIONAL_CLASS_RANK_SHIFTS.get(player_class, (0.0, 0.0))
     result: dict[str, str] = {}
@@ -6996,6 +7001,8 @@ def fictional_ranked_specials(
             if group in current:
                 result[group] = current[group]
             continue
+        if role and age is not None:
+            weights = fictional_age_rank_weights(weights, group, role, age)
         base = weighted_choice(rng, list(weights.items()))
         shift = link_shift(group)
         if group not in FICTIONAL_PHYSICAL_RANKED:
@@ -7005,6 +7012,201 @@ def fictional_ranked_specials(
             value = {"A": "B", "G": "F"}.get(value, value)
         result[group] = names[value]
     return result
+
+
+# ---------------------------------------------------------------------------
+# 年齢による特殊能力の数・ランク特能の補正（特能ランク年齢補正_改修指示.md）
+# 実在（パワプロ2022〜2026の日本人）は年齢とともに特能が増え、ランクが良くなる。架空球団用の日本人にだけ、
+# 既存の抽選結果に年齢の傾きを重ねる（個人差はそのまま残す）。外国人・ドラフト候補には掛けない。
+# 値は scripts/check_age_profile.py で年齢帯別に確認して決めた（reports/age_profile/calibration.md）。
+# ---------------------------------------------------------------------------
+FICTIONAL_AGE_SPECIAL_NAMESPACE = "fictional_age_special_v1"
+# 数え方は実在と同じ（赤特14種・緑特12種、それ以外の通常特能が青特・金特。起用法は数えない）。
+FICTIONAL_AGE_NEGATIVE_SPECIALS = {
+    "エラー", "ゴロピッチャー", "スロースターター", "一発", "三振", "乱調", "併殺", "四球", "寸前",
+    "対ランナー", "抜け球", "死球集中", "負け運", "軽い球",
+}
+FICTIONAL_AGE_GREEN_SPECIALS = {
+    "チームプレイ○", "テンポ○", "ミート多用", "変化球中心", "強振多用", "慎重打法", "積極守備", "積極打法",
+    "積極盗塁", "積極走塁", "速球中心", "選球眼",
+}
+# 特能の数の倍率（年齢, 倍率）の折れ線。1未満はその種類の特能を確率で外し、1を超えた分は足す。
+# 初期値は「目標 ÷ 修正前の値」（年齢帯の中央の年齢に置く）。投手の赤特は年齢による差が小さいので変えない。
+FICTIONAL_AGE_SPECIAL_MULTIPLIERS = {
+    "野手": {
+        "pos": [(20, 0.905), (23.5, 0.88), (27.5, 0.96), (31.5, 1.095), (36, 1.26)],
+        "neg": [(20, 0.38), (23.5, 0.82), (27.5, 1.03), (31.5, 1.15), (36, 1.30)],
+        "green": [(20, 0.57), (23.5, 0.70), (27.5, 0.98), (31.5, 1.32), (36, 1.40)],
+    },
+    "投手": {
+        "pos": [(20, 0.55), (23.5, 0.92), (27.5, 0.985), (31.5, 1.06), (36, 1.15)],
+        "green": [(20, 0.79), (23.5, 0.92), (27.5, 1.22), (31.5, 1.71), (36, 2.6)],
+    },
+}
+# 能力で強く決まる組み合わせは、年齢で外さない（架空球団バランス §6-2 の連動を崩さない）。
+# 特能名: (能力, 下限, 上限)。ミート30以下の野手は若手に多く、三振を外すと連動が弱まるため。
+FICTIONAL_AGE_KEEP_LINKED = {
+    "三振": ("ミート", 0, 30),
+    "四球": ("コントロール", 0, 40),
+    "荒れ球": ("コントロール", 0, 40),
+    "積極盗塁": ("走力", 81, 100),
+}
+# 修正前の年齢ごとの平均の数（個別生成 seed 1〜5000）。倍率が1を超えたとき、(倍率−1)×この数 を期待値として足す。
+FICTIONAL_AGE_SPECIAL_BASE_COUNTS = {
+    "野手": {
+        "pos": [(20, 1.16), (23.5, 1.82), (27.5, 2.61), (31.5, 2.83), (36, 3.05)],
+        "neg": [(20, 0.71), (23.5, 0.63), (27.5, 0.68), (31.5, 0.74), (36, 0.77)],
+        "green": [(20, 1.06), (23.5, 1.22), (27.5, 1.22), (31.5, 1.22), (36, 1.14)],
+    },
+    "投手": {
+        "pos": [(20, 2.11), (23.5, 2.38), (27.5, 2.98), (31.5, 3.18), (36, 3.49)],
+        "green": [(20, 0.24), (23.5, 0.26), (27.5, 0.27), (31.5, 0.28), (36, 0.29)],
+    },
+}
+# ランク特能の傾き: 各ランクの重みに exp(β·点 − γ·点²) を掛ける（点は査定表のランク点、D=0）。
+# β>0 で良いランク、β<0 で悪いランクが出やすくなり、γ>0 で D の近くに寄る（幅が狭くなる）。
+# A・G の重みは増やさない（A・G を出しすぎない）。全年齢では修正前の分布に戻るように β の水準を決めた。
+FICTIONAL_AGE_RANK_BETA = {
+    "野手": [(20, -0.13), (23.5, -0.06), (27.5, 0.015), (31.5, 0.085), (36, 0.05)],
+    "投手": [(20, -0.12), (23.5, -0.06), (27.5, 0.025), (31.5, 0.04), (36, 0.05)],
+}
+# γ<0 はベテランの幅を少し広げる（実在のベテランは B 以上も E 以下も多い）。
+FICTIONAL_AGE_RANK_GAMMA = {
+    "野手": [(20, 0.045), (23.5, 0.012), (26, 0.0), (29, -0.008), (33, -0.008), (36, -0.004)],
+    "投手": [(20, 0.055), (23.5, 0.012), (26, 0.0), (29, -0.012), (33, -0.014), (36, -0.004)],
+}
+
+
+def fictional_age_special_kind(name: str) -> str | None:
+    """特能の種類（pos: 青特・金特、neg: 赤特、green: 緑特）。起用法は None（数えない）。"""
+    if name in FICTIONAL_AGE_NEGATIVE_SPECIALS:
+        return "neg"
+    if name in FICTIONAL_AGE_GREEN_SPECIALS:
+        return "green"
+    if name in USAGE_SPECIAL_NAMES or name in DRAFT_UNCOUNTED_SPECIALS:
+        return None
+    return "pos"
+
+
+def fictional_age_special_multiplier(role: str, kind: str, age: int) -> float:
+    anchors = FICTIONAL_AGE_SPECIAL_MULTIPLIERS.get(role, {}).get(kind)
+    return interpolate_age_chance(age, anchors) if anchors else 1.0
+
+
+@lru_cache(maxsize=None)
+def fictional_rank_points(group: str, role: str) -> dict[str, int]:
+    """ランク特能1つの査定点（generator/rating.py の ranked_points と同じ表。D=0）。"""
+    return {letter: ranked_points({group: letter}, role) for letter in RANKED_SPECIAL_RANKS}
+
+
+def fictional_age_rank_weights(weights: dict[str, float], group: str, role: str, age: int) -> dict[str, float]:
+    beta = interpolate_age_chance(age, FICTIONAL_AGE_RANK_BETA[role])
+    gamma = interpolate_age_chance(age, FICTIONAL_AGE_RANK_GAMMA[role])
+    points = fictional_rank_points(group, role)
+    tilted = {}
+    for letter, weight in weights.items():
+        point = points.get(letter, 0)
+        factor = math.exp(beta * point - gamma * point * point)
+        if letter in {"A", "G"}:
+            factor = min(1.0, factor)
+        tilted[letter] = weight * factor
+    return tilted
+
+
+def fictional_age_adjust_specials(
+    seed: int,
+    master: MasterData,
+    player: dict[str, Any],
+    specials: list[str],
+    abilities: dict[str, Any],
+    linked_values: dict[str, float],
+    is_allowed: Any,
+) -> list[str]:
+    """特能の数を年齢で増減する。どの特能が付くかは既存の出やすさ（adjust_special_chance）のまま選ぶ。
+
+    専用のサブRNGを使うので、ほかの抽選の乱数系列は変わらない。
+    """
+    role = str(player.get("role", ""))
+    age = int(player.get("age") or 0)
+    multipliers = FICTIONAL_AGE_SPECIAL_MULTIPLIERS.get(role, {})
+    if not multipliers or not age:
+        return specials
+    rng = make_sub_rng(seed, FICTIONAL_AGE_SPECIAL_NAMESPACE)
+    player_class = str(player.get("player_class", ""))
+    low, high = special_count_bounds("架空球団用", player_class)
+    countable = lambda: sum(is_countable_special(name) for name in selected)  # noqa: E731
+    selected = list(specials)
+
+    # 1. 倍率が1未満の種類は、その種類の特能を確率で外す（選手格の下限・能力で決まる組み合わせは守る）。
+    for kind in multipliers:
+        keep = fictional_age_special_multiplier(role, kind, age)
+        if keep >= 1.0:
+            continue
+        for name in list(selected):
+            if fictional_age_special_kind(name) != kind or rng.random() < keep:
+                continue
+            if name in FICTIONAL_AGE_KEEP_LINKED:
+                key, low_value, high_value = FICTIONAL_AGE_KEEP_LINKED[name]
+                if low_value <= linked_values.get(key, -1) <= high_value:
+                    continue
+            if is_countable_special(name) and countable() <= low:
+                continue
+            selected.remove(name)
+
+    # 2. 倍率が1を超えた種類は、既存の出やすさで特能を足す。
+    allowed_names = role_allowed_specials(master, role)
+    group_of = {str(row["name"]): str(row.get("group", "")) for row in master.abilities}
+    rate_factor = {name: target / current for name, current, target in FICTIONAL_SPECIAL_RATE_TARGETS[role]}
+    linked = {name: (key, limits, rates) for name, key, limits, rates in FICTIONAL_LINKED_SPECIALS[role]}
+    sub_positions = player.get("sub_positions") or []
+    pitcher_aptitudes = {key: str(player.get(key, "-")) for key in PITCHER_APTITUDE_KEYS} if role == "投手" else None
+    chance_cache: dict[str, float] = {}
+
+    def chance(row: dict[str, Any]) -> float:
+        name = str(row["name"])
+        if name not in chance_cache:
+            value = adjust_special_chance(
+                row, int(row.get("weight", 0) or 0), role, str(player.get("player_type", "")), str(player.get("position", "")),
+                age, abilities, player.get("breaking_balls") or [], "架空球団用", player_class, player.get("archetype"),
+                player.get("position_style"), player.get("development_stage"), player.get("acquisition_role"),
+                player.get("weakness_profile"), sub_positions, pitcher_aptitudes, True, player.get("pro_years"), True,
+            )
+            value *= rate_factor.get(name, 1.0)
+            if name in linked:
+                # 能力と連動させる特能は、能力帯ごとの保有率の比で出やすさを変える（連動を崩さない）
+                key, limits, rates = linked[name]
+                value *= fictional_band_rate(linked_values.get(key, 0), limits, rates) / (sum(rates) / len(rates))
+            chance_cache[name] = max(0.0, value)
+        return chance_cache[name]
+
+    for kind in multipliers:
+        extra = (fictional_age_special_multiplier(role, kind, age) - 1.0) * interpolate_age_chance(age, FICTIONAL_AGE_SPECIAL_BASE_COUNTS[role][kind])
+        if extra <= 0:
+            continue
+        count = int(extra) + int(rng.random() < extra - int(extra))
+        for _ in range(count):
+            used_groups = {group_of.get(name, "") for name in selected}
+            items = []
+            for row in master.abilities:
+                name = str(row["name"])
+                if (
+                    fictional_age_special_kind(name) != kind or name in selected or is_ranked_special(row)
+                    or special_target_role(row) not in (role, "共通") or name in FICTIONAL_NOT_REAL_SPECIALS[role]
+                    or name not in allowed_names or not is_allowed(name)
+                    or (group_of.get(name, "").startswith("g") and group_of.get(name, "") in used_groups)
+                    or any({name, other} == {a, b} for a, b in FICTIONAL_SPECIAL_CONFLICTS for other in selected)
+                    or (is_countable_special(name) and countable() >= high)
+                ):
+                    continue
+                if name not in audit_special_selection(rng, selected + [name], role, str(player.get("position", "")), abilities, sub_positions, pitcher_aptitudes):
+                    continue
+                weight = chance(row)
+                if weight > 0:
+                    items.append((name, weight))
+            if not items:
+                break
+            selected.append(weighted_choice(rng, items))
+    return selected
 
 
 def fictional_pitcher_breaking_balls(rng: random.Random, breaking_balls: list[dict[str, Any]], batting_throwing: str, position: str) -> list[dict[str, Any]]:
@@ -7101,6 +7303,10 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
         {"球速": speed, "コントロール": control},
         lambda name: is_special_allowed_for_player(name, "投手", position, [], pitcher_aptitudes),
     )
+    player["special_abilities"] = fictional_age_adjust_specials(
+        seed, master, player, player["special_abilities"], abilities, {"球速": speed, "コントロール": control},
+        lambda name: is_special_allowed_for_player(name, "投手", position, [], pitcher_aptitudes),
+    )
 
     def link_shift(group: str) -> int:
         if group == "ノビ":
@@ -7111,6 +7317,7 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     abilities["ranked_specials"] = fictional_ranked_specials(
         rng, master, list(current), FICTIONAL_PITCHER_RANKED_WEIGHTS, str(player.get("player_class", "")), current, link_shift,
         weights_key=lambda group: f"{group}_左投" if group == "対左打者" and batting_throwing.startswith("左投") else group,
+        role="投手", age=int(player.get("age") or 0),
     )
     player["abilities"] = abilities
     fictional_adjust_physique(rng, player, "投手")
@@ -7174,6 +7381,10 @@ def apply_fictional_fielder_balance(player: dict[str, Any], seed: int, master: M
         rng, master, "野手", str(player.get("player_class", "")), list(player.get("special_abilities", [])), values,
         lambda name: is_special_allowed_for_player(name, "野手", position, sub_positions),
     )
+    player["special_abilities"] = fictional_age_adjust_specials(
+        seed, master, player, player["special_abilities"], abilities, values,
+        lambda name: is_special_allowed_for_player(name, "野手", position, sub_positions),
+    )
     speed, arm = values["走力"], values["肩力"]
 
     def link_shift(group: str) -> int:
@@ -7191,6 +7402,7 @@ def apply_fictional_fielder_balance(player: dict[str, Any], seed: int, master: M
         groups.append("キャッチャー")
     abilities["ranked_specials"] = fictional_ranked_specials(
         rng, master, groups, FICTIONAL_FIELDER_RANKED_WEIGHTS, str(player.get("player_class", "")), current, link_shift,
+        role="野手", age=int(player.get("age") or 0),
     )
     player["abilities"] = abilities
     fictional_adjust_physique(rng, player, "野手")
