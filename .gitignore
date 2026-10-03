@@ -51,6 +51,8 @@ Thumbs.db
 data/raw/powerpro_2026_2027/*/
 !data/raw/powerpro_2026_2027/*.zip
 !data/raw/powerpro_2026_2027/README.md
+data/raw/powerpro_2022_2025/*/
+!data/raw/powerpro_2022_2025/*.zip
 reports/*
 !reports/foreign_generation_phase1/
 !reports/foreign_generation_phase1/*.csv
