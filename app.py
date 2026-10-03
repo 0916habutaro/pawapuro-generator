@@ -22,6 +22,8 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
+from generator import real_data
+from generator import team_analysis as ta
 from generator.foreign_names import generate_foreign_profile, name_group_display_nationalities, nation_name_orders
 from generator.rating import player_rating, ranked_points
 from generator.team import (
@@ -8622,6 +8624,12 @@ def load_history() -> pd.DataFrame:
 
 def clear_history_cache() -> None:
     _load_history_cached.clear()
+    # 球団分析の保存済み球団のキャッシュも、保存・削除のたびに作り直す
+    _saved_team_analysis_input.clear()
+    try:
+        st.session_state.pop(TEAM_ANALYSIS_CACHE_KEY, None)
+    except Exception:  # noqa: BLE001  Streamlit の外（テスト・スクリプト）から呼ばれたとき
+        pass
 
 
 @st.cache_data(show_spinner=False, max_entries=4)
@@ -11417,6 +11425,8 @@ def app_chrome_css() -> str:
     /* 未選択のラジオボタンの丸が紺地に溶けないよう、白の枠線を付ける */
     [data-testid="stSidebar"] [data-testid="stRadioOption"]:not([data-selected="true"]) > div > div > div:first-child {box-shadow:inset 0 0 0 2px #FFFFFF;}
     [data-testid="stSidebar"] input {background:var(--ui-surface); color:var(--ui-text); -webkit-text-fill-color:var(--ui-text);}
+    /* multiselect の入力欄は札（選んだ項目）の左端に重なって置かれるため、白背景にすると札の先頭が隠れる */
+    [data-testid="stSidebar"] [data-testid="stMultiSelect"] input {background:transparent;}
     [data-testid="stSidebar"] input:disabled {background:#DCE5F0; color:var(--ui-muted); -webkit-text-fill-color:var(--ui-muted); cursor:not-allowed;}
     [data-testid="stSidebar"] [data-testid="stSelectbox"] div:has(> input), [data-testid="stSidebar"] [data-testid="stSelectbox"] button, [data-testid="stSidebar"] [data-testid="stSelectbox"] svg {color:var(--ui-text);}
     /* 選択肢リストは body 直下に出るが、サイドバーのテーマ（白文字）を引き継いで白地に白文字になるため本文色にする */
@@ -11977,7 +11987,8 @@ TEAM_SEED_INPUT_KEY = "team_seed_input"
 TEAM_GENERATING_KEY = "team_generating"
 TEAM_SELECTED_KEY = "team_selected_roster_index"
 TEAM_TABLE_NONCE_KEY = "team_table_nonce"
-TEAM_DETAIL_KEY_PREFIX = "team"
+# 能力カードの CSS は st-key-latest_* を前提にしているため、球団生成のカードも同じ接頭辞を使う
+TEAM_DETAIL_KEY_PREFIX = DETAIL_KEY_PREFIX
 TEAM_FOREIGN_MARK = "（外）"
 TEAM_OUT_OF_RANGE_COLOR = "#FFF1DC"
 TEAM_EXPORT_SHEETS = ("概要", "投手", "野手")
@@ -12272,7 +12283,10 @@ def render_team_save_and_exports(team: dict[str, Any]) -> None:
     saved_id = st.session_state.get(TEAM_SAVED_ID_KEY)
     now = pd.Timestamp.now()
     kind = team_file_kind(team.get("team_name", ""))
-    save_col, csv_col, excel_col, status_col = st.columns([0.2, 0.2, 0.2, 0.4], gap="small", vertical_alignment="center")
+    save_col, csv_col, excel_col, analyze_col, status_col = st.columns([0.17, 0.15, 0.15, 0.17, 0.36], gap="small", vertical_alignment="center")
+    with analyze_col:
+        if st.button("この球団を分析", use_container_width=True, key="team_analyze_button"):
+            open_team_analysis([ta.UNSAVED_TEAM_KEY if saved_id is None else saved_team_key(int(saved_id))])
     with save_col:
         if st.button("この球団を保存", type="primary", use_container_width=True, disabled=saved_id is not None, key="team_save_button"):
             try:
@@ -12360,6 +12374,744 @@ def team_page() -> None:
     render_team_result(team, master)
 
 
+# ===== 球団分析ページ =====
+# 計算は generator/team_analysis.py に置き、ここは表示だけにする。
+TEAM_ANALYSIS_TEAMS_KEY = "team_analysis_teams"
+TEAM_ANALYSIS_SEASONS_KEY = "team_analysis_seasons"
+TEAM_ANALYSIS_OPPONENT_KEY = "team_analysis_opponent"
+TEAM_ANALYSIS_FOCUS_KEY = "team_analysis_focus"
+# ページを離れるとウィジェットの値は消えるため、選んだ内容をこの接頭辞のキーに控えておく
+TEAM_ANALYSIS_KEPT_PREFIX = "_kept_"
+TEAM_ANALYSIS_CACHE_KEY = "_team_analysis_cache"
+TEAM_ANALYSIS_CACHE_SIZE = 4
+TEAM_ANALYSIS_MAX_TEAMS = 12
+TEAM_ANALYSIS_NO_OPPONENT = ""
+TEAM_ANALYSIS_TAB_LABELS = ("概要", "人数構成", "能力", "年齢", "戦力の厚み", "特殊能力", "選手一覧", "球団比較")
+TEAM_ANALYSIS_REAL_LABEL = "実在の球団"
+TEAM_ANALYSIS_BAND_LABEL = "実在の10〜90%"
+TEAM_ANALYSIS_MEDIAN_LABEL = "実在の中央"
+TEAM_ANALYSIS_REAL_AVERAGE_LABEL = "実在の平均"
+TEAM_ANALYSIS_BAND_COLOR = "#D5DEEA"
+# 複数球団のときの球団ごとの色（1球団のときは紺1色）
+TEAM_ANALYSIS_TEAM_COLORS = ("#0B2A5B", "#0876C9", "#087D23", "#B7791F", "#D7193F", "#6B4FA0", "#0E8C8C", "#C2571A", "#5A6B85", "#A0306E", "#3F7F2F", "#1F5FA0")
+TEAM_ANALYSIS_COUNT_AXES = (ta.AXIS_POSITION, ta.AXIS_ROLE, ta.AXIS_PITCHER_ROLE, ta.AXIS_AGE, ta.AXIS_FOREIGN, ta.AXIS_HAND, ta.AXIS_PRO_YEARS, ta.AXIS_ENTRY, ta.AXIS_RATING)
+TEAM_ANALYSIS_ABILITY_AXES = (ta.AXIS_ALL, *TEAM_ANALYSIS_COUNT_AXES)
+TEAM_ANALYSIS_SPECIAL_AXES = (ta.AXIS_ROLE, ta.AXIS_ALL, ta.AXIS_POSITION, ta.AXIS_PITCHER_ROLE, ta.AXIS_AGE, ta.AXIS_FOREIGN, ta.AXIS_RATING)
+TEAM_ANALYSIS_FILTER_AXES = (ta.AXIS_POSITION, ta.AXIS_AGE, ta.AXIS_PITCHER_ROLE, ta.AXIS_FOREIGN, ta.AXIS_HAND, ta.AXIS_RATING, ta.AXIS_PRO_YEARS, ta.AXIS_ENTRY)
+TEAM_ANALYSIS_ABILITY_METRICS = (ta.METRIC_RATING_MEAN, ta.METRIC_RATING_MAX, *ta.ABILITY_METRICS, ta.METRIC_AGE)
+TEAM_ANALYSIS_CONTACT_NOTE = "ミートは2022・2023年版が約37、2024年版以降が約42で、年版の間に段差があります（ゲームの仕様変更とみられる）。ミートの比較は年版の選び方で結果が変わります。"
+TEAM_ANALYSIS_AGE_NOTE = "年齢系（年齢・年齢帯・プロ年数・入団経路）の基準は、年版の選択に関わらず2026年版の12球団です。"
+TEAM_ANALYSIS_CSS = """
+<style>
+.pp-ta-metric {border:1px solid var(--ui-border); border-radius:10px; padding:8px 12px; margin-bottom:8px;}
+.pp-ta-metric-label {font-size:13px; font-weight:700; color:var(--ui-muted);}
+.pp-ta-metric-value {font-size:26px; font-weight:800; color:var(--ui-primary); font-variant-numeric:tabular-nums; line-height:1.3;}
+.pp-ta-metric-note {font-size:12px; color:var(--ui-muted);}
+</style>
+"""
+
+
+def team_analysis_streamlit_page() -> Any:
+    return st.Page(team_analysis_page, title="球団分析", icon="📈", url_path="team-analysis")
+
+
+def saved_team_key(team_id: int) -> str:
+    return f"{ta.GENERATED_PREFIX}{int(team_id)}"
+
+
+def open_team_analysis(team_keys: list[str]) -> None:
+    """球団分析ページへ移り、指定の球団を選んだ状態にする。"""
+    st.session_state[TEAM_ANALYSIS_KEPT_PREFIX + TEAM_ANALYSIS_TEAMS_KEY] = list(team_keys)
+    st.session_state.pop(TEAM_ANALYSIS_TEAMS_KEY, None)
+    st.session_state.pop(TEAM_ANALYSIS_FOCUS_KEY, None)
+    st.switch_page(team_analysis_streamlit_page())
+
+
+def list_saved_teams() -> pd.DataFrame:
+    """保存済みの球団（新しい順）。"""
+    init_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        return pd.read_sql_query("SELECT id, created_at, team_seed, team_name, strength, color, sub_color FROM teams ORDER BY id DESC", conn)
+
+
+def load_team_players(team_id: int) -> list[dict[str, Any]]:
+    """保存済み球団の選手（登録順）。DB行 → 選手 dict は履歴・バランス確認と同じ player_from_history_row を通す。"""
+    history = load_history()
+    if history.empty or "team_id" not in history.columns:
+        return []
+    rows = history[pd.to_numeric(history["team_id"], errors="coerce").fillna(0).astype(int) == int(team_id)]
+    rows = rows.sort_values("roster_index", kind="stable")
+    return [player_from_history_row(row) for _, row in rows.iterrows()]
+
+
+def team_pitcher_role(player: dict[str, Any]) -> str:
+    """投手の主役割（先発・中継ぎ・抑え）。球団分析の投手役割（先発・救援）に使う。"""
+    return primary_pitcher_role({key: player.get(key) for key in PITCHER_APTITUDE_KEYS})
+
+
+def db_modified_ns() -> int:
+    path = Path(DB_PATH)
+    return path.stat().st_mtime_ns if path.exists() else 0
+
+
+def real_players_modified_ns() -> int:
+    path = Path(real_data.REAL_PLAYERS_PATH)
+    return path.stat().st_mtime_ns if path.exists() else 0
+
+
+@st.cache_data(show_spinner=False, max_entries=64)
+def _saved_team_analysis_input(team_id: int, team_label: str, db_path: str, modified_ns: int) -> tuple[list[dict[str, Any]], pd.DataFrame]:
+    """保存済み球団の選手と正規化フレーム（team_id をキーにキャッシュ。保存・削除で clear_history_cache から消す）。"""
+    players = load_team_players(team_id)
+    return players, ta.players_frame(players, saved_team_key(team_id), team_label, team_pitcher_role)
+
+
+@st.cache_data(show_spinner=False)
+def team_analysis_opponents() -> list[str]:
+    """1対1で比べられる実在球団（新しい年版から）。"""
+    stats = real_data.load_real_team_stats()
+    pairs = stats[["season", "team"]].drop_duplicates().sort_values(["season", "team"], ascending=[False, True])
+    return [ta.real_team_key(season, team) for season, team in pairs.itertuples(index=False)]
+
+
+@st.cache_data(show_spinner=False)
+def team_analysis_real_players(modified_ns: int) -> pd.DataFrame | None:
+    """実在の選手単位データ（カテゴリ列付き）。無ければ None。"""
+    frame = ta.real_players_frame()
+    if frame is None:
+        return None
+    return ta.assign_categories(frame, ta.rating_cuts_from_stats(real_data.load_global_stats()))
+
+
+def team_analysis_options() -> tuple[list[str], dict[str, str], dict[str, dict[str, Any]]]:
+    """分析できる球団（未保存の生成中の球団 → 保存済みの新しい順）。"""
+    keys: list[str] = []
+    labels: dict[str, str] = {}
+    meta: dict[str, dict[str, Any]] = {}
+    team = st.session_state.get(TEAM_RESULT_KEY)
+    if team and st.session_state.get(TEAM_SAVED_ID_KEY) is None:
+        profile = team.get("profile")
+        color = profile.color_display if isinstance(profile, TeamProfile) else str(team.get("color", ""))
+        keys.append(ta.UNSAVED_TEAM_KEY)
+        labels[ta.UNSAVED_TEAM_KEY] = f"生成中の球団（未保存）：{team.get('team_name', '')}"
+        meta[ta.UNSAVED_TEAM_KEY] = {"team_id": None, "team_seed": team.get("team_seed"), "strength": team.get("strength", ""), "color": color, "name": str(team.get("team_name", ""))}
+    for row in list_saved_teams().itertuples(index=False):
+        key = saved_team_key(int(row.id))
+        color = f"{row.color}＋{row.sub_color}" if row.sub_color else str(row.color)
+        keys.append(key)
+        labels[key] = f"ID {int(row.id)}：{row.team_name}（{row.strength}・{color}・{str(row.created_at)[:10]}）"
+        meta[key] = {"team_id": int(row.id), "team_seed": int(row.team_seed), "strength": str(row.strength), "color": color, "name": str(row.team_name)}
+    return keys, labels, meta
+
+
+def keep_team_analysis_state(key: str) -> None:
+    st.session_state[TEAM_ANALYSIS_KEPT_PREFIX + key] = st.session_state.get(key)
+
+
+def restore_team_analysis_state(key: str, default: Any, valid: list[Any], *, multi: bool) -> None:
+    """控えておいた値をウィジェットに戻す。選べなくなった値（削除した球団など）は外す。"""
+    value = st.session_state.get(key, st.session_state.get(TEAM_ANALYSIS_KEPT_PREFIX + key, default))
+    if multi:
+        value = [item for item in (value or []) if item in valid]
+    elif value not in valid:
+        value = default
+    st.session_state[key] = value
+    st.session_state[TEAM_ANALYSIS_KEPT_PREFIX + key] = value
+
+
+def render_team_analysis_sidebar(keys: list[str], labels: dict[str, str], opponents: list[str]) -> tuple[list[str], list[int], str | None]:
+    saved_id = st.session_state.get(TEAM_SAVED_ID_KEY)
+    if saved_id is not None:
+        # 生成中の球団を保存したら、未保存の選択を保存済みの球団に置き換える
+        for state_key in (TEAM_ANALYSIS_KEPT_PREFIX + TEAM_ANALYSIS_TEAMS_KEY, TEAM_ANALYSIS_TEAMS_KEY):
+            if ta.UNSAVED_TEAM_KEY in (st.session_state.get(state_key) or []):
+                st.session_state[state_key] = [saved_team_key(int(saved_id)) if key == ta.UNSAVED_TEAM_KEY else key for key in st.session_state[state_key]]
+    restore_team_analysis_state(TEAM_ANALYSIS_TEAMS_KEY, keys[:1], keys, multi=True)
+    st.session_state[TEAM_ANALYSIS_TEAMS_KEY] = st.session_state[TEAM_ANALYSIS_TEAMS_KEY][:TEAM_ANALYSIS_MAX_TEAMS]
+    restore_team_analysis_state(TEAM_ANALYSIS_SEASONS_KEY, list(real_data.DEFAULT_SEASONS), list(real_data.REAL_SEASONS), multi=True)
+    opponent_options = [TEAM_ANALYSIS_NO_OPPONENT, *opponents]
+    restore_team_analysis_state(TEAM_ANALYSIS_OPPONENT_KEY, TEAM_ANALYSIS_NO_OPPONENT, opponent_options, multi=False)
+    with st.sidebar:
+        st.header("球団分析")
+        st.multiselect(
+            "分析する球団", keys, format_func=lambda key: labels.get(key, key), key=TEAM_ANALYSIS_TEAMS_KEY,
+            max_selections=TEAM_ANALYSIS_MAX_TEAMS, placeholder="球団を選んでください",
+            on_change=keep_team_analysis_state, args=(TEAM_ANALYSIS_TEAMS_KEY,),
+            help="最大12球団。保存済みの球団は新しい順です。2球団以上で「球団比較」タブが出ます。",
+        )
+        st.subheader("実在の比較基準")
+        st.multiselect(
+            "年版", list(real_data.REAL_SEASONS), format_func=lambda season: f"{season}年版", key=TEAM_ANALYSIS_SEASONS_KEY,
+            on_change=keep_team_analysis_state, args=(TEAM_ANALYSIS_SEASONS_KEY,), placeholder="年版を選んでください",
+        )
+        st.selectbox(
+            "実在球団と1対1で比べる", opponent_options,
+            format_func=lambda key: "なし" if key == TEAM_ANALYSIS_NO_OPPONENT else ta.real_team_label(*ta.parse_real_team_key(key)),
+            key=TEAM_ANALYSIS_OPPONENT_KEY, on_change=keep_team_analysis_state, args=(TEAM_ANALYSIS_OPPONENT_KEY,),
+        )
+        st.caption(real_data.DEFAULT_SEASONS_NOTE + "。2022・2023年版も選べます。")
+        st.caption(TEAM_ANALYSIS_AGE_NOTE + "実在の外国人数は目安です。")
+        st.caption(f"Version {APP_VERSION}")
+    opponent = st.session_state[TEAM_ANALYSIS_OPPONENT_KEY] or None
+    return list(st.session_state[TEAM_ANALYSIS_TEAMS_KEY]), sorted(st.session_state[TEAM_ANALYSIS_SEASONS_KEY]), opponent
+
+
+def team_analysis_inputs(selected: list[str], meta: dict[str, dict[str, Any]]) -> tuple[list[ta.TeamInput], dict[str, pd.DataFrame]]:
+    names = [meta[key]["name"] for key in selected]
+    inputs: list[ta.TeamInput] = []
+    frames: dict[str, pd.DataFrame] = {}
+    for key in selected:
+        info = meta[key]
+        label = info["name"] or "（名前なし）"
+        if names.count(info["name"]) > 1:
+            label = f"{label}（{'ID ' + str(info['team_id']) if info['team_id'] else '未保存'}）"
+        if key == ta.UNSAVED_TEAM_KEY:
+            players = st.session_state[TEAM_RESULT_KEY]["players"]
+        else:
+            players, frame = _saved_team_analysis_input(int(info["team_id"]), label, str(Path(DB_PATH)), db_modified_ns())
+            frames[key] = frame
+        inputs.append(ta.TeamInput(key, label, players, info))
+    return inputs, frames
+
+
+def load_team_analysis(selected: list[str], meta: dict[str, dict[str, Any]], seasons: list[int], opponent: str | None) -> ta.TeamAnalysis:
+    """選んだ条件の分析結果。同じ条件ならセッション内で使い回す（タブの操作で作り直さない）。"""
+    inputs, frames = team_analysis_inputs(selected, meta)
+    unsaved = st.session_state.get(TEAM_RESULT_KEY) if ta.UNSAVED_TEAM_KEY in selected else None
+    cache_key = (tuple((team.team_key, team.team_label) for team in inputs), id(unsaved) if unsaved else 0, db_modified_ns(), tuple(seasons), opponent)
+    cache = st.session_state.setdefault(TEAM_ANALYSIS_CACHE_KEY, {})
+    if cache_key not in cache:
+        while len(cache) >= TEAM_ANALYSIS_CACHE_SIZE:
+            cache.pop(next(iter(cache)))
+        cache[cache_key] = ta.analyze_teams(inputs, seasons, opponent, team_pitcher_role, frames=frames)
+    return cache[cache_key]
+
+
+def render_team_analysis_exports(analysis: ta.TeamAnalysis) -> None:
+    """本文の最上部の出力ボタン。ファイルは押したときに作る（12球団で数秒かかるため）。"""
+    now = pd.Timestamp.now()
+    stem = ta.export_file_stem([team.team_label for team in analysis.teams])
+    stamp = now.strftime("%Y%m%d_%H%M")
+
+    def tables() -> dict[str, pd.DataFrame]:
+        return ta.build_export_tables(analysis, APP_VERSION, now)
+
+    excel_col, csv_col, note_col = st.columns([0.18, 0.18, 0.64], gap="small", vertical_alignment="center")
+    with excel_col:
+        st.download_button("Excelで出力", data=lambda: ta.export_excel_bytes(tables()), file_name=f"球団分析_{stem}_{stamp}.xlsx", mime=EXCEL_MIME, use_container_width=True, key="team_analysis_export_excel", on_click="ignore")
+    with csv_col:
+        st.download_button("CSV（zip）で出力", data=lambda: ta.export_csv_zip_bytes(tables()), file_name=f"球団分析_{stem}_{stamp}.zip", mime="application/zip", use_container_width=True, key="team_analysis_export_csv", on_click="ignore")
+    with note_col:
+        st.markdown('<div class="pp-table-count">表示中の条件（選んだ球団・実在の年版・1対1の比較相手）の結果を出力します。</div>', unsafe_allow_html=True)
+
+
+def team_analysis_colors(analysis: ta.TeamAnalysis, team_keys: list[str] | None = None) -> dict[str, str]:
+    """球団の表示名 → 色。1球団なら紺、複数なら球団ごとの色。"""
+    teams = [team for team in analysis.teams if team_keys is None or team.team_key in team_keys]
+    if len(teams) == 1:
+        return {teams[0].team_label: UI_COLORS["primary"]}
+    order = [team.team_key for team in analysis.teams]
+    return {team.team_label: TEAM_ANALYSIS_TEAM_COLORS[order.index(team.team_key) % len(TEAM_ANALYSIS_TEAM_COLORS)] for team in teams}
+
+
+def team_analysis_caption(analysis: ta.TeamAnalysis, extra: str = "") -> None:
+    st.caption(analysis.reference_text() + (f"　{extra}" if extra else ""))
+
+
+def team_real_column_config() -> dict[str, Any]:
+    """実在の分位点の列（実在_10% など）は名前が % で終わるが比率ではないので、普通の小数で出す。"""
+    return {column: st.column_config.NumberColumn(column, format="%.1f") for column in ("実在_10%", "実在_90%", "実在_中央")}
+
+
+def team_judge_styler(frame: pd.DataFrame, judge_column: str = "判定") -> Any:
+    """判定の行に色（範囲外＝赤系、やや外れ＝黄系）。数値は小数1桁、百分位は整数。"""
+    def highlight(row: pd.Series) -> list[str]:
+        color = ta.JUDGE_COLORS.get(str(row.get(judge_column, "")), "")
+        return [f"background-color: {color}" if color else ""] * len(row)
+
+    formats = {column: "{:.1f}" for column in frame.columns if pd.api.types.is_float_dtype(frame[column])}
+    if "百分位" in frame.columns:
+        formats["百分位"] = "{:.0f}"
+    return frame.style.apply(highlight, axis=1).format(formats, na_rep="")
+
+
+def render_team_judge_table(frame: pd.DataFrame, *, height: int | None = None, judge_column: str = "判定") -> None:
+    if frame.empty:
+        st.caption("データがありません。")
+        return
+    st.dataframe(team_judge_styler(frame.reset_index(drop=True), judge_column), hide_index=True, width="stretch", height=height or balance_table_height(len(frame)))
+
+
+def team_altair_finish(chart: Any, height: Any) -> None:
+    chart = chart.properties(height=height).configure_view(strokeWidth=0).configure(background="transparent", font="Yu Gothic UI")
+    st.altair_chart(chart, width="stretch")
+
+
+def team_series_scale(colors: dict[str, str], *, with_real: tuple[str, ...] = (TEAM_ANALYSIS_BAND_LABEL, TEAM_ANALYSIS_MEDIAN_LABEL)) -> Any:
+    """凡例付きの色（実在＝灰色系、生成＝強調色）。"""
+    import altair as alt
+
+    real_colors = {
+        TEAM_ANALYSIS_BAND_LABEL: TEAM_ANALYSIS_BAND_COLOR, TEAM_ANALYSIS_MEDIAN_LABEL: UI_COLORS["chart-neutral"],
+        TEAM_ANALYSIS_REAL_LABEL: UI_COLORS["chart-neutral"], TEAM_ANALYSIS_REAL_AVERAGE_LABEL: UI_COLORS["chart-neutral"],
+    }
+    domain = [*with_real, *colors]
+    palette = [real_colors[label] for label in with_real] + list(colors.values())
+    return alt.Color("系列:N", scale=alt.Scale(domain=domain, range=palette), legend=alt.Legend(title=None, orient="top", labelFontSize=12, symbolSize=120, labelLimit=260))
+
+
+def team_range_chart(rows: pd.DataFrame, order: list[str], value_title: str, colors: dict[str, str], *, bars: bool = False, zero: bool | None = None) -> None:
+    """group ごとに、実在の10〜90%の帯＋実在の中央の線＋生成の点（bars なら棒）。"""
+    import altair as alt
+
+    rows = rows[rows["値"].notna()]
+    if rows.empty:
+        st.caption("データがありません。")
+        return
+    data = rows.copy()
+    data["グループ"] = data["グループ"].astype(str)
+    present = list(dict.fromkeys(data["グループ"]))
+    order = [group for group in order if group in present] + [group for group in present if group not in order]
+    reference = data.drop_duplicates("グループ").assign(系列=TEAM_ANALYSIS_BAND_LABEL)
+    median = reference.assign(系列=TEAM_ANALYSIS_MEDIAN_LABEL)
+    generated = data.assign(系列=data["team_label"])
+    color = team_series_scale(colors)
+    y = alt.Y("グループ:N", sort=order, axis=alt.Axis(title=None, labelFontSize=13, labelLimit=220))
+    x_scale = alt.Scale(zero=bars if zero is None else zero, nice=True)
+    tooltip_real = [alt.Tooltip("グループ:N"), alt.Tooltip("実在_10%:Q", format=".1f"), alt.Tooltip("実在_中央:Q", format=".1f"), alt.Tooltip("実在_90%:Q", format=".1f")]
+    band = alt.Chart(reference).mark_bar(height=18, cornerRadius=3).encode(y=y, x=alt.X("実在_10%:Q", title=value_title, scale=x_scale), x2="実在_90%:Q", color=color, tooltip=tooltip_real)
+    middle = alt.Chart(median).mark_tick(thickness=3, size=24).encode(y=y, x=alt.X("実在_中央:Q", scale=x_scale), color=color, tooltip=tooltip_real)
+    tooltip_gen = [alt.Tooltip("team_label:N", title="球団"), alt.Tooltip("グループ:N"), alt.Tooltip("値:Q", format=".1f"), alt.Tooltip("百分位:Q", format=".0f"), alt.Tooltip("判定:N")]
+    if bars:
+        mark = alt.Chart(generated).mark_bar(height=8, cornerRadiusEnd=3)
+        layers = [band, mark.encode(y=y, x=alt.X("値:Q", scale=x_scale, stack=None), color=color, tooltip=tooltip_gen), middle]
+    else:
+        mark = alt.Chart(generated).mark_circle(size=170, opacity=0.95, stroke="#FFFFFF", strokeWidth=1.5)
+        layers = [band, middle, mark.encode(y=y, x=alt.X("値:Q", scale=x_scale), color=color, tooltip=tooltip_gen)]
+    team_altair_finish(alt.layer(*layers), alt.Step(40))
+
+
+def team_headline_strip_chart(analysis: ta.TeamAnalysis, team_keys: list[str]) -> None:
+    """主要指標ごとに、実在の球団（灰色の点）・10〜90%（薄い帯）・生成の球団（大きい点）を横1列に並べる。"""
+    import altair as alt
+
+    colors = team_analysis_colors(analysis, team_keys)
+    real = analysis.real_long[analysis.real_long["axis"] == ta.AXIS_HEADLINE]
+    generated = analysis.comparison[(analysis.comparison["区分"] == ta.AXIS_HEADLINE) & analysis.comparison["team_key"].isin(team_keys)]
+    color = team_series_scale(colors, with_real=(TEAM_ANALYSIS_BAND_LABEL, TEAM_ANALYSIS_REAL_LABEL))
+    charts = []
+    for metric in ta.HEADLINE_METRICS:
+        points = real[real["metric"] == metric].assign(指標=metric, 系列=TEAM_ANALYSIS_REAL_LABEL)
+        mine = generated[generated["指標"] == metric].assign(系列=lambda d: d["team_label"]).rename(columns={"値": "value"})
+        if points.empty or mine.empty:
+            continue
+        stats = ta.describe_values(points["value"])
+        band = pd.DataFrame([{"指標": metric, "10%": stats["10%"], "90%": stats["90%"], "系列": TEAM_ANALYSIS_BAND_LABEL}])
+        y = alt.Y("指標:N", axis=alt.Axis(title=None, labelFontSize=13, labelFontWeight="bold", minExtent=110))
+        x = alt.X("value:Q", title=None, scale=alt.Scale(zero=False, nice=True), axis=alt.Axis(labelFontSize=11, tickCount=6))
+        layers = [
+            alt.Chart(band).mark_bar(height=22, cornerRadius=3).encode(y=y, x=alt.X("10%:Q", title=None, scale=alt.Scale(zero=False, nice=True)), x2="90%:Q", color=color),
+            alt.Chart(points).mark_circle(size=55, opacity=0.65).encode(y=y, x=x, color=color, tooltip=[alt.Tooltip("team_label:N", title="実在の球団"), alt.Tooltip("value:Q", title=metric, format=".1f")]),
+            alt.Chart(mine).mark_circle(size=260, opacity=1, stroke="#FFFFFF", strokeWidth=2).encode(
+                y=y, x=x, color=color,
+                tooltip=[alt.Tooltip("team_label:N", title="球団"), alt.Tooltip("value:Q", title=metric, format=".1f"), alt.Tooltip("百分位:Q", format=".0f"), alt.Tooltip("判定:N")],
+            ),
+        ]
+        charts.append(alt.layer(*layers).properties(height=38, width=760))
+    if not charts:
+        st.caption("データがありません。")
+        return
+    chart = alt.vconcat(*charts, spacing=6).configure_view(strokeWidth=0).configure(background="transparent", font="Yu Gothic UI")
+    st.altair_chart(chart, width="content")
+
+
+def team_scatter_chart(analysis: ta.TeamAnalysis, team_keys: list[str]) -> None:
+    """投手力×野手力（実在の球団＋生成の球団）。"""
+    import altair as alt
+
+    colors = team_analysis_colors(analysis, team_keys)
+    metrics = ["投手力", "野手力"]
+    real = analysis.real_long[(analysis.real_long["axis"] == ta.AXIS_HEADLINE) & analysis.real_long["metric"].isin(metrics)]
+    real = real.pivot_table(index="team_label", columns="metric", values="value").reset_index().assign(系列=TEAM_ANALYSIS_REAL_LABEL)
+    generated = analysis.gen_long[(analysis.gen_long["axis"] == ta.AXIS_HEADLINE) & analysis.gen_long["metric"].isin(metrics) & analysis.gen_long["team_key"].isin(team_keys)]
+    generated = generated.pivot_table(index="team_key", columns="metric", values="value").reset_index()
+    generated["team_label"] = generated["team_key"].map(analysis.team_labels)
+    generated["系列"] = generated["team_label"]
+    color = team_series_scale(colors, with_real=(TEAM_ANALYSIS_REAL_LABEL,))
+    x = alt.X("投手力:Q", title="投手力（投手の査定 上位13人平均）", scale=alt.Scale(zero=False, nice=True))
+    y = alt.Y("野手力:Q", title="野手力（野手の査定 上位15人平均）", scale=alt.Scale(zero=False, nice=True))
+    tooltip = [alt.Tooltip("team_label:N", title="球団"), alt.Tooltip("投手力:Q", format=".1f"), alt.Tooltip("野手力:Q", format=".1f")]
+    layers = [
+        alt.Chart(real).mark_circle(size=70, opacity=0.6).encode(x=x, y=y, color=color, tooltip=tooltip),
+        alt.Chart(generated).mark_circle(size=280, opacity=1, stroke="#FFFFFF", strokeWidth=2).encode(x=x, y=y, color=color, tooltip=tooltip),
+    ]
+    team_altair_finish(alt.layer(*layers), 380)
+
+
+def team_metric_card_html(label: str, value: str, percentile: float, judge: str) -> str:
+    mark = {ta.JUDGE_OUT: "⚠ 範囲外", ta.JUDGE_EDGE: "△ やや外れ", ta.JUDGE_IN: "範囲内"}.get(judge, judge)
+    background = ta.JUDGE_COLORS.get(judge, "var(--ui-surface)")
+    percentile_text = f"実在の百分位 {percentile:.0f}" if not pd.isna(percentile) else "実在の比較なし"
+    return (
+        f'<div class="pp-ta-metric" style="background:{background};">'
+        f'<div class="pp-ta-metric-label">{e(label)}</div><div class="pp-ta-metric-value">{e(value)}</div>'
+        f'<div class="pp-ta-metric-note">{e(percentile_text)}・{e(mark)}</div></div>'
+    )
+
+
+def headline_value_text(metric: str, value: float) -> str:
+    if pd.isna(value):
+        return "—"
+    if metric in ("外国人数", "左投手数"):
+        return f"{value:.0f}人"
+    if metric in ta.AGE_METRICS:
+        return f"{value:.1f}歳"
+    return f"{value:.1f}"
+
+
+def team_comparison_rows(analysis: ta.TeamAnalysis, team_keys: list[str], axis: str, metric: str) -> pd.DataFrame:
+    comparison = analysis.comparison
+    return comparison[(comparison["区分"] == axis) & (comparison["指標"] == metric) & comparison["team_key"].isin(team_keys)].copy()
+
+
+def team_category_table(analysis: ta.TeamAnalysis, team: ta.TeamInput, axis: str, metrics: Any) -> pd.DataFrame:
+    table = ta.category_table(analysis, axis, list(metrics))
+    return table[table["team_label"] == team.team_label].drop(columns=["team_label", "区分"])
+
+
+def render_team_analysis_overview(analysis: ta.TeamAnalysis, team: ta.TeamInput) -> None:
+    team_analysis_caption(analysis)
+    comparison = analysis.comparison
+    rows = comparison[(comparison["区分"] == ta.AXIS_HEADLINE) & (comparison["team_key"] == team.team_key)].set_index("指標")
+    metrics = [metric for metric in ta.HEADLINE_METRICS if metric in rows.index]
+    for start in range(0, len(metrics), 5):
+        columns = st.columns(5, gap="small")
+        for column, metric in zip(columns, metrics[start:start + 5]):
+            row = rows.loc[metric]
+            column.markdown(team_metric_card_html(metric, headline_value_text(metric, row["値"]), row["百分位"], row["判定"]), unsafe_allow_html=True)
+    st.caption("総合力＝査定の上位28人平均、投手力＝投手の上位13人平均、野手力＝野手の上位15人平均、先発・救援の厚み＝先発の上位6人・救援の上位7人の平均、主力の平均年齢＝査定の上位28人の平均年齢。")
+    with balance_card("実在分布の中の位置", "灰色の点が実在の球団、薄い帯が実在の10〜90%、大きい点がこの球団です。"):
+        team_headline_strip_chart(analysis, [team.team_key])
+    with balance_card("投手力 × 野手力", "実在の球団（灰色）と、この球団の位置です。"):
+        team_scatter_chart(analysis, [team.team_key])
+    with balance_card("実在とずれている項目", "範囲外（実在の最小〜最大の外）が先、次にやや外れ（実在の10〜90%の外）。それぞれ百分位が極端な順です。"):
+        flagged = ta.flagged_items(analysis)
+        flagged = flagged[flagged["team_key"] == team.team_key]
+        compared = comparison[(comparison["team_key"] == team.team_key) & (comparison["判定"] != ta.JUDGE_NONE)]
+        counts = flagged["判定"].value_counts()
+        st.markdown(f"実在と比べた{len(compared)}項目のうち、範囲外 **{int(counts.get(ta.JUDGE_OUT, 0))}件**、やや外れ **{int(counts.get(ta.JUDGE_EDGE, 0))}件**")
+        columns = ["区分", "グループ", "指標", "値", "実在_最小", "実在_10%", "実在_中央", "実在_90%", "実在_最大", "百分位", "判定"]
+        render_team_judge_table(flagged[columns], height=420)
+
+
+def render_team_analysis_composition(analysis: ta.TeamAnalysis, team: ta.TeamInput) -> None:
+    team_analysis_caption(analysis)
+    with balance_card("構成チェック", "球団生成の構成チェック表に、実在の中での百分位と判定を足したものです。抑え・先発の適性は2022〜2025年版、年齢帯は2026年版の範囲です。"):
+        table = analysis.composition[analysis.composition["team_label"] == team.team_label].drop(columns=["team_label"])
+        render_team_judge_table(table)
+    with balance_card("カテゴリ別の人数", "この球団の人数（棒）と、実在の中央（線）・10〜90%（帯）です。"):
+        axis = st.segmented_control("カテゴリ", TEAM_ANALYSIS_COUNT_AXES, default=ta.AXIS_POSITION, key="team_analysis_count_axis") or ta.AXIS_POSITION
+        if axis in ta.AGE_AXES:
+            st.caption(TEAM_ANALYSIS_AGE_NOTE)
+        rows = team_comparison_rows(analysis, [team.team_key], axis, ta.METRIC_COUNT)
+        team_range_chart(rows, list(ta.AXIS_GROUPS.get(axis, ())), "人数", team_analysis_colors(analysis, [team.team_key]), bars=True)
+        with st.expander("表で見る"):
+            render_team_judge_table(team_category_table(analysis, team, axis, [ta.METRIC_COUNT, ta.METRIC_SHARE]))
+
+
+def render_team_analysis_abilities(analysis: ta.TeamAnalysis, team: ta.TeamInput, real_players: pd.DataFrame | None) -> None:
+    team_analysis_caption(analysis)
+    left, right = st.columns([0.66, 0.34], gap="medium")
+    with left:
+        axis = st.segmented_control("カテゴリ", TEAM_ANALYSIS_ABILITY_AXES, default=ta.AXIS_ROLE, key="team_analysis_ability_axis") or ta.AXIS_ROLE
+    with right:
+        metric = st.selectbox("指標", TEAM_ANALYSIS_ABILITY_METRICS, key="team_analysis_ability_metric")
+    notes = []
+    if metric == "ミート" or axis == ta.AXIS_ALL:
+        notes.append(TEAM_ANALYSIS_CONTACT_NOTE)
+    if axis in ta.AGE_AXES or metric == ta.METRIC_AGE:
+        notes.append(TEAM_ANALYSIS_AGE_NOTE)
+    for note in notes:
+        st.caption(note)
+    colors = team_analysis_colors(analysis, [team.team_key])
+    with balance_card(f"{axis}別の{metric}", "実在の10〜90%（帯）・中央（線）と、この球団の値（点）です。"):
+        team_range_chart(team_comparison_rows(analysis, [team.team_key], axis, metric), list(ta.AXIS_GROUPS.get(axis, ())), metric, colors)
+        render_team_judge_table(team_category_table(analysis, team, axis, [metric]))
+    with st.expander(f"{axis}別のすべての指標"):
+        render_team_judge_table(team_category_table(analysis, team, axis, TEAM_ANALYSIS_ABILITY_METRICS), height=420)
+    render_team_ability_boxplot(analysis, team, real_players, axis, metric)
+    with st.expander("内部分類（選手格・型）別の能力（生成のみ。実在との比較はありません）"):
+        internal_metrics = (ta.METRIC_COUNT, ta.METRIC_RATING_MEAN, *ta.ABILITY_METRICS)
+        for internal_axis in ta.GENERATED_ONLY_AXES:
+            table = team_category_table(analysis, team, internal_axis, internal_metrics)
+            if table.empty:
+                continue
+            pivot = table.pivot_table(index="グループ", columns="指標", values="値", aggfunc="first", sort=False)
+            pivot = pivot.reindex(columns=[m for m in internal_metrics if m in pivot.columns]).reset_index().rename(columns={"グループ": internal_axis})
+            render_sub_heading(internal_axis)
+            render_balance_table(pivot)
+
+
+def render_team_ability_boxplot(analysis: ta.TeamAnalysis, team: ta.TeamInput, real_players: pd.DataFrame | None, axis: str, metric: str) -> None:
+    import altair as alt
+
+    with balance_card(f"{metric}の分布（{axis}別）", "実在の全選手と、この球団の選手の箱ひげ図です（箱は25〜75%、ひげは最小〜最大）。"):
+        if real_players is None:
+            st.info("実在の選手データがありません（build_real_team_reference.py を実行してください）。分布図だけ表示しません。")
+            return
+        column = "rating" if metric == ta.METRIC_RATING_MAX else ta.MEAN_METRIC_COLUMNS.get(metric)
+        if column is None or column not in analysis.frame.columns:
+            st.caption("この指標は分布図の対象外です。")
+            return
+        if axis in ta.AGE_AXES or metric == ta.METRIC_AGE:
+            real = real_players[real_players["season"] == real_data.AGE_SEASON]
+        else:
+            real = real_players[real_players["season"].isin(analysis.seasons)]
+        generated = analysis.frame[analysis.frame["team_key"] == team.team_key]
+        data = pd.concat([
+            real[[axis, column]].assign(系列=TEAM_ANALYSIS_REAL_LABEL),
+            generated[[axis, column]].assign(系列=team.team_label),
+        ], ignore_index=True).dropna(subset=[axis, column]).rename(columns={axis: "グループ", column: "値"})
+        if data.empty:
+            st.caption("データがありません。")
+            return
+        present = list(dict.fromkeys(data["グループ"]))
+        expected = list(ta.AXIS_GROUPS.get(axis, ()))
+        order = [group for group in expected if group in present] + [group for group in present if group not in expected]
+        color = team_series_scale(team_analysis_colors(analysis, [team.team_key]), with_real=(TEAM_ANALYSIS_REAL_LABEL,))
+        chart = alt.Chart(data).mark_boxplot(extent="min-max", size=12).encode(
+            y=alt.Y("グループ:N", sort=order, axis=alt.Axis(title=None, labelFontSize=13)),
+            yOffset=alt.YOffset("系列:N", sort=[TEAM_ANALYSIS_REAL_LABEL, team.team_label]),
+            x=alt.X("値:Q", title=metric, scale=alt.Scale(zero=False, nice=True)),
+            color=color,
+        )
+        team_altair_finish(chart, alt.Step(48))
+
+
+def team_heatmap(table: pd.DataFrame, value: str, scheme: str, title: str, *, diverging: bool = False) -> None:
+    import altair as alt
+
+    if table.empty:
+        st.caption("データがありません。")
+        return
+    limit = float(table[value].abs().max() or 1.0)
+    scale = alt.Scale(scheme=scheme, domain=[-limit, limit], reverse=True) if diverging else alt.Scale(scheme=scheme, domainMin=0)
+    base = alt.Chart(table).encode(
+        x=alt.X("ポジション:N", sort=list(ta.POSITION_GROUPS), title=None, axis=alt.Axis(labelAngle=0, labelFontSize=12, orient="top")),
+        y=alt.Y("年齢帯:N", sort=list(ta.AGE_BAND_GROUPS), title=None, axis=alt.Axis(labelFontSize=12)),
+    )
+    tooltip = ["年齢帯", "ポジション", alt.Tooltip("この球団:Q", format=".0f"), alt.Tooltip("実在平均:Q", format=".2f"), alt.Tooltip("差:Q", format="+.2f")]
+    rect = base.mark_rect(cornerRadius=3).encode(color=alt.Color(f"{value}:Q", scale=scale, legend=alt.Legend(title=title, orient="right")), tooltip=tooltip)
+    text = base.mark_text(fontSize=12, fontWeight="bold").encode(text=alt.Text(f"{value}:Q", format="+.1f" if diverging else ".0f"))
+    team_altair_finish(alt.layer(rect, text), 230)
+
+
+def render_team_analysis_age(analysis: ta.TeamAnalysis, team: ta.TeamInput) -> None:
+    import altair as alt
+
+    st.caption(f"年齢系の基準は、年版の選択に関わらず2026年版の{analysis.real_age_team_count}球団です。")
+    colors = team_analysis_colors(analysis, [team.team_key])
+    histogram = ta.age_histogram(analysis)
+    histogram = histogram[histogram["team_label"] == team.team_label]
+    with balance_card("年齢別の人数", "この球団の人数（棒、1歳刻み）と、実在12球団の平均人数（線）です。"):
+        if histogram.empty:
+            st.caption("データがありません。")
+        else:
+            color = team_series_scale(colors, with_real=(TEAM_ANALYSIS_REAL_AVERAGE_LABEL,))
+            x = alt.X("年齢:O", title="年齢", axis=alt.Axis(labelAngle=0))
+            tooltip = ["年齢", alt.Tooltip("この球団:Q", format=".0f"), alt.Tooltip("実在平均:Q", format=".2f")]
+            layers = [
+                alt.Chart(histogram.assign(系列=team.team_label)).mark_bar(cornerRadiusEnd=2).encode(x=x, y=alt.Y("この球団:Q", title="人数"), color=color, tooltip=tooltip),
+                alt.Chart(histogram.assign(系列=TEAM_ANALYSIS_REAL_AVERAGE_LABEL)).mark_line(point=True, strokeWidth=2).encode(x=x, y="実在平均:Q", color=color, tooltip=tooltip),
+            ]
+            team_altair_finish(alt.layer(*layers), 280)
+    table = ta.age_position_table(analysis)
+    table = table[table["team_label"] == team.team_label]
+    left, right = st.columns(2, gap="medium")
+    with left:
+        with balance_card("年齢帯×ポジションの人数（この球団）"):
+            team_heatmap(table, "この球団", "blues", "人数")
+    with right:
+        with balance_card("実在平均との差", "この球団 − 実在12球団の平均。赤は多い、青は少ない。"):
+            team_heatmap(table, "差", "redblue", "差", diverging=True)
+    with balance_card("年齢帯ごとの平均査定", "実在の10〜90%（帯）・中央（線）と、この球団の値（点）です。"):
+        team_range_chart(team_comparison_rows(analysis, [team.team_key], ta.AXIS_AGE, ta.METRIC_RATING_MEAN), list(ta.AGE_BAND_GROUPS), "査定の平均", colors)
+
+
+def team_depth_grid(table: pd.DataFrame) -> Any:
+    """戦力の厚みの表（行＝枠、列＝何番手。セルは「選手名（査定）」）と、セルごとの色。"""
+    slots = [slot for slot, _count in ta.DEPTH_SLOTS]
+    columns = [f"{rank}番手" for rank in range(1, max(count for _slot, count in ta.DEPTH_SLOTS) + 1)]
+    cells = pd.DataFrame("", index=slots, columns=columns)
+    styles = pd.DataFrame("", index=slots, columns=columns)
+    for row in table.to_dict("records"):
+        column = f"{int(row['番手'])}番手"
+        if row["判定"] == "該当者なし":
+            cells.loc[row["枠"], column] = "（いない）"
+            # 実在の半数以上の球団にいる枠がいないときは、やや外れの色を付ける
+            if row["実在で枠がある割合%"] >= 50:
+                styles.loc[row["枠"], column] = f"background-color: {ta.JUDGE_COLORS[ta.JUDGE_EDGE]}"
+            continue
+        cells.loc[row["枠"], column] = f"{row['選手']}（{row['査定']:.0f}）"
+        color = ta.JUDGE_COLORS.get(row["判定"])
+        if color:
+            styles.loc[row["枠"], column] = f"background-color: {color}"
+    grid = cells.rename_axis("枠").reset_index()
+    style_grid = styles.rename_axis("枠").reset_index()
+    style_grid["枠"] = ""
+    return grid.style.apply(lambda _frame: style_grid.values, axis=None)
+
+
+def render_team_analysis_depth(analysis: ta.TeamAnalysis, team: ta.TeamInput) -> None:
+    team_analysis_caption(analysis)
+    table = ta.depth_table(analysis)
+    table = table[table["team_label"] == team.team_label]
+    with balance_card("戦力の厚み", "ポジションごとに査定の高い順（メインポジションのみ）。セルは「選手名（査定）」。色は実在の同じ枠から外れたセル（赤系＝範囲外、黄系＝実在の10〜90%の外）。"):
+        rank_columns = {f"{rank}番手": st.column_config.TextColumn(f"{rank}番手", width=148) for rank in range(1, max(count for _slot, count in ta.DEPTH_SLOTS) + 1)}
+        st.dataframe(team_depth_grid(table), hide_index=True, width="stretch", height=balance_table_height(len(ta.DEPTH_SLOTS)), column_config={"枠": st.column_config.TextColumn("枠", width=60), **rank_columns})
+        findings = ta.depth_findings(analysis)
+        prefix = f"{team.team_label}："
+        thin = [text.replace(prefix, "", 1) for text in findings["thin"] if len(analysis.teams) == 1 or text.startswith(prefix)]
+        thick = [text.replace(prefix, "", 1) for text in findings["thick"] if len(analysis.teams) == 1 or text.startswith(prefix)]
+        left, right = st.columns(2, gap="medium")
+        with left:
+            render_sub_heading("手薄なポジション")
+            st.markdown("\n".join(f"- {text}" for text in thin) if thin else "実在の10%を下回る枠が半分以上のポジションはありません。")
+        with right:
+            render_sub_heading("層が厚すぎるポジション")
+            st.markdown("\n".join(f"- {text}" for text in thick) if thick else "実在の90%を上回る枠が半分以上のポジションはありません。")
+    with st.expander("表で見る（実在の同じ枠の分布）"):
+        render_team_judge_table(table.drop(columns=["team_label"]))
+
+
+def render_team_analysis_specials(analysis: ta.TeamAnalysis, team: ta.TeamInput) -> None:
+    team_analysis_caption(analysis, "1人あたりの個数（ランク特能点は1人あたりの査定点）。金特は実在の取り込みにも特殊能力マスターにも無いため0です。")
+    left, right = st.columns([0.66, 0.34], gap="medium")
+    with left:
+        axis = st.segmented_control("カテゴリ", TEAM_ANALYSIS_SPECIAL_AXES, default=ta.AXIS_ROLE, key="team_analysis_special_axis") or ta.AXIS_ROLE
+    with right:
+        metric = st.selectbox("グラフの指標", ta.SPECIAL_METRICS, key="team_analysis_special_metric")
+    with balance_card(f"{axis}別の{metric}", "実在の10〜90%（帯）・中央（線）と、この球団の値（点）です。"):
+        team_range_chart(team_comparison_rows(analysis, [team.team_key], axis, metric), list(ta.AXIS_GROUPS.get(axis, ())), metric, team_analysis_colors(analysis, [team.team_key]))
+    with balance_card(f"{axis}別の特殊能力（すべて）"):
+        render_team_judge_table(team_category_table(analysis, team, axis, ta.SPECIAL_METRICS), height=420)
+
+
+def render_team_analysis_players(analysis: ta.TeamAnalysis, team: ta.TeamInput, master: MasterData) -> None:
+    positions = [index for index, key in enumerate(analysis.frame["team_key"]) if key == team.team_key]
+    table = ta.player_list_table(analysis).iloc[positions].reset_index(drop=True).drop(columns=["team_label"])
+    frame = analysis.frame.iloc[positions].reset_index(drop=True)
+    left, right = st.columns([0.35, 0.65], gap="medium")
+    with left:
+        axis = st.selectbox("カテゴリで絞り込む", ["なし", *TEAM_ANALYSIS_FILTER_AXES], key="team_analysis_player_axis")
+    chosen: list[str] = []
+    with right:
+        if axis != "なし":
+            present = set(frame[axis].dropna())
+            groups = [group for group in ta.AXIS_GROUPS.get(axis, ()) if group in present]
+            chosen = st.multiselect("グループ", groups, key=f"team_analysis_player_groups_{axis}", placeholder="すべて")
+    mask = frame[axis].isin(chosen) if axis != "なし" and chosen else pd.Series(True, index=frame.index)
+    shown = table[mask]
+    indexes = list(shown.index)
+    st.markdown(f'<div class="pp-table-count">{len(shown)}人（全{len(table)}人）。行を選ぶと能力カードを表示します。</div>', unsafe_allow_html=True)
+    number_columns = [column for column in ("年齢", "プロ年数", "査定", *ta.ABILITY_METRICS) if column in shown.columns]
+    event = st.dataframe(
+        shown.reset_index(drop=True), hide_index=True, width="stretch", height=420, on_select="rerun", selection_mode="single-row",
+        key=f"team_analysis_player_table_{team.team_key}_{axis}_{'_'.join(chosen)}",
+        column_config={column: st.column_config.NumberColumn(column, format="%.0f") for column in number_columns},
+    )
+    rows = event.selection.rows if event is not None else []
+    if rows and rows[0] < len(indexes):
+        render_detail_panel(team.players[indexes[rows[0]]], master, DETAIL_KEY_PREFIX)
+
+
+def render_team_analysis_comparison(analysis: ta.TeamAnalysis) -> None:
+    team_analysis_caption(analysis)
+    keys = [team.team_key for team in analysis.teams]
+    colors = team_analysis_colors(analysis)
+    with balance_card("主要指標", "列＝球団。最後の3列は実在の中央と10〜90%です。"):
+        render_balance_table(ta.headline_pivot(analysis), column_config=team_real_column_config())
+    with balance_card("主要指標の球団別", "球団ごとの値（棒）と、実在の中央（線）・10〜90%（帯）です。"):
+        metric = st.selectbox("指標", ta.HEADLINE_METRICS, key="team_analysis_compare_metric")
+        rows = analysis.comparison[(analysis.comparison["区分"] == ta.AXIS_HEADLINE) & (analysis.comparison["指標"] == metric)].copy()
+        rows["グループ"] = rows["team_label"]
+        team_range_chart(rows, [team.team_label for team in analysis.teams], metric, colors, bars=True, zero=False)
+    with balance_card("投手力 × 野手力", "実在の球団（灰色）と、選んだ球団の位置です。"):
+        team_scatter_chart(analysis, keys)
+    with balance_card("カテゴリ別の比較", "グループ × 球団。最後の列は実在の中央です。"):
+        left, right = st.columns([0.66, 0.34], gap="medium")
+        with left:
+            axis = st.segmented_control("カテゴリ", TEAM_ANALYSIS_ABILITY_AXES, default=ta.AXIS_POSITION, key="team_analysis_compare_axis") or ta.AXIS_POSITION
+        with right:
+            metric = st.selectbox("指標", (ta.METRIC_COUNT, ta.METRIC_SHARE, *TEAM_ANALYSIS_ABILITY_METRICS, *ta.SPECIAL_METRICS), key="team_analysis_compare_axis_metric")
+        table = ta.category_table(analysis, axis, [metric])
+        if table.empty:
+            st.caption("データがありません。")
+        else:
+            pivot = table.pivot_table(index="グループ", columns="team_label", values="値", aggfunc="first", sort=False)
+            pivot = pivot.reindex(columns=[team.team_label for team in analysis.teams if team.team_label in pivot.columns])
+            pivot["実在_中央"] = table.drop_duplicates("グループ").set_index("グループ")["実在_中央"].reindex(pivot.index)
+            render_balance_table(pivot.reset_index().rename(columns={"グループ": axis}), column_config=team_real_column_config())
+
+
+def render_team_analysis_focus(analysis: ta.TeamAnalysis) -> ta.TeamInput:
+    """複数球団のとき、概要〜選手一覧のタブで詳しく見る球団を選ぶ。"""
+    if len(analysis.teams) == 1:
+        return analysis.teams[0]
+    keys = [team.team_key for team in analysis.teams]
+    if st.session_state.get(TEAM_ANALYSIS_FOCUS_KEY) not in keys:
+        st.session_state[TEAM_ANALYSIS_FOCUS_KEY] = keys[0]
+    st.selectbox("詳しく見る球団（概要〜選手一覧のタブ）", keys, format_func=lambda key: analysis.team_labels[key], key=TEAM_ANALYSIS_FOCUS_KEY)
+    return next(team for team in analysis.teams if team.team_key == st.session_state[TEAM_ANALYSIS_FOCUS_KEY])
+
+
+def render_team_analysis_body(master: MasterData) -> None:
+    render_app_title("球団分析", "球団単位のバランスを、実在球団（既定は2024〜2026年版）と比べます。")
+    keys, labels, meta = team_analysis_options()
+    selected, seasons, opponent = render_team_analysis_sidebar(keys, labels, team_analysis_opponents())
+    if not keys:
+        st.info("球団生成で球団を作ると、ここで分析できます。")
+        return
+    if not selected:
+        st.info("左の「分析する球団」で球団を選んでください（最大12球団）。")
+        return
+    if not seasons:
+        st.warning("実在の比較基準の年版を1つ以上選んでください。")
+        return
+    analysis = load_team_analysis(selected, meta, seasons, opponent)
+    render_team_analysis_exports(analysis)
+    if opponent:
+        st.caption(f"1対1の比較相手: {ta.real_team_label(*ta.parse_real_team_key(opponent))}（表に「比較相手の値」「比較相手との差」の列が出ます）")
+    team = render_team_analysis_focus(analysis)
+    st.markdown(TEAM_ANALYSIS_CSS, unsafe_allow_html=True)
+    tabs = st.tabs(list(TEAM_ANALYSIS_TAB_LABELS if len(analysis.teams) > 1 else TEAM_ANALYSIS_TAB_LABELS[:-1]))
+    with tabs[0]:
+        render_team_analysis_overview(analysis, team)
+    with tabs[1]:
+        render_team_analysis_composition(analysis, team)
+    with tabs[2]:
+        render_team_analysis_abilities(analysis, team, team_analysis_real_players(real_players_modified_ns()))
+    with tabs[3]:
+        render_team_analysis_age(analysis, team)
+    with tabs[4]:
+        render_team_analysis_depth(analysis, team)
+    with tabs[5]:
+        render_team_analysis_specials(analysis, team)
+    with tabs[6]:
+        render_team_analysis_players(analysis, team, master)
+    if len(analysis.teams) > 1:
+        with tabs[7]:
+            render_team_analysis_comparison(analysis)
+
+
+def team_analysis_page() -> None:
+    master = load_master_data()
+    st.markdown(balance_page_css(), unsafe_allow_html=True)
+    # バランス確認ページと同じ見た目にする（CSS は st-key-balance_page* の中だけに効く）
+    with st.container(key="balance_page_team_analysis"):
+        render_team_analysis_body(master)
+
+
 def balance_page() -> None:
     render_balance_check(load_master_data())
 
@@ -12372,6 +13124,7 @@ def main() -> None:
     pages = [
         st.Page(generation_page, title="選手生成", icon="⚾", url_path="generate", default=True),
         st.Page(team_page, title="球団生成", icon="🏟️", url_path="team"),
+        team_analysis_streamlit_page(),
         st.Page(balance_page, title="バランス確認", icon="📊", url_path="balance"),
     ]
     st.navigation(pages, position="top").run()

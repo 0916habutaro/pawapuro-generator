@@ -38,6 +38,7 @@ import pandas as pd  # noqa: E402
 
 from generator import team as team_lib  # noqa: E402
 from generator.rating import player_rating  # noqa: E402
+from generator.real_data import attach_real_details, real_player_to_rating_dict  # noqa: E402
 
 import check_age_profile  # noqa: E402
 
@@ -161,45 +162,13 @@ def run_jobs(jobs: list[tuple[int, dict[str, Any] | None]], workers: int, label:
 # 実在データ
 # ---------------------------------------------------------------------------
 def load_real_players() -> pd.DataFrame:
-    """2026年版実在12球団の選手を、generator/rating.py で査定できる形にする。"""
+    """2026年版実在12球団の選手を、generator/rating.py で査定する（変換は generator/real_data.py）。"""
     players = pd.read_csv(REAL_PLAYERS_DIR / "players.csv")
     specials = pd.read_csv(REAL_PLAYERS_DIR / "special_abilities.csv")
     breaking = pd.read_csv(REAL_PLAYERS_DIR / "breaking_balls.csv")
-    special_map: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
-    for row in specials.itertuples():
-        special_map[(row.team, row.name)].append((str(row.special), str(row.special_kind)))
-    ball_map: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-    kind = breaking["kind"].fillna("breaking").astype(str)
-    status = breaking["status"].fillna("ok").astype(str)
-    usable = breaking[(kind.eq("breaking") & status.isin(["ok", "corrected_by_direction_filter"])) | kind.eq("second_fastball")]
-    for row in usable.itertuples():
-        movement = pd.to_numeric(row.movement, errors="coerce")
-        ball_map[(row.team, row.name)].append({"kind": str(row.kind), "movement": 0 if pd.isna(movement) else int(movement)})
     rows = []
-    for row in players.itertuples():
-        key = (row.team, row.name)
-        ranked = {}
-        normal = []
-        for name, special_kind in special_map.get(key, []):
-            if special_kind == "rank":
-                ranked[name[:-1]] = name
-            else:
-                normal.append(name)
-        if row.role == "投手":
-            roles = str(row.pitcher_roles or "")
-            marks = {label: ("◎" if index == 0 else "○") for index, label in enumerate(roles)}
-            abilities = {"球速": row.top_speed, "コントロール": {"value": row.control}, "スタミナ": {"value": row.stamina}, "ranked_specials": ranked}
-            player = {
-                "role": "投手", "abilities": abilities, "special_abilities": normal, "breaking_balls": ball_map.get(key, []),
-                "starter_aptitude": marks.get("先", "-"), "reliever_aptitude": marks.get("中", "-"), "closer_aptitude": marks.get("抑", "-"),
-                "sub_positions": [{"position": p, "aptitude": "○"} for p in str(row.sub_positions).split(";") if p and p != "nan"],
-            }
-        else:
-            abilities = {"弾道": row.trajectory, "ranked_specials": ranked}
-            for label, column in (("ミート", "contact"), ("パワー", "power"), ("走力", "run_speed"), ("肩力", "arm_strength"), ("守備力", "fielding"), ("捕球", "catching")):
-                abilities[label] = {"value": getattr(row, column)}
-            player = {"role": "野手", "abilities": abilities, "special_abilities": normal}
-        rows.append({"team": row.team, "role": row.role, "rating": player_rating(player)})
+    for row in attach_real_details(players, specials, breaking):
+        rows.append({"team": row["team"], "role": row["role"], "rating": player_rating(real_player_to_rating_dict(row))})
     return pd.DataFrame(rows)
 
 
