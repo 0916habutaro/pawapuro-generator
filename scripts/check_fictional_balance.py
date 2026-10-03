@@ -140,6 +140,57 @@ RIGHT_ONLY = {"シンカー", "Hシンカー"}
 CHANGEUP = {"サークルチェンジ", "チェンジアップ"}
 
 
+# 球速の左右・役割（`投手球速左右差_改修指示.md`）。実在は2024〜2026年版の日本人投手1,126人。
+# 役割の区分: 生成は position が「先発」なら先発、「中継ぎ」「抑え」は救援（球団分析と同じ）。
+SPEED_HAND_REAL = {
+    # (区分, 投げ手): (平均, 標準偏差)
+    ("先発", "右"): (151.39, 4.31), ("先発", "左"): (148.69, 3.61),
+    ("救援", "右"): (153.23, 3.55), ("救援", "左"): (149.74, 3.54),
+}
+SPEED_HAND_QUANTILES_REAL = {"右": (148, 152, 157), "左": (145, 149, 153)}
+SPEED_JAPANESE_MEAN_REAL = 151.37
+# 改修前（seed 1〜5000）のコントロール・スタミナの平均。左右の球速の調整で変わっていないことの確認用。
+SPEED_HAND_CONTROL_STAMINA_BEFORE = {
+    ("先発", "右"): (53.93, 57.33), ("先発", "左"): (53.47, 57.54),
+    ("救援", "右"): (49.01, 46.97), ("救援", "左"): (49.56, 47.06),
+}
+
+
+def check_pitcher_speed_by_hand(R, d):
+    s = "球速の左右・役割（実在は2024〜2026年版）"
+    group = np.where(d.position == "先発", "先発", "救援")
+    hand = np.where(d.throws_bats.str.startswith("左"), "左", "右")
+    sp = d.speed
+    mean = {}
+    for (g, h), (real, real_sd) in SPEED_HAND_REAL.items():
+        x = sp[(group == g) & (hand == h)]
+        mean[(g, h)] = v = x.mean()
+        R.add(s, f"{g}・{h} 平均", num(v), ok_range(v, real - 0.5, real + 0.5), f"{real - 0.5:.2f}〜{real + 0.5:.2f}", num(real))
+        v = x.std()
+        R.add(s, f"{g}・{h} 標準偏差", num(v), ok_range(v, real_sd - 0.6, real_sd + 0.6), f"{real_sd - 0.6:.2f}〜{real_sd + 0.6:.2f}", num(real_sd))
+    for g, real in [("先発", -2.7), ("救援", -3.5)]:
+        v = mean[(g, "左")] - mean[(g, "右")]
+        R.add(s, f"左右差（左−右） {g}", num(v), ok_range(v, real - 0.6, real + 0.6), f"{real - 0.6:+.1f}〜{real + 0.6:+.1f}", f"{real:+.1f}")
+    for h, real in [("右", 1.8), ("左", 1.0)]:
+        v = mean[("救援", h)] - mean[("先発", h)]
+        R.add(s, f"救援−先発 {h}", num(v), ok_range(v, real - 0.6, real + 0.6), f"{real - 0.6:+.1f}〜{real + 0.6:+.1f}", f"{real:+.1f}")
+    v = sp.mean()
+    R.add(s, "日本人全体の平均", num(v), ok_range(v, SPEED_JAPANESE_MEAN_REAL - 0.3, SPEED_JAPANESE_MEAN_REAL + 0.3),
+          f"{SPEED_JAPANESE_MEAN_REAL - 0.3:.2f}〜{SPEED_JAPANESE_MEAN_REAL + 0.3:.2f}", num(SPEED_JAPANESE_MEAN_REAL))
+    for h, reals in SPEED_HAND_QUANTILES_REAL.items():
+        qs = sp[hand == h].quantile([0.1, 0.5, 0.9]).tolist()
+        for label, q, real in zip(("10%", "中央", "90%"), qs, reals):
+            R.add(s, f"{h}投手の{label}", num(q, 0), ok_range(q, real - 1, real + 1), f"{real - 1}〜{real + 1}", str(real))
+    v = (sp[hand == "左"] >= 155).mean()
+    R.add(s, "左投手で155以上", pct(v), ok_range(v, hi=0.06), "6%以下", "3.2%")
+    for (g, h), (ct_before, st_before) in SPEED_HAND_CONTROL_STAMINA_BEFORE.items():
+        x = d[(group == g) & (hand == h)]
+        for label, col, before in (("コントロール", "control", ct_before), ("スタミナ", "stamina", st_before)):
+            v = x[col].mean()
+            R.add(s, f"{g}・{h} {label}平均", num(v), ok_range(v, before - 0.5, before + 0.5),
+                  f"改修前{before:.2f}±0.5", "")
+
+
 def check_pitchers(d):
     R = Result()
     sp, ct, st = d.speed, d.control, d.stamina
@@ -161,6 +212,8 @@ def check_pitchers(d):
     v = (ct < 20).mean(); R.add(s, "コントロール20未満", pct(v), ok_range(v, hi=0.01), "1%以下", "0.5%")
     c = sp.corr(ct); R.add(s, "球速×コントロール相関", num(c), ok_range(c, -0.40, -0.15), "−0.40〜−0.15", "−0.26")
     c = ct.corr(st); R.add(s, "コントロール×スタミナ相関", num(c), ok_range(c, 0.38, 0.58), "+0.38〜+0.58", "+0.46")
+
+    check_pitcher_speed_by_hand(R, d)
 
     s = "抑え・起用適性"
     v = sp[closer].mean() if closer.any() else np.nan
