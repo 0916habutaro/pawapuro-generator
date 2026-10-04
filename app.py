@@ -6810,7 +6810,7 @@ FICTIONAL_STARTER_STAMINA_TRANSFORM = {"S0": 57.0, "A": 1.15, "D": {"右": -2.0,
 FICTIONAL_MOVEMENT_QUALITY_NAMESPACE = "fictional_pitcher_movement_v1"
 FICTIONAL_MOVEMENT_QUALITY = {
     "先発": {"B": 0.8, "O": -0.1, "control": (55.0, 13.0), "stamina": (57.0, 11.0)},
-    "救援": {"B": 0.3, "O": -0.4, "control": (48.0, 10.0)},
+    "救援": {"B": 0.2, "O": -0.4, "control": (48.0, 10.0)},
 }
 FICTIONAL_MOVEMENT_QUALITY_MAX_STEPS = 3
 # 抑え（守護神格）の決め球の変化量
