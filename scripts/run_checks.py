@@ -13,7 +13,7 @@
     check_fictional_balance 架空球団用 投手・野手 各5000人（サンプルCSVを scripts/generate_fictional_balance_sample.py で作り、1つにまとめて渡す）
     check_foreign_balance   助っ人外国人用 投手・野手 各5000人
     check_draft_balance     ドラフト候補用 投手・野手 各5000人（1つのCSVにまとめて渡す）
-- PYTHONHASHSEED=0 を固定して流す（ドラフト候補用の野手の結果が PYTHONHASHSEED で変わる不具合を直すまでの措置）。
+- PYTHONHASHSEED=0 を固定して流す（ハッシュの値によらないことは tests/test_hash_independence.py で確かめている。念のため固定している）。
 - 前回の正式な結果（data/config/check_snapshot.csv）との比較: 悪化した項目は不合格に数える。意図した変更なら
   `--update-snapshot --reason "理由"` で更新する（更新した項目と前後の値を表示）。
 - 終了コード: 不合格が1件でもあれば 1。要注意・受け入れ済みは 0。スクリプトが異常終了したときは 2。

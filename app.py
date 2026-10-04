@@ -1383,8 +1383,11 @@ def ability(value: int) -> dict[str, Any]:
 
 
 FIELDER_ABILITY_KEYS = ["ミート", "パワー", "走力", "肩力", "守備力", "捕球"]
-TECHNICAL_FIELDER_KEYS = {"ミート", "守備力", "捕球"}
-PHYSICAL_FIELDER_KEYS = {"パワー", "走力", "肩力"}
+# 乱数を引きながら順番に回すので、集合（set）ではなくタプルにする。集合の並びは文字列のハッシュで
+# 起動のたびに変わり、同じseedでも結果が変わってしまう。並びは、集合だった頃の PYTHONHASHSEED=0 での
+# 並びと同じにしてある（これまでの検証の結果・基準値を変えないため）。並びを変えると選手が変わる。
+TECHNICAL_FIELDER_KEYS = ("捕球", "ミート", "守備力")
+PHYSICAL_FIELDER_KEYS = ("パワー", "走力", "肩力")
 FIELDER_STYLE_DEFAULTS = {
     "捕手": "平均型捕手",
     "一塁手": "平均型一塁手",
