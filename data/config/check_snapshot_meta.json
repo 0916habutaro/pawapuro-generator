@@ -1,5 +1,5 @@
 {
   "date": "2026-10-04",
   "reason": "初回。判定の整理（前回との比較の新設）時点の main（e6e067c）の正式な結果",
-  "commit": "e6e067c（ブランチ claude/check-judgement） + 未コミットの変更あり"
+  "commit": "c29733b（ブランチ claude/check-judgement。main e6e067c に、この検証の改修を加えたコード）"
 }
