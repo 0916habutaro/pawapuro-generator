@@ -56,34 +56,47 @@ AGE_BANDS = (("age_u22", 0, 22), ("age_23_25", 23, 25), ("age_26_29", 26, 29), (
 AGE_BAND_LABELS = {"age_u22": "〜22歳", "age_23_25": "23〜25歳", "age_26_29": "26〜29歳", "age_30_33": "30〜33歳", "age_34p": "34歳〜"}
 # 年齢帯の目標人数を、隣の年齢帯と1人入れ替える確率
 AGE_BAND_SWAP_RATE = 0.5
+# 選手格の目標人数（国内選手、投手・野手別）の端数の配り方に使う乱数
+CLASS_TARGET_NAMESPACE = "team_mode_class_targets_v1"
+# 型の目標人数（国内の野手全員・国内の先発）の端数の配り方に使う乱数
+TYPE_TARGET_NAMESPACE = "team_mode_type_targets_v1"
 
 # ---------------------------------------------------------------------------
 # 戦力レベル（3-3）
 # ---------------------------------------------------------------------------
 STRENGTH_NAMESPACE = "team_mode_strength_v2"
+# 球団ごとの散らばり_改修指示.md で調整し直した（選手格の人数を球団ごとに割り当てるようにしたうえで、
+# 球団ごとの査定・能力の平均の散らばりを実在36チームに合わせた）。
+# ・各レベルの範囲を狭め（中位 ±0.35 → ±0.25 など）、倍率の効きを弱めた（STRENGTH_REFERENCE_INDEX 0.7 → 1.1）。
+#   その分、強豪の野手の倍率を強めて、強豪と中位の差（戦力レベルの判定 (e)）を保つ
 STRENGTH_LEVELS = (
-    ("強豪", 25, (0.50, 1.00)),
-    ("中位", 50, (-0.35, 0.35)),
-    ("弱小", 25, (-1.00, -0.40)),
+    ("強豪", 25, (0.55, 0.95)),
+    ("中位", 50, (-0.25, 0.25)),
+    ("弱小", 25, (-0.95, -0.50)),
 )
 STRENGTH_LABELS = tuple(label for label, _weight, _range in STRENGTH_LEVELS)
-# 投手・野手の戦力指数 = s + N(0, STRENGTH_ROLE_SD)。±STRENGTH_ROLE_CLAMP に収める
-STRENGTH_ROLE_SD = 0.12
+# 投手・野手の戦力指数 = s + N(0, STRENGTH_ROLE_SD)。±STRENGTH_ROLE_CLAMP に収める。
+# 0 にした（倍率を弱めた分、投手指標と野手指標の相関が下がるため。投高打低・打高投低は選手の顔ぶれの偶然で出る）
+STRENGTH_ROLE_SD = 0.0
 STRENGTH_ROLE_CLAMP = 1.2
 # 基準倍率は s = ±STRENGTH_REFERENCE_INDEX のときの値
-STRENGTH_REFERENCE_INDEX = 0.7
+STRENGTH_REFERENCE_INDEX = 1.1
 PLAYER_CLASSES = ("スター級", "一軍主力級", "一軍控え級", "二軍級", "若手素材型", "ベテラン型")
-STRONG_CLASS_BASE = {"スター級": 2.0, "一軍主力級": 1.35, "一軍控え級": 1.0, "二軍級": 1.0, "若手素材型": 1.0, "ベテラン型": 1.0}
+STRONG_CLASS_BASE = {"スター級": 2.6, "一軍主力級": 1.55, "一軍控え級": 1.0, "二軍級": 1.0, "若手素材型": 1.0, "ベテラン型": 1.0}
 # 役割ごとの強豪側の基準の上書き（書いていない選手格は STRONG_CLASS_BASE）。
 # 投手の上位13人平均は選手ごとのばらつきが大きく、強豪と中位の差が埋もれやすいため、投手だけ強める
-STRONG_CLASS_BASE_BY_ROLE: dict[str, dict[str, float]] = {"投手": {"スター級": 2.8, "一軍主力級": 1.7}}
-WEAK_CLASS_BASE = {"スター級": 0.3, "一軍主力級": 0.54, "一軍控え級": 1.0, "二軍級": 1.2, "若手素材型": 1.15, "ベテラン型": 1.0}
+STRONG_CLASS_BASE_BY_ROLE: dict[str, dict[str, float]] = {"投手": {"スター級": 3.4, "一軍主力級": 1.8}}
+# 弱小の二軍級・若手素材型の倍率は 1.0 にした（全員平均・投手の査定の平均だけが大きく動き、散らばりが実在より大きくなるため）
+WEAK_CLASS_BASE = {"スター級": 0.3, "一軍主力級": 0.54, "一軍控え級": 1.0, "二軍級": 1.0, "若手素材型": 1.0, "ベテラン型": 1.0}
 # 倍率1つずつにかける揺らぎ（球団ごとに1回）
 CLASS_MULTIPLIER_JITTER = (0.9, 1.1)
 # 全球団の国内選手にかける基準の倍率。個別生成（架空球団用）は1人ずつの分布を実在に合わせてあるが、
 # 上位の選手が実在より少なく、球団の上位28人の査定が実在12球団より低くなるため、上位の選手格を少し増やす。
+# 投手は、投手の査定の平均が実在（2024〜2026年版）より高かったため 一軍主力級 1.45 → 1.15 に下げた。
+# 二軍級は 0.85 → 0.7（一軍主力級を減らすと日本人投手のコントロールが実在より約1低くなるため、二軍級を減らして戻す。
+# check_pitcher_control.py の先発・左の平均、先発の左右差、日本人全体の平均。試した 0.6・0.8 ではどれかが外れた）
 TEAM_BASE_CLASS_MULTIPLIERS: dict[str, dict[str, float]] = {
-    "投手": {"スター級": 1.9, "一軍主力級": 1.45, "二軍級": 0.85},
+    "投手": {"スター級": 1.8, "一軍主力級": 1.15, "二軍級": 0.7},
     "野手": {"スター級": 1.3, "一軍主力級": 1.15},
 }
 
@@ -103,21 +116,19 @@ COLOR_WEIGHTS = (
 )
 COLOR_LABELS = tuple(label for label, _weight in COLOR_WEIGHTS)
 # 効き具合 t = 1.0 のときの倍率。倍率は 1 + (基準 − 1) × t で効かせる。
-# class: 選手格、archetype: 選手の型、age_slope: 年齢の重みに exp(age_slope × t × (年齢 − AGE_PIVOT)) をかける
+# class: 選手格、archetype: 選手の型、age_slope: 年齢の重みに exp(age_slope × t × (年齢 − AGE_PIVOT)) をかける。
+# 球団ごとの散らばり_改修指示.md で、各カラーの目安（validate_team_mode.py）を満たす範囲で弱めた。
+# ・投手王国: 二軍級・若手素材型 0.3 をやめ、スター級を中心にした（投手の上位の平均を上げつつ、投手の査定の平均を上げすぎない）。
+#   一軍控え級を減らして二軍級を少し増やし、上位の層だけを厚くする
+# ・若手育成・ベテラン重視: 選手格の倍率をやめ、年齢の傾きだけにした（若手育成の球団の査定が全体に約10下がっていたため）
 COLOR_EFFECTS: dict[str, dict[str, Any]] = {
     NO_COLOR: {},
-    "投手王国": {"class": {"投手": {"スター級": 6.0, "一軍主力級": 4.0, "二軍級": 0.3, "若手素材型": 0.3, "ベテラン型": 1.5}}},
-    "強力打線": {"archetype": {"野手": {"長打": 3.2, "巧打": 1.8}}, "class": {"野手": {"一軍主力級": 1.3}}},
-    "機動力": {"archetype": {"野手": {"俊足": 3.4, "長打": 0.6}}},
-    "守備重視": {"archetype": {"野手": {"守備": 3.4, "強肩": 2.4}}},
-    "若手育成": {
-        "class": {"投手": {"若手素材型": 1.6, "ベテラン型": 0.6}, "野手": {"若手素材型": 1.6, "ベテラン型": 0.6}},
-        "age_slope": -0.08,
-    },
-    "ベテラン重視": {
-        "class": {"投手": {"ベテラン型": 1.6, "若手素材型": 0.6}, "野手": {"ベテラン型": 1.6, "若手素材型": 0.6}},
-        "age_slope": 0.08,
-    },
+    "投手王国": {"class": {"投手": {"スター級": 6.0, "一軍主力級": 2.0, "一軍控え級": 0.7, "二軍級": 1.3}}},
+    "強力打線": {"archetype": {"野手": {"長打": 2.6, "巧打": 1.6}}, "class": {"野手": {"一軍主力級": 1.15}}},
+    "機動力": {"archetype": {"野手": {"俊足": 2.7, "長打": 0.7}}},
+    "守備重視": {"archetype": {"野手": {"守備": 3.0, "強肩": 2.2}}},
+    "若手育成": {"age_slope": -0.065},
+    "ベテラン重視": {"age_slope": 0.05},
 }
 AGE_PIVOT = 27
 COLOR_INTENSITY_RANGE = (0.5, 1.5)
@@ -162,19 +173,23 @@ UNIFORM_DOMESTIC_MIN_FACTOR = 0.05
 UNIFORM_FOREIGN_PRIOR = 0.3
 UNIFORM_FOREIGN_ABSENT_MULTIPLIER = 0.1
 # 外国人の番号別の倍率。42番は実在で外国人の76%が付けるため、1球団約6人の外国人のだれかが取りやすくする
-UNIFORM_FOREIGN_NUMBER_MULTIPLIERS: dict[str, float] = {"42": 2.5}
+# 2.5 → 2.0（球団ごとの散らばり_改修指示.md。選手格の構成が変わり、42番の外国人の割合が 0.88 と実在 0.76 より高くなったため）
+UNIFORM_FOREIGN_NUMBER_MULTIPLIERS: dict[str, float] = {"42": 2.0}
 # 外国人には査定の順位の倍率（UNIFORM_TIER_MULTIPLIERS）をかけない。実在の外国人の使用数に能力の傾向が含まれていて、
 # かけると外国人が11〜21番・0〜10番に寄りすぎる
 UNIFORM_FOREIGN_USE_TIER = False
 # 年齢の連続な倍率 exp(γ × (年齢 − UNIFORM_AGE_PIVOT) / 5)。γ は番号の範囲ごと、27歳より若い側と上の側で別の値
 # （27歳で1.0になり、段差はない）。若手は小さい番号を避けて31〜69番へ、ベテランは小さい番号へ寄る。
-# 例: 23歳は 0〜10番 ×0.62、31〜69番 ×1.32。32歳は 0〜10番 ×1.65、31〜69番 ×0.67。
+# 例: 23歳は 0〜10番 ×0.62、31〜69番 ×1.32。32歳は 0〜10番 ×2.01、11〜21番 ×1.82、31〜69番 ×0.67。
+# 0〜10番の上側 0.5 → 0.7、11〜21番の上側 0.5 → 0.6、22〜30番 (0.3, 0.4) → (0.45, 0.55)（球団ごとの散らばり_改修指示.md。若手育成・ベテラン重視の年齢の傾きを
+# 弱めたなどで、日本人野手の0〜10番の31歳以上の割合と22〜30番の平均年齢が実在を下回ったため。22〜30番を上げると
+# 日本人投手の22〜30番の平均年齢が上限を超えるので、11〜21番の上側も上げてベテランの投手を11〜21番へ寄せる）
 UNIFORM_AGE_PIVOT = 27
 UNIFORM_AGE_GAMMA: dict[str, tuple[float, float]] = {
     # 番号の範囲: (27歳より若い側の γ, 27歳より上の側の γ)
-    "0-10": (0.6, 0.5),
-    "11-21": (0.6, 0.5),
-    "22-30": (0.3, 0.4),
+    "0-10": (0.6, 0.7),
+    "11-21": (0.6, 0.6),
+    "22-30": (0.45, 0.55),
     "31-69": (-0.35, -0.4),
     "70-89": (0.0, 0.0),
     "90-99": (0.0, 0.0),
@@ -390,6 +405,111 @@ def age_band_targets(
             targets[donor] -= 1
             targets[receiver] += 1
     return targets
+
+
+def round_expected_counts(expected: dict[str, float], total: int, rng: random.Random) -> dict[str, int]:
+    """期待値を合計 total の整数に丸める（最大剰余法。切り捨てた後の残りを、端数に比例する確率で配る）。
+
+    端数は系統抽出で配る（端数を並べた数直線に、乱数で決めた始点から間隔1で印を付ける）。
+    各項目が切り上げになる確率はちょうど端数と同じなので、平均の人数は期待値のまま変わらない。
+    """
+    whole = sum(expected.values())
+    scaled = {key: (value * total / whole if whole > 0 else 0.0) for key, value in expected.items()}
+    targets = {key: int(math.floor(value)) for key, value in scaled.items()}
+    rest = total - sum(targets.values())
+    position = rng.random()
+    cumulative = 0.0
+    for key in scaled:
+        if rest <= 0:
+            break
+        cumulative += scaled[key] - targets[key]
+        if cumulative > position:
+            targets[key] += 1
+            position += 1.0
+            rest -= 1
+    # 浮動小数の誤差で配り切れなかった分は、端数の大きい順に足す
+    for key in sorted(scaled, key=lambda k: scaled[k] - math.floor(scaled[k]), reverse=True)[:max(0, rest)]:
+        targets[key] += 1
+    return targets
+
+
+def class_targets(expected_by_role: dict[str, dict[str, float]], counts_by_role: dict[str, int], rng: random.Random) -> dict[str, dict[str, int]]:
+    """国内選手の選手格ごとの目標人数（役割 → 選手格 → 人数）。期待値の計算は app.team_class_expected。"""
+    return {role: round_expected_counts(expected_by_role[role], counts_by_role[role], rng) for role in ("投手", "野手")}
+
+
+def class_band_shares(age_items: list[tuple[int, float]], class_items_by_age: dict[int, list[tuple[str, int]]]) -> dict[str, dict[str, float]]:
+    """年齢帯 → 選手格 → その年齢帯の中で、その選手格になる確率。"""
+    shares: dict[str, dict[str, float]] = {}
+    for band, _low, _high in AGE_BANDS:
+        items = [(age, weight) for age, weight in age_items if age_band_of(age) == band and weight > 0]
+        band_weight = sum(weight for _age, weight in items)
+        bucket = shares.setdefault(band, {})
+        for age, weight in items:
+            labels = class_items_by_age.get(age, [])
+            class_total = sum(value for _label, value in labels)
+            for label, value in labels:
+                bucket[label] = bucket.get(label, 0.0) + (weight / band_weight) * (value / class_total)
+    return shares
+
+
+def assignment_feasible(demands: dict[Any, int], capacities: dict[str, int], allowed: dict[Any, set[str]]) -> bool:
+    """残りの人数（demands: 選手格などの区分 → 人数）を、残りの年齢帯の枠（capacities）に、
+    allowed（区分 → 入れてよい年齢帯）を守って全部割り当てられるか（最大流）。"""
+    need = {key: count for key, count in demands.items() if count > 0}
+    total = sum(need.values())
+    if total == 0:
+        return True
+    capacity = {band: max(0, count) for band, count in capacities.items()}
+    if total > sum(capacity.values()):
+        return False
+    # 区分 → 年齢帯の流量
+    flow: dict[tuple[Any, str], int] = {}
+    sent = {key: 0 for key in need}
+    used = {band: 0 for band in capacity}
+
+    def augment() -> bool:
+        # 区分（まだ送り切っていない）から、空きのある年齢帯までの増加路を幅優先で探す
+        parents: dict[Any, Any] = {}
+        queue = [("k", key) for key in need if sent[key] < need[key]]
+        seen = set(queue)
+        while queue:
+            node = queue.pop(0)
+            kind, name = node
+            if kind == "k":
+                for band in allowed.get(name, ()):
+                    nxt = ("b", band)
+                    if band in capacity and nxt not in seen:
+                        seen.add(nxt)
+                        parents[nxt] = node
+                        if used[band] < capacity[band]:
+                            # 増加路が見つかった
+                            cur = nxt
+                            while cur in parents:
+                                prev = parents[cur]
+                                if prev[0] == "k":
+                                    flow[(prev[1], cur[1])] = flow.get((prev[1], cur[1]), 0) + 1
+                                else:
+                                    flow[(cur[1], prev[1])] -= 1
+                                cur = prev
+                            sent[cur[1]] += 1
+                            used[band] += 1
+                            return True
+                        queue.append(nxt)
+            else:
+                # 年齢帯から、そこへ流している区分へ戻る（流量の付け替え）
+                for (key, band), amount in flow.items():
+                    nxt = ("k", key)
+                    if band == name and amount > 0 and nxt not in seen:
+                        seen.add(nxt)
+                        parents[nxt] = node
+                        queue.append(nxt)
+        return False
+
+    for _ in range(total):
+        if not augment():
+            return False
+    return True
 
 
 # ---------------------------------------------------------------------------

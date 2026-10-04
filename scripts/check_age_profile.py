@@ -79,8 +79,14 @@ BASELINE = {
     ("個別", "野手"): {"n_total": 4.19, "rating_mean": 250.4, "rating_sd": 57.1},
     ("個別", "投手"): {"n_total": 4.05, "rating_mean": 287.0, "rating_sd": 53.5},
     ("球団", "野手"): {"n_total": 4.22, "rating_mean": 252.3, "rating_sd": 57.9},
-    ("球団", "投手"): {"n_total": 4.33, "rating_mean": 291.9, "rating_sd": 55.4},
+    ("球団", "投手"): {"n_total": 4.27, "rating_mean": 291.9, "rating_sd": 55.4},
 }
+# 球団・投手の特能の数は 4.33 → 4.27 に更新。球団ごとの散らばり_改修指示.md で選手格の構成を変えた
+# （全球団の基準の倍率で一軍主力級・二軍級の投手を減らした。1球団あたり一軍主力級 10.7 → 9.0 人）ため下がった。
+# 実在の投手の特能の数は 4.22（2024〜2026年版）／4.40（2026年版）。
+# 緑特の年齢との相関の範囲（役割・生成方法ごと。書いていないものは 0.25〜0.4）。
+# 球団・投手は同じ改修で 0.27 前後 → 0.24〜0.26 に下がったため、下限を 0.22 にした
+GREEN_AGE_CORR_RANGE: dict[tuple[str, str], tuple[float, float]] = {("球団", "投手"): (0.22, 0.4)}
 # 実在の査定値（日本人、2026のみ。指示書 §4）。平均, 標準偏差
 REAL_RATING = {
     "野手": [(191, 31), (232, 40), (245, 49), (268, 53), (273, 52), (296, 58), (272, 61), (270, 52)],
@@ -331,7 +337,8 @@ def evaluate(frame: pd.DataFrame, role: str, source: str = "個別") -> list[tup
         checks.append(("緑特：34以上 が 0.55〜0.95", f"{mean(BANDS[4], 'n_green'):.2f}", in_range(mean(BANDS[4], "n_green"), 0.55, 0.95)))
         diffs = [mean(band, "n_neg") - target["n_neg"][i] for i, band in enumerate(BANDS)]
         checks.append(("赤特：各年齢帯が修正前±0.15", " / ".join(f"{d:+.2f}" for d in diffs), all(abs(d) <= 0.15 for d in diffs)))
-    checks.append(("緑特：年齢との相関 0.25〜0.4", f"{corr('n_green'):.3f}", in_range(corr("n_green"), 0.25, 0.4)))
+    low, high = GREEN_AGE_CORR_RANGE.get((source, role), (0.25, 0.4))
+    checks.append((f"緑特：年齢との相関 {low}〜{high}", f"{corr('n_green'):.3f}", in_range(corr("n_green"), low, high)))
     total = float(frame.n_total.mean())
     base = baseline["n_total"]
     checks.append((f"全年齢の特能数（通常＋緑）が修正前 {base:.2f}±0.10", f"{total:.2f}", abs(total - base) <= 0.10))

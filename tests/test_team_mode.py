@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 TESTS_DIR = Path(__file__).resolve().parent
@@ -101,6 +102,32 @@ class GeneratePlayerCompatibilityTest(unittest.TestCase):
             self.assertEqual(fingerprint(plain), fingerprint(accepted))
             self.assertIsNone(rejected)
 
+    def test_accept_stages_and_player_class(self):
+        # accept は early（年齢・選手格）→ ポジション・投打 → type（型）の順に呼ばれ、どの段階で断っても None になる
+        master = app.load_master_data()
+        profile = team_lib.build_team_profile(TEAM_SEEDS[0])
+        for seed in (11, 12, 13):
+            calls = []
+
+            def record(info):
+                calls.append(dict(info))
+                return True
+
+            plain = app.generate_player("投手", "架空球団用", master, seed=seed, used_names=set(), team_profile=profile)
+            accepted = app.generate_player("投手", "架空球団用", master, seed=seed, used_names=set(), team_profile=profile, accept=record)
+            self.assertEqual(fingerprint(plain), fingerprint(accepted))
+            self.assertEqual([info.get("stage") for info in calls], ["early", None, "type"])
+            # 外国人（foreign_import）になる候補は early の後で選手格を引き直すので、early は国内選手のときだけ比べる
+            compared = calls if plain["roster_origin"] == "domestic" else calls[1:]
+            self.assertTrue(all(info["player_class"] == plain["player_class"] for info in compared))
+            self.assertEqual(calls[2]["archetype"], plain["archetype"])
+            for stage in ("early", None, "type"):
+                rejected = app.generate_player(
+                    "投手", "架空球団用", master, seed=seed, used_names=set(), team_profile=profile,
+                    accept=lambda info, stage=stage: info.get("stage") != stage,
+                )
+                self.assertIsNone(rejected)
+
 
 class TeamHashSeedTest(unittest.TestCase):
     def test_team_generation_does_not_depend_on_python_hash_seed(self):
@@ -156,10 +183,37 @@ class TeamTargetsTest(unittest.TestCase):
                 self.assertNotEqual(profile.color, team_lib.NO_COLOR)
 
     def test_strength_multiplier_formula(self):
+        reference = team_lib.STRENGTH_REFERENCE_INDEX
         for label in team_lib.PLAYER_CLASSES:
-            self.assertAlmostEqual(team_lib.strength_class_multiplier(label, 0.7), team_lib.STRONG_CLASS_BASE[label])
-            self.assertAlmostEqual(team_lib.strength_class_multiplier(label, -0.7), team_lib.WEAK_CLASS_BASE[label])
+            self.assertAlmostEqual(team_lib.strength_class_multiplier(label, reference), team_lib.STRONG_CLASS_BASE[label])
+            self.assertAlmostEqual(team_lib.strength_class_multiplier(label, -reference), team_lib.WEAK_CLASS_BASE[label])
             self.assertAlmostEqual(team_lib.strength_class_multiplier(label, 0.0), 1.0)
+
+    def test_round_expected_counts_keeps_total_and_mean(self):
+        import random
+
+        expected = {"スター級": 1.4, "一軍主力級": 9.7, "一軍控え級": 6.2, "二軍級": 7.9, "若手素材型": 2.5, "ベテラン型": 3.3}
+        total = 31
+        sums = dict.fromkeys(expected, 0)
+        trials = 4000
+        for seed in range(trials):
+            counts = team_lib.round_expected_counts(expected, total, random.Random(seed))
+            self.assertEqual(sum(counts.values()), total)
+            for label, value in expected.items():
+                # 切り捨てか切り上げのどちらか
+                self.assertIn(counts[label], (int(value), int(value) + 1))
+                sums[label] += counts[label]
+        # 端数は端数に比例する確率で配るので、平均は期待値のまま
+        for label, value in expected.items():
+            self.assertAlmostEqual(sums[label] / trials, value, delta=0.03)
+
+    def test_assignment_feasible(self):
+        self.assertTrue(team_lib.assignment_feasible({"a": 2, "b": 1}, {"x": 1, "y": 2}, {"a": {"x", "y"}, "b": {"x"}}))
+        self.assertFalse(team_lib.assignment_feasible({"a": 2, "b": 1}, {"x": 1, "y": 2}, {"a": {"x"}, "b": {"x"}}))
+        # 先に入れた区分を付け替えないと全員を割り当てられない場合
+        self.assertTrue(team_lib.assignment_feasible({"a": 1, "b": 1, "c": 1}, {"x": 1, "y": 1, "z": 1}, {"a": {"x", "y"}, "b": {"x"}, "c": {"y", "z"}}))
+        self.assertFalse(team_lib.assignment_feasible({"a": 1, "b": 1, "c": 1}, {"x": 1, "y": 1, "z": 1}, {"a": {"x", "y"}, "b": {"x"}, "c": {"y"}}))
+        self.assertTrue(team_lib.assignment_feasible({"a": 0}, {"x": 0}, {"a": set()}))
 
     def test_uniform_number_sort_key(self):
         numbers = ["10", "00", "2", "0", "99", "1"]
@@ -236,6 +290,37 @@ class GenerateTeamTest(TeamModeTestBase):
                 self.assertFalse(set(numbers) & set(team["retired_numbers"]))
                 self.assertTrue(set(numbers) <= set(team_lib.UNIFORM_NUMBERS))
                 self.assertTrue(all(isinstance(p.get("roster_index"), int) and p.get("team_seed") == seed for p in team["players"]))
+
+    def test_class_and_type_counts_match_targets(self):
+        # 球団ごとの散らばり_改修指示.md: 国内選手の選手格の人数（投手・野手別）と、型の人数（野手全員・先発）を目標どおりに作る
+        for seed, team in self.teams.items():
+            domestic = [p for p in team["players"] if p.get("roster_origin") != "foreign_import"]
+            with self.subTest(seed=seed):
+                for role in ("投手", "野手"):
+                    members = [p for p in domestic if p["role"] == role]
+                    self.assertEqual(sum(team["class_targets"][role].values()), len(members))
+                    if not team["relaxed"]["選手格の条件"]:
+                        self.assertEqual(Counter(p["player_class"] for p in members), Counter({k: v for k, v in team["class_targets"][role].items() if v}))
+                fielders = [p for p in domestic if p["role"] == "野手"]
+                starters = [p for p in domestic if p["role"] == "投手" and p["position"] == "先発"]
+                self.assertEqual(sum(team["type_targets"]["野手"].values()), len(fielders))
+                self.assertEqual(sum(team["type_targets"]["先発"].values()), len(starters))
+                if not team["relaxed"]["型の条件"]:
+                    self.assertEqual(Counter(p["archetype"] for p in fielders), Counter({k: v for k, v in team["type_targets"]["野手"].items() if v}))
+                    self.assertEqual(Counter(p["archetype"] for p in starters), Counter({k: v for k, v in team["type_targets"]["先発"].items() if v}))
+
+    def test_class_targets_follow_expected_composition(self):
+        # 目標人数の期待値は、選手格の重み（戦力・カラーの倍率と年齢による制限を含む）と年齢帯の目標人数から作る
+        profile = team_lib.build_team_profile(TEAM_SEEDS[0])
+        age_targets = {"age_u22": 8, "age_23_25": 14, "age_26_29": 18, "age_30_33": 12, "age_34p": 6}
+        expected = app.team_class_expected(profile, "投手", 30, age_targets)
+        self.assertAlmostEqual(sum(expected.values()), 30)
+        self.assertEqual(set(expected), set(team_lib.PLAYER_CLASSES))
+        # 23歳以下はベテラン型にならない・27歳以上は若手素材型にならない（choose_player_class の制限）
+        young_only = app.team_class_expected(profile, "投手", 10, {"age_u22": 10})
+        self.assertEqual(young_only["ベテラン型"], 0.0)
+        old_only = app.team_class_expected(profile, "投手", 10, {"age_30_33": 10})
+        self.assertEqual(old_only["若手素材型"], 0.0)
 
     def test_team_profile_only_changes_domestic_weights(self):
         team = self.teams[TEAM_SEEDS[0]]
