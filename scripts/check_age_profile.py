@@ -15,7 +15,9 @@
   若手（〜19歳）は日本人の約4%なので、若手の判定で年齢帯ごとに1000人以上になるよう既定を30000人にしている。
 - --compare では、同じ選手（生成方法・役割・seed）どうしで、若手の能力の順位相関（変換前後）も判定する。
 - 対象は category=架空球団用 の日本人（roster_origin=domestic）。外国人は年齢と能力に関係がない仕様なので除く。
-- 終了コード: 全項目合格なら 0、不合格があれば 1。
+- 判定の種類・誤差・合否の付け方は checklib.py（判定の整理_改修指示.md）。誤差は選手（球団生成は球団）を単位に再抽出して見積もる。
+  判定の一覧は reports/checks/check_age_profile.csv。
+- 終了コード: 不合格が1件でもあれば 1（要注意・受け入れ済みは 0）。
 """
 from __future__ import annotations
 
@@ -30,10 +32,17 @@ from typing import Any
 
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
+sys.path.insert(0, str(APP_DIR / "scripts"))
 
 import pandas as pd  # noqa: E402
 
+import checklib  # noqa: E402
+from checklib import Checks  # noqa: E402
 from generator.rating import load_table, player_rating  # noqa: E402
+
+SCRIPT = "check_age_profile"
+SOURCE_KEYS = {"個別": "individual", "球団": "team"}
+ROLE_KEYS = {"野手": "fielder", "投手": "pitcher"}
 
 TEAM_BASE_SEED = 20261001
 BANDS = ["〜21", "22〜25", "26〜29", "30〜33", "34以上"]
@@ -66,24 +75,15 @@ TARGETS = {
     },
     "投手": {
         "n_pos": [1.3, 2.2, 3.0, 3.5, 4.0],
-        "n_neg": [1.05, 1.0, 0.93, 0.91, 0.87],  # 投手の赤特は修正前の値のまま
+        "n_neg": [checklib.baselines()[f"check_age_profile.individual.pitcher.n_neg.band.{band}"]["value"] for band in BANDS],  # 投手の赤特は修正前の値のまま（固定。data/config/check_baselines.json）
         "n_green": [0.19, 0.24, 0.33, 0.48, 0.75],
         "rk_pts": [-3.9, -2.9, 1.3, 1.8, 2.2],
         "rk_hi": [0.09, 0.11, 0.46, 0.76, 0.76],
     },
 }
-# 修正前の全年齢の値（個別生成 seed 1〜5000、球団生成 500球団）。全体が動いていないことの確認に使う。
-# 球団・投手の査定値の平均は 296.8 → 291.9 に更新。救援投手のコントロール補正（PR #107 相当）で下がった。
-# 実在の投手の査定の平均は 287.4（2024〜2026年版）／292.5（2026年版）（外国人を含む）。
-BASELINE = {
-    ("個別", "野手"): {"n_total": 4.19, "rating_mean": 250.4, "rating_sd": 57.1},
-    ("個別", "投手"): {"n_total": 4.05, "rating_mean": 287.0, "rating_sd": 53.5},
-    ("球団", "野手"): {"n_total": 4.22, "rating_mean": 252.3, "rating_sd": 57.9},
-    ("球団", "投手"): {"n_total": 4.27, "rating_mean": 291.9, "rating_sd": 55.4},
-}
-# 球団・投手の特能の数は 4.33 → 4.27 に更新。球団ごとの散らばり_改修指示.md で選手格の構成を変えた
-# （全球団の基準の倍率で一軍主力級・二軍級の投手を減らした。1球団あたり一軍主力級 10.7 → 9.0 人）ため下がった。
-# 実在の投手の特能の数は 4.22（2024〜2026年版）／4.40（2026年版）。
+# 修正前の全年齢の値（個別生成 seed 1〜5000、球団生成 500球団）は data/config/check_baselines.json（「固定」）。全体が動いていないことの確認に使う。
+# 球団・投手の査定値の平均は 296.8 → 291.9、特能の数は 4.33 → 4.27 に更新した（PR #107・#108）。
+# 実在の投手の査定の平均は 287.4（2024〜2026年版）／292.5（2026年版）、特能の数は 4.22（2024〜2026年版）／4.40（2026年版）（外国人を含む）。
 # 緑特の年齢との相関の範囲（役割・生成方法ごと。書いていないものは 0.25〜0.4）。
 # 球団・投手は同じ改修で 0.27 前後 → 0.24〜0.26 に下がったため、下限を 0.22 にした
 GREEN_AGE_CORR_RANGE: dict[tuple[str, str], tuple[float, float]] = {("球団", "投手"): (0.22, 0.4)}
@@ -313,57 +313,61 @@ def rating_table(frame: pd.DataFrame, role: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def evaluate(frame: pd.DataFrame, role: str, source: str = "個別") -> list[tuple[str, str, bool]]:
-    """(項目, 値, 合否) のリスト。frame は1つの役割・1つの生成方法の選手。"""
-    checks: list[tuple[str, str, bool]] = []
+def evaluate(frame: pd.DataFrame, role: str, source: str = "個別") -> Checks:
+    """特能の数・ランク・査定値の判定（若手能力の幅_改修指示.md より前の §1・§3）。frame は1つの役割・1つの生成方法の選手。"""
+    C = Checks(SCRIPT)
+    prefix = f"{SCRIPT}.{SOURCE_KEYS[source]}.{ROLE_KEYS[role]}"
+    sec = f"{source}生成 日本人{role}（特能・ランク・査定）"
     target = TARGETS[role]
-    baseline = BASELINE[(source, role)]
     by_band = {band: frame[frame.band == band] for band in BANDS}
     mean = lambda band, metric: float(by_band[band][metric].mean())  # noqa: E731
     corr = lambda metric: float(frame.age.corr(frame[metric]))  # noqa: E731
 
+    def add(key: str, label: str, value: float, low: float | None = None, high: float | None = None, shown: str | None = None, kind: str = "実在") -> None:
+        C.add(f"{prefix}.{key}", kind, label, value, low, high, section=sec, shown=shown)
+
     # 特能の数
     diffs = [mean(band, "n_pos") - target["n_pos"][i] for i, band in enumerate(BANDS)]
-    checks.append(("青特・金特：各年齢帯が目標±0.35", " / ".join(f"{d:+.2f}" for d in diffs), all(abs(d) <= 0.35 for d in diffs)))
+    add("n_pos.band_diff_max", "青特・金特：各年齢帯が目標±0.35（最大のずれ）", max(abs(d) for d in diffs), None, 0.35, " / ".join(f"{d:+.2f}" for d in diffs))
     low, high = (0.35, 0.5) if role == "野手" else (0.30, 0.45)
-    checks.append((f"青特・金特：年齢との相関 {low}〜{high}", f"{corr('n_pos'):.3f}", in_range(corr("n_pos"), low, high)))
+    add("n_pos.age_corr", f"青特・金特：年齢との相関 {low}〜{high}", corr("n_pos"), low, high, f"{corr('n_pos'):.3f}")
     if role == "野手":
-        checks.append(("緑特：〜21 が 0.5〜0.8", f"{mean(BANDS[0], 'n_green'):.2f}", in_range(mean(BANDS[0], "n_green"), 0.5, 0.8)))
-        checks.append(("緑特：30〜33 が 1.5〜2.0", f"{mean(BANDS[3], 'n_green'):.2f}", in_range(mean(BANDS[3], "n_green"), 1.5, 2.0)))
-        checks.append(("緑特：34以上 が 1.5〜2.0", f"{mean(BANDS[4], 'n_green'):.2f}", in_range(mean(BANDS[4], "n_green"), 1.5, 2.0)))
-        checks.append(("赤特：〜21 が 0.2〜0.5", f"{mean(BANDS[0], 'n_neg'):.2f}", in_range(mean(BANDS[0], "n_neg"), 0.2, 0.5)))
-        checks.append(("赤特：34以上 が 0.85〜1.15", f"{mean(BANDS[4], 'n_neg'):.2f}", in_range(mean(BANDS[4], "n_neg"), 0.85, 1.15)))
+        add("n_green.band21", "緑特：〜21 が 0.5〜0.8", mean(BANDS[0], "n_green"), 0.5, 0.8)
+        add("n_green.band30", "緑特：30〜33 が 1.5〜2.0", mean(BANDS[3], "n_green"), 1.5, 2.0)
+        add("n_green.band34", "緑特：34以上 が 1.5〜2.0", mean(BANDS[4], "n_green"), 1.5, 2.0)
+        add("n_neg.band21", "赤特：〜21 が 0.2〜0.5", mean(BANDS[0], "n_neg"), 0.2, 0.5)
+        add("n_neg.band34", "赤特：34以上 が 0.85〜1.15", mean(BANDS[4], "n_neg"), 0.85, 1.15)
     else:
-        checks.append(("緑特：34以上 が 0.55〜0.95", f"{mean(BANDS[4], 'n_green'):.2f}", in_range(mean(BANDS[4], "n_green"), 0.55, 0.95)))
-        diffs = [mean(band, "n_neg") - target["n_neg"][i] for i, band in enumerate(BANDS)]
-        checks.append(("赤特：各年齢帯が修正前±0.15", " / ".join(f"{d:+.2f}" for d in diffs), all(abs(d) <= 0.15 for d in diffs)))
+        add("n_green.band34", "緑特：34以上 が 0.55〜0.95", mean(BANDS[4], "n_green"), 0.55, 0.95)
+        # 投手の赤特は修正前の値のまま（固定）。基準値は data/config/check_baselines.json
+        for band in BANDS:
+            C.fixed(f"{prefix}.n_neg.band.{band}", f"赤特：{band} が修正前の値", mean(band, "n_neg"), 0.15, section=sec)
     low, high = GREEN_AGE_CORR_RANGE.get((source, role), (0.25, 0.4))
-    checks.append((f"緑特：年齢との相関 {low}〜{high}", f"{corr('n_green'):.3f}", in_range(corr("n_green"), low, high)))
-    total = float(frame.n_total.mean())
-    base = baseline["n_total"]
-    checks.append((f"全年齢の特能数（通常＋緑）が修正前 {base:.2f}±0.10", f"{total:.2f}", abs(total - base) <= 0.10))
+    add("n_green.age_corr", f"緑特：年齢との相関 {low}〜{high}", corr("n_green"), low, high, f"{corr('n_green'):.3f}")
+    C.fixed(f"{prefix}.n_total", "全年齢の特能数（通常＋緑）が修正前の値", float(frame.n_total.mean()), 0.10, section=sec)
 
     # ランク
     diffs = [mean(band, "rk_pts") - target["rk_pts"][i] for i, band in enumerate(BANDS)]
-    checks.append(("ランク点：各年齢帯が目標±2.0", " / ".join(f"{d:+.1f}" for d in diffs), all(abs(d) <= 2.0 for d in diffs)))
+    add("rk_pts.band_diff_max", "ランク点：各年齢帯が目標±2.0（最大のずれ）", max(abs(d) for d in diffs), None, 2.0, " / ".join(f"{d:+.1f}" for d in diffs))
     low, high = (0.20, 0.40) if role == "野手" else (0.15, 0.35)
-    checks.append((f"ランク点：年齢との相関 {low}〜{high}", f"{corr('rk_pts'):.3f}", in_range(corr("rk_pts"), low, high)))
+    add("rk_pts.age_corr", f"ランク点：年齢との相関 {low}〜{high}", corr("rk_pts"), low, high, f"{corr('rk_pts'):.3f}")
     young_sd = float(by_band[BANDS[0]].rk_pts.std())
     low, high = (4.0, 7.0) if role == "野手" else (3.5, 7.0)
-    checks.append((f"ランク点SD：〜21 が {low}〜{high}", f"{young_sd:.2f}", in_range(young_sd, low, high)))
+    add("rk_pts.sd_band21", f"ランク点SD：〜21 が {low}〜{high}", young_sd, low, high, f"{young_sd:.2f}")
     old_sds = [float(by_band[band].rk_pts.std()) for band in BANDS[2:]]
-    checks.append(("ランク点SD：26歳以上の各帯が 7〜10", " / ".join(f"{sd:.2f}" for sd in old_sds), all(in_range(sd, 7.0, 10.0) for sd in old_sds)))
-    checks.append(("B以上の数：〜21 が 0.15以下", f"{mean(BANDS[0], 'rk_hi'):.3f}", in_range(mean(BANDS[0], "rk_hi"), high=0.15)))
-    checks.append(("B以上の数：30〜33 が 0.6〜0.95", f"{mean(BANDS[3], 'rk_hi'):.3f}", in_range(mean(BANDS[3], "rk_hi"), 0.6, 0.95)))
+    shown = " / ".join(f"{sd:.2f}" for sd in old_sds)
+    add("rk_pts.sd_old_min", "ランク点SD：26歳以上の各帯が 7以上（最小）", min(old_sds), 7.0, None, shown)
+    add("rk_pts.sd_old_max", "ランク点SD：26歳以上の各帯が 10以下（最大）", max(old_sds), None, 10.0, shown)
+    add("rk_hi.band21", "B以上の数：〜21 が 0.15以下", mean(BANDS[0], "rk_hi"), None, 0.15, f"{mean(BANDS[0], 'rk_hi'):.3f}")
+    add("rk_hi.band30", "B以上の数：30〜33 が 0.6〜0.95", mean(BANDS[3], "rk_hi"), 0.6, 0.95, f"{mean(BANDS[3], 'rk_hi'):.3f}")
     a_limit = 0.04 if role == "投手" else 0.05
-    checks.append((f"ランクAを持つ選手 {a_limit:.0%}以下", f"{frame.rk_a.mean():.1%}", in_range(float(frame.rk_a.mean()), high=a_limit)))
-    checks.append(("ランクGを持つ選手 3%以下", f"{frame.rk_g.mean():.1%}", in_range(float(frame.rk_g.mean()), high=0.03)))
+    add("rk_a", f"ランクAを持つ選手 {a_limit:.0%}以下", float(frame.rk_a.mean()), None, a_limit, f"{frame.rk_a.mean():.1%}")
+    add("rk_g", "ランクGを持つ選手 3%以下", float(frame.rk_g.mean()), None, 0.03, f"{frame.rk_g.mean():.1%}")
 
     # 査定値（全年齢）
-    rating_mean, rating_sd = float(frame.rating.mean()), float(frame.rating.std())
-    checks.append((f"査定値の平均が修正前 {baseline['rating_mean']:.1f}±5", f"{rating_mean:.1f}", abs(rating_mean - baseline["rating_mean"]) <= 5))
-    checks.append((f"査定値の標準偏差が修正前 {baseline['rating_sd']:.1f}±5", f"{rating_sd:.1f}", abs(rating_sd - baseline["rating_sd"]) <= 5))
-    return checks
+    C.fixed(f"{prefix}.rating_mean", "査定値の平均が修正前の値", float(frame.rating.mean()), 5.0, section=sec, shown=f"{frame.rating.mean():.1f}")
+    C.fixed(f"{prefix}.rating_sd", "査定値の標準偏差が修正前の値", float(frame.rating.std()), 5.0, section=sec, shown=f"{frame.rating.std():.1f}")
+    return C
 
 
 def young_table(frame: pd.DataFrame, role: str) -> pd.DataFrame:
@@ -391,40 +395,43 @@ def young_table(frame: pd.DataFrame, role: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def evaluate_young(frame: pd.DataFrame, role: str) -> list[tuple[str, str, bool]]:
+def evaluate_young(frame: pd.DataFrame, role: str, source: str = "個別") -> Checks:
     """若手の能力の判定（若手能力の幅_改修指示.md §3）。frame は1つの役割・1つの生成方法の選手。"""
-    checks: list[tuple[str, str, bool]] = []
+    C = Checks(SCRIPT)
+    prefix = f"{SCRIPT}.{SOURCE_KEYS[source]}.{ROLE_KEYS[role]}.young"
+    sec = f"{source}生成 日本人{role}（若手の能力）"
     for band, targets in YOUNG_TARGETS[role].items():
         part = frame[frame.young_band == band]
         for column, (mean_low, mean_high, sd_low, sd_high) in targets.items():
             label = dict(YOUNG_METRICS[role])[column]
             values = part[column].dropna()
             mean, sd = float(values.mean()), float(values.std())
-            ok = in_range(mean, mean_low, mean_high) and (sd_low is None or in_range(sd, sd_low, sd_high))
-            target = f"平均 {mean_low}〜{mean_high}" + ("" if sd_low is None else f"・SD {sd_low}〜{sd_high}")
-            checks.append((f"{band} {label}：{target}（{len(values)}人）", f"{mean:.2f}（{sd:.2f}）", ok))
+            C.add(f"{prefix}.{band}.{column}.mean", "実在", f"{band} {label}の平均 {mean_low}〜{mean_high}（{len(values)}人）", mean, mean_low, mean_high, section=sec)
+            if sd_low is not None:
+                C.add(f"{prefix}.{band}.{column}.sd", "実在", f"{band} {label}のSD {sd_low}〜{sd_high}", sd, sd_low, sd_high, section=sec)
     young = frame[frame.young_band == YOUNG_BANDS[0]]
     if role == "投手":
         share = float((young.mvmax >= 4).mean())
-        checks.append(("〜19 最大変化量4以上が2%以下", f"{share:.1%}", share <= 0.02))
+        C.add(f"{prefix}.〜19.mvmax4_share", "実在", "〜19 最大変化量4以上が2%以下", share, None, 0.02, section=sec, shown=f"{share:.1%}")
     else:
         for band in YOUNG_BANDS[:2]:
             part = frame[frame.young_band == band]
             # 指示書 §3 は「捕手の捕球が他の位置より8以上高い」だが、既存の生成は全年齢で二塁手の捕球が最も高く、
-            # 捕手と他の位置の差は8に届かない（修正前の差は --compare で ±30% 以内かを見る）。ここでは向きだけ見る。
+            # 捕手と他の位置の差は8に届かない（修正前の差は --compare で ±30% 以内かを見る）。ここでは向きだけ見る（設計）。
             gap = catcher_catch_gap(part)
-            checks.append((f"{band} 捕手の捕球が捕手以外の平均より高い", f"{gap:+.1f}", gap > 0))
+            C.add(f"{prefix}.{band}.catcher_catch_gap", "設計", f"{band} 捕手の捕球が捕手以外の平均より高い（差が正）", gap, 1e-9, None, section=sec, shown=f"{gap:+.1f}", target="差が正")
             runs = part.groupby("position").run.mean()
-            ok = all(runs.get(pos, 0) > runs.get("一塁手", 999) for pos in ("遊撃手", "二塁手", "外野手"))
+            margin = min(runs.get(pos, 0) for pos in ("遊撃手", "二塁手", "外野手")) - runs.get("一塁手", 999)
             text = " / ".join(f"{pos} {runs.get(pos, float('nan')):.1f}" for pos in ("遊撃手", "二塁手", "外野手", "一塁手"))
-            checks.append((f"{band} 遊撃手・二塁手・外野手の走力が一塁手より高い", text, ok))
+            C.add(f"{prefix}.{band}.run_order", "設計", f"{band} 遊撃手・二塁手・外野手の走力が一塁手より高い（最小の差が正）", margin, 1e-9, None, section=sec, shown=text, target="差が正")
     for band in YOUNG_BANDS[:2]:
         part = frame[frame.young_band == band]
         means = part.groupby("player_class").rating.mean()
         order = [means.get(name, float("nan")) for name in CLASS_ORDER]
-        ok = all(a > b for a, b in zip(order, order[1:]))
-        checks.append((f"{band} 選手格別の査定値の平均 スター級>一軍主力級>一軍控え級>二軍級", " > ".join(f"{v:.0f}" for v in order), ok))
-    return checks
+        margin = min(a - b for a, b in zip(order, order[1:]))
+        C.add(f"{prefix}.{band}.class_order", "設計", f"{band} 選手格別の査定値の平均 スター級>一軍主力級>一軍控え級>二軍級（隣の差の最小が正）", margin, 1e-9, None,
+              section=sec, shown=" > ".join(f"{v:.0f}" for v in order), target="差が正")
+    return C
 
 
 def catcher_catch_gap(frame: pd.DataFrame) -> float:
@@ -457,22 +464,87 @@ def young_gap_lines(before: pd.DataFrame, after: pd.DataFrame) -> tuple[list[str
     return lines + [""], failures
 
 
-def young_lines(frame: pd.DataFrame, title: str = "") -> tuple[list[str], int]:
-    lines: list[str] = []
-    failures = 0
+# ---------------------------------------------------------------------------
+# 判定（誤差・合否）
+# ---------------------------------------------------------------------------
+def groups(frame: pd.DataFrame):
+    """(生成方法, 役割, 選手) を、レポートの順（個別→球団、野手→投手）に返す。"""
     for source in ("個別", "球団"):
-        for role in ("投手", "野手"):
+        for role in ("野手", "投手"):
             part = frame[(frame.source == source) & (frame.role == role)]
-            if part.empty or "young_band" not in part:
-                continue
-            lines += [f"### {title}{source}生成 日本人{role}の若手の能力", "", to_markdown(young_table(part, role)), ""]
-            checks = evaluate_young(part, role)
-            failures += sum(not ok for *_, ok in checks)
-            lines += ["| 判定 | 項目 | 値 |", "|---|---|---|"] + [f"| {'OK' if ok else 'NG'} | {label} | {value} |" for label, value, ok in checks] + [""]
-            young = part[part.young_band == YOUNG_BANDS[0]].rating
-            (mean_low, mean_high), (sd_low, sd_high) = YOUNG_RATING_GUIDE[role]
-            lines += [f"〜19 の査定値（目安。判定しない）: {young.mean():.1f} / {young.std():.1f}（目安 平均 {mean_low}〜{mean_high}・SD {sd_low}〜{sd_high}）", ""]
-    return lines, failures
+            if not part.empty:
+                yield source, role, part
+
+
+def special_part(part: pd.DataFrame, source: str) -> pd.DataFrame:
+    """特能・ランクの判定に使う選手。個別生成は、基準を決めたときと同じ seed 1〜5000（SPECIAL_CHECK_PLAYERS）。"""
+    return part[part.seed <= SPECIAL_CHECK_PLAYERS] if source == "個別" else part
+
+
+def evaluate_frame(frame: pd.DataFrame) -> Checks:
+    """frame に含まれる生成方法・役割すべての判定（特能・ランク・査定値と、若手の能力）。"""
+    C = Checks(SCRIPT)
+    for source, role, part in groups(frame):
+        special = special_part(part, source)
+        if not special.empty:
+            C.extend(evaluate(special, role, source))
+        if "young_band" in part:
+            C.extend(evaluate_young(part, role, source))
+    return C
+
+
+def resample_age(frame: pd.DataFrame, rng: Any) -> pd.DataFrame:
+    """個別生成は選手を、球団生成は球団を単位に引き直す。"""
+    parts = []
+    individual, team = frame[frame.source == "個別"], frame[frame.source == "球団"]
+    if len(individual):
+        parts.append(checklib.resample_frame(individual, rng))
+    if len(team):
+        parts.append(checklib.resample_frame(team, rng, "team"))
+    return pd.concat(parts, ignore_index=True)
+
+
+def real_player_counts() -> dict[str, int]:
+    """実在の日本人の人数（役割ごと。data/reference/real_age_profile_2022_2026.csv の特能の行の合計）。実在側の誤差の換算に使う。"""
+    real = pd.read_csv(APP_DIR / "data" / "reference" / "real_age_profile_2022_2026.csv", encoding="utf-8-sig")
+    special = real[(real["group"] == "special") & (real["metric"] == "n_pos")]
+    return {role: int(special.loc[special["role"] == role, "n"].sum()) for role in ("野手", "投手")}
+
+
+def grade_frame(frame: pd.DataFrame, boot: int, workers: int = 1, quick: bool = False) -> list[checklib.Check]:
+    """判定に合否を付ける。生成側の誤差は選手（球団生成は球団）の再抽出で、実在側の誤差は人数比の換算で見積もる。"""
+    checks = evaluate_frame(frame)
+    se_gen = checklib.bootstrap_se(evaluate_frame, frame, resample_age, n=boot, workers=workers) if boot else {}
+    real_n = real_player_counts()
+    size = {(source, role, young): len(part if young else special_part(part, source)) for source, role, part in groups(frame) for young in (False, True)}
+    se_real = {}
+    for key, value in se_gen.items():
+        _script, src, role, *rest = key.split(".")
+        source = {"individual": "個別", "team": "球団"}[src]
+        role_name = {"fielder": "野手", "pitcher": "投手"}[role]
+        n_gen = size.get((source, role_name, "young" in rest))
+        if n_gen:
+            se_real[key] = value * (n_gen / real_n[role_name]) ** 0.5
+    return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
+
+
+def check_lines(graded: list[checklib.Check], source: str, role: str, young: bool) -> list[str]:
+    key = f"{SCRIPT}.{SOURCE_KEYS[source]}.{ROLE_KEYS[role]}"
+    rows = [c for c in graded if c.id.startswith(key + ".") and (".young." in c.id) == young]
+    return checklib.markdown_rows(rows) + [""] if rows else []
+
+
+def young_lines(frame: pd.DataFrame, graded: list[checklib.Check], title: str = "") -> list[str]:
+    lines: list[str] = []
+    for source, role, part in groups(frame):
+        if "young_band" not in part:
+            continue
+        lines += [f"### {title}{source}生成 日本人{role}の若手の能力", "", to_markdown(young_table(part, role)), ""]
+        lines += check_lines(graded, source, role, True)
+        young = part[part.young_band == YOUNG_BANDS[0]].rating
+        (mean_low, mean_high), (sd_low, sd_high) = YOUNG_RATING_GUIDE[role]
+        lines += [f"〜19 の査定値（目安。判定しない）: {young.mean():.1f} / {young.std():.1f}（目安 平均 {mean_low}〜{mean_high}・SD {sd_low}〜{sd_high}）", ""]
+    return lines
 
 
 def player_key(frame: pd.DataFrame) -> pd.Series:
@@ -536,26 +608,17 @@ def to_markdown(frame: pd.DataFrame) -> str:
     return "\n".join([header, sep, *body])
 
 
-def report(frame: pd.DataFrame, title: str = "") -> tuple[list[str], int]:
-    """年齢帯別の表と判定を Markdown の行で返す。(行, 不合格数)
-
-    特能・ランクの判定は、基準を決めたときと同じ個別生成 seed 1〜5000（SPECIAL_CHECK_PLAYERS）で行う。
-    """
+def report(frame: pd.DataFrame, graded: list[checklib.Check], title: str = "") -> list[str]:
+    """年齢帯別の表と判定を Markdown の行で返す（特能・ランク・査定値）。"""
     lines: list[str] = []
-    failures = 0
-    for source in ("個別", "球団"):
-        for role in ("野手", "投手"):
-            part = frame[(frame.source == source) & (frame.role == role)]
-            if source == "個別":
-                part = part[part.seed <= SPECIAL_CHECK_PLAYERS]
-            if part.empty:
-                continue
-            lines += [f"### {title}{source}生成 日本人{role}（{len(part)}人）", "", "値（括弧内は目標）:", "", to_markdown(band_table(part, role)), ""]
-            checks = evaluate(part, role, source)
-            failures += sum(not ok for *_, ok in checks)
-            lines += ["| 判定 | 項目 | 値 |", "|---|---|---|"] + [f"| {'OK' if ok else 'NG'} | {label} | {value} |" for label, value, ok in checks] + [""]
-            lines += ["査定値（参考。基準にしない）:", "", to_markdown(rating_table(part, role)), ""]
-    return lines, failures
+    for source, role, part in groups(frame):
+        part = special_part(part, source)
+        if part.empty:
+            continue
+        lines += [f"### {title}{source}生成 日本人{role}（{len(part)}人）", "", "値（括弧内は目標）:", "", to_markdown(band_table(part, role)), ""]
+        lines += check_lines(graded, source, role, False)
+        lines += ["査定値（参考。基準にしない）:", "", to_markdown(rating_table(part, role)), ""]
+    return lines
 
 
 def compare_table(before: pd.DataFrame, after: pd.DataFrame, role: str, source: str) -> pd.DataFrame:
@@ -614,6 +677,7 @@ def main() -> None:
     parser.add_argument("--save", type=Path, help="選手ごとの値を CSV に保存する")
     parser.add_argument("--load", type=Path, help="生成せずに、保存した CSV を判定する")
     parser.add_argument("--compare", type=Path, help="修正前の CSV と並べた表も出す")
+    checklib.add_common_args(parser, default_boot=100)
     args = parser.parse_args()
     logging.disable(logging.WARNING)
 
@@ -621,10 +685,10 @@ def main() -> None:
     if args.save:
         args.save.parent.mkdir(parents=True, exist_ok=True)
         frame.to_csv(args.save, index=False, encoding="utf-8-sig")
-    lines, failures = report(frame)
-    young, young_failures = young_lines(frame)
-    lines += ["## 若手の能力（〜19・20〜21・22〜23）", ""] + young
-    failures += young_failures
+    graded = grade_frame(frame, args.boot, args.workers, args.quick)
+    lines = report(frame, graded)
+    lines += ["## 若手の能力（〜19・20〜21・22〜23）", ""] + young_lines(frame, graded)
+    failures = 0
     if args.compare:
         before = pd.read_csv(args.compare, encoding="utf-8-sig")
         lines += ["## 修正前との比較", ""] + compare_lines(before, frame)
@@ -634,8 +698,11 @@ def main() -> None:
             lines += young_compare_lines(before, frame) + rank + gaps
             failures += rank_failures + gap_failures
     print("\n".join(lines))
-    print(f"不合格 {failures} 項目")
-    sys.exit(1 if failures else 0)
+    print(checklib.summary_line(graded))
+    code = checklib.finish(SCRIPT, graded, args)
+    if failures:
+        print(f"修正前との比較の不合格 {failures} 項目")
+    sys.exit(1 if (code or failures) else 0)
 
 
 if __name__ == "__main__":

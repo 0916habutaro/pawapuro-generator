@@ -4,7 +4,10 @@
 reports/team_mode/ にレポートを出す。
 
     python scripts/validate_team_mode.py                 # 既定: 構成・背番号500球団、戦力600球団、カラー7×200球団
-    python scripts/validate_team_mode.py --teams 50 --strength-teams 100 --color-teams 30   # 簡易版
+    python scripts/validate_team_mode.py --teams 50 --strength-teams 100 --color-teams 30 --quick   # 簡易版（合否は「参考」になる）
+
+合否の付け方・誤差は checklib.py（判定の整理_改修指示.md）。判定の一覧は reports/checks/validate_team_mode.csv。
+終了コード: 不合格が1件でもあれば 1（要注意・受け入れ済みは 0）。
 
 出力:
     summary.md                    合否と主な表
@@ -41,6 +44,10 @@ from generator.rating import player_rating  # noqa: E402
 from generator.real_data import attach_real_details, real_player_to_rating_dict  # noqa: E402
 
 import check_age_profile  # noqa: E402
+import checklib  # noqa: E402
+from checklib import Checks  # noqa: E402
+
+SCRIPT = "validate_team_mode"
 
 OUTPUT_DIR = APP_DIR / "reports" / "team_mode"
 REAL_PLAYERS_DIR = APP_DIR / "reports" / "real_powerpro_players_12teams"
@@ -131,7 +138,7 @@ def _team_record(team: dict[str, Any]) -> dict[str, Any]:
         "retired_used": len(set(numbers) & set(team["retired_numbers"])),
         "retired_numbers": ",".join(team["retired_numbers"]),
         "retired_count": len(team["retired_numbers"]),
-        "age_rows": [check_age_profile.player_metrics(p, "球団") for p in players if check_age_profile.is_target(p)],
+        "age_rows": [{**check_age_profile.player_metrics(p, "球団"), "team": team["team_seed"]} for p in players if check_age_profile.is_target(p)],
         "uniform_rows": [
             {
                 "number": str(p.get("uniform_number")),
@@ -332,16 +339,22 @@ def run_spread_jobs(teams: int, workers: int) -> list[dict[str, Any]]:
     return records
 
 
-def real_spread_values() -> dict[str, list[float]]:
-    """実在（2024〜2026年版の36チーム、外国人を含む）の、項目ごとの球団の値。"""
+def real_spread_frame() -> pd.DataFrame:
+    """実在（2024〜2026年版の36チーム、外国人を含む）の、球団（行）×項目（列）の値。実在側の誤差を球団の再抽出で見るために、球団をそろえて持つ。"""
     from generator import real_data
 
     stats = real_data.load_real_team_stats(SPREAD_SEASONS)
-    values = {}
+    stats = stats.assign(team_id=stats["season"].astype(str) + "|" + stats["team"].astype(str))
+    columns = {}
     for label, axis, group, metric in SPREAD_ITEMS:
         rows = stats[(stats["axis"] == axis) & (stats["group"] == group) & (stats["metric"] == metric)]
-        values[label] = rows["value"].astype(float).tolist()
-    return values
+        columns[label] = rows.set_index("team_id")["value"].astype(float)
+    return pd.DataFrame(columns)
+
+
+def real_spread_values() -> dict[str, list[float]]:
+    frame = real_spread_frame()
+    return {label: frame[label].dropna().tolist() for label in frame.columns}
 
 
 def spread_summary(values: list[float]) -> tuple[float, float, float, float]:
@@ -353,10 +366,11 @@ def _fmt_spread(item: tuple[float, float, float, float]) -> str:
     return f"{item[0]:.1f}／{item[1]:.1f}／{item[2]:.1f}（SD {item[3]:.2f}）"
 
 
-def spread_tables(records: list[dict[str, Any]]) -> tuple[pd.DataFrame, pd.DataFrame, list[tuple[str, bool]]]:
-    real_values = real_spread_values()
+def spread_tables(records: list[dict[str, Any]], real_values: dict[str, list[float]]) -> tuple[pd.DataFrame, pd.DataFrame, Checks]:
     rating_labels = {label for label, *_rest in SPREAD_RATING_ITEMS}
-    rows, passes = [], []
+    rows = []
+    C = Checks(SCRIPT)
+    sec = "球団ごとの散らばり"
     for label, *_rest in SPREAD_ITEMS:
         real = spread_summary(real_values[label])
         gen = spread_summary([record["values"][label] for record in records])
@@ -365,32 +379,40 @@ def spread_tables(records: list[dict[str, Any]]) -> tuple[pd.DataFrame, pd.DataF
         judged = [record for record in records if not ({record["color"], record.get("sub_color", "")} & spread_excluded_colors(label))]
         gen_judged = spread_summary([record["values"][label] for record in judged]) if len(judged) < len(records) else gen
         ratio_judged = gen_judged[3] / real[3] if real[3] else math.nan
+        key = f"{SCRIPT}.spread.{label}"
+        shown = f"生成 {_fmt_spread(gen)}、実在 {_fmt_spread(real)}"
         checks = []
         if label in rating_labels:
             low, high = SPREAD_RATING_SD_RATIO
-            checks.append((f"SD比 {low}〜{high}", low <= ratio <= high))
+            checks.append((f"SD比 {low}〜{high}", C.add(f"{key}.sd_ratio", "実在", f"散らばり: {label} のSD比 {low}〜{high}", ratio, low, high, section=sec, shown=f"{ratio:.2f}", real=shown)))
             margin = real[3] * SPREAD_RATING_TAIL_SD
-            checks.append((f"10%が実在±{margin:.2f}", abs(gen[0] - real[0]) <= margin))
-            checks.append((f"90%が実在±{margin:.2f}", abs(gen[2] - real[2]) <= margin))
+            checks.append((f"10%が実在±{margin:.2f}", C.add(f"{key}.p10", "実在", f"散らばり: {label} の10%が実在±{margin:.2f}", gen[0], real[0] - margin, real[0] + margin,
+                                                       section=sec, shown=f"{gen[0]:.1f}", real=shown)))
+            checks.append((f"90%が実在±{margin:.2f}", C.add(f"{key}.p90", "実在", f"散らばり: {label} の90%が実在±{margin:.2f}", gen[2], real[2] - margin, real[2] + margin,
+                                                       section=sec, shown=f"{gen[2]:.1f}", real=shown)))
         else:
             excluded = "・".join(sorted(spread_excluded_colors(label)))
             note = f"（{excluded}の球団を除く{len(judged)}球団で {ratio_judged:.2f}、除く前 {ratio:.2f}）" if excluded else ""
-            checks.append((f"SD比 {SPREAD_ABILITY_SD_RATIO_MAX}以下{note}", ratio_judged <= SPREAD_ABILITY_SD_RATIO_MAX))
+            checks.append((f"SD比 {SPREAD_ABILITY_SD_RATIO_MAX}以下{note}", C.add(f"{key}.sd_ratio", "実在", f"散らばり: {label} のSD比 {SPREAD_ABILITY_SD_RATIO_MAX}以下{note}", ratio_judged,
+                                                                          None, SPREAD_ABILITY_SD_RATIO_MAX, section=sec, shown=f"{ratio_judged:.2f}", real=shown)))
         if label == "総合力":
             rate = gen[1] / real[1] - 1
-            checks.append((f"中央が実在±{SPREAD_TOP28_MEDIAN_RATE * 100:.0f}%（{rate * 100:+.1f}%）", abs(rate) <= SPREAD_TOP28_MEDIAN_RATE))
+            checks.append((f"中央が実在±{SPREAD_TOP28_MEDIAN_RATE * 100:.0f}%（{rate * 100:+.1f}%）",
+                           C.add(f"{key}.median", "実在", f"散らばり: {label} の中央が実在±{SPREAD_TOP28_MEDIAN_RATE * 100:.0f}%", rate, -SPREAD_TOP28_MEDIAN_RATE, SPREAD_TOP28_MEDIAN_RATE,
+                                 section=sec, shown=f"{rate * 100:+.1f}%", real=shown)))
         if label == "救援のコントロール":
-            checks.append((f"90%が実在＋{SPREAD_RELIEVER_CONTROL_P90_MARGIN}以内", gen[2] <= real[2] + SPREAD_RELIEVER_CONTROL_P90_MARGIN))
-        for text, ok in checks:
-            passes.append((f"散らばり: {label} の{text}（生成 {_fmt_spread(gen)}、実在 {_fmt_spread(real)}）", ok))
+            checks.append((f"90%が実在＋{SPREAD_RELIEVER_CONTROL_P90_MARGIN}以内",
+                           C.add(f"{key}.p90_margin", "実在", f"散らばり: {label} の90%が実在＋{SPREAD_RELIEVER_CONTROL_P90_MARGIN}以内", gen[2], None, real[2] + SPREAD_RELIEVER_CONTROL_P90_MARGIN,
+                                 section=sec, shown=f"{gen[2]:.2f}", real=shown)))
         row = {"項目": label, "実在 10%／中央／90%": f"{real[0]:.1f}／{real[1]:.1f}／{real[2]:.1f}", "実在SD": round(real[3], 2)}
         for stage, history in SPREAD_HISTORY.items():
             past = history.get(label)
             row[f"{stage} SD比"] = round(past[3] / real[3], 2) if past else math.nan
+        ok = all(item.low is None and item.high is None or checklib.distance_outside(item.value, item.low, item.high) == 0 for _text, item in checks)
         row.update({"今回 10%／中央／90%": f"{gen[0]:.1f}／{gen[1]:.1f}／{gen[2]:.1f}", "今回SD": round(gen[3], 2), "今回SD比": round(ratio, 2),
                     "カラーを除いたSD比": round(ratio_judged, 2) if len(judged) < len(records) else math.nan,
                     "除いた球団数": len(records) - len(judged),
-                    "合否": "OK" if all(ok for _text, ok in checks) else "NG", "判定": "、".join(text for text, _ok in checks)})
+                    "合否": "OK" if ok else "NG", "判定": "、".join(text for text, _item in checks)})
         rows.append(row)
     table = pd.DataFrame(rows)
 
@@ -403,7 +425,7 @@ def spread_tables(records: list[dict[str, Any]]) -> tuple[pd.DataFrame, pd.DataF
             row.update({"改修前 平均": past[0], "改修前 SD": past[1], "改修前 最小〜最大": f"{past[2]}〜{past[3]}"})
         row.update({"今回 平均": round(values.mean(), 2), "今回 SD": round(values.std(), 2), "今回 最小〜最大": f"{int(values.min())}〜{int(values.max())}"})
         class_rows.append(row)
-    return table, pd.DataFrame(class_rows), passes
+    return table, pd.DataFrame(class_rows), C
 
 
 def spread_history_entry(records: list[dict[str, Any]]) -> tuple[dict[str, tuple[float, ...]], dict[tuple[str, str], tuple[float, ...]]]:
@@ -462,10 +484,11 @@ def describe(values: list[float]) -> dict[str, float]:
 AGE_COLORS = {"若手育成", "ベテラン重視"}
 
 
-def composition_compare(records: list[dict[str, Any]]) -> pd.DataFrame:
+def composition_compare(records: list[dict[str, Any]]) -> tuple[pd.DataFrame, Checks]:
     age_columns = {band for band, _low, _high in team_lib.AGE_BANDS}
     age_records = [r for r in records if r["color"] not in AGE_COLORS and r["sub_color"] not in AGE_COLORS]
     rows = []
+    C = Checks(SCRIPT)
     for column, label in team_lib.COMPOSITION_ITEMS:
         real = describe(team_lib.real_composition_values(column))
         targets = age_records if column in age_columns else records
@@ -473,13 +496,16 @@ def composition_compare(records: list[dict[str, Any]]) -> pd.DataFrame:
         ok = gen["10%"] >= real["最小"] and gen["90%"] <= real["最大"]
         note = f"若手育成・ベテラン重視を除く{len(targets)}球団" if column in age_columns else ""
         rows.append({"項目": label, "列": column, **{f"実在{k}": v for k, v in real.items()}, **{f"生成{k}": v for k, v in gen.items()}, "合否": "OK" if ok else "NG", "備考": note})
-    return pd.DataFrame(rows)
+        # 実在の最小〜最大（60チームの両端）なので、実在側の誤差は見ない
+        C.add(f"{SCRIPT}.composition.{column}.p10", "実在", f"構成：{label}の10%が実在の最小以上", gen["10%"], real["最小"], None, section="構成", real=f"実在の最小 {real['最小']}")
+        C.add(f"{SCRIPT}.composition.{column}.p90", "実在", f"構成：{label}の90%が実在の最大以下", gen["90%"], None, real["最大"], section="構成", real=f"実在の最大 {real['最大']}")
+    return pd.DataFrame(rows), C
 
 
 METRICS = (("metric_top28", "上位28人平均"), ("metric_all", "全員平均"), ("metric_pitcher_top", f"投手上位{team_lib.TOP_PITCHER_COUNT}人平均"), ("metric_fielder_top", f"野手上位{team_lib.TOP_FIELDER_COUNT}人平均"))
 
 
-def strength_tables(records: list[dict[str, Any]], real: pd.DataFrame) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+def strength_tables(records: list[dict[str, Any]], real: pd.DataFrame) -> tuple[pd.DataFrame, list[dict[str, Any]], Checks]:
     frame = pd.DataFrame(records)
     rows = []
     for column, label in METRICS:
@@ -491,7 +517,10 @@ def strength_tables(records: list[dict[str, Any]], real: pd.DataFrame) -> tuple[
     table = pd.DataFrame(rows)
 
     checks = []
+    C = Checks(SCRIPT)
+    sec = "戦力レベル"
     for column, label in METRICS:
+        key = f"{SCRIPT}.strength.{column.removeprefix('metric_')}"
         by_level = {level: frame.loc[frame.strength == level, column] for level in team_lib.STRENGTH_LABELS}
         strong, mid, weak = by_level["強豪"], by_level["中位"], by_level["弱小"]
         real_mean, real_min, real_max = real[column].mean(), real[column].min(), real[column].max()
@@ -506,6 +535,19 @@ def strength_tables(records: list[dict[str, Any]], real: pd.DataFrame) -> tuple[
             {"指標": label, "確認": "(d) レベル内の標準偏差 ≥ 強豪と中位の差の30%", "値": f"強豪 {strong.std():.1f} / 中位 {mid.std():.1f} / 弱小 {weak.std():.1f}（差 {gap:.1f} の30% = {gap * 0.3:.1f}）", "合否": min(strong.std(), mid.std(), weak.std()) >= gap * 0.3},
             {"指標": label, "確認": f"(e) 強豪の下位10% < 中位の上位10%、強豪の中央値 > 中位の{e_q * 100:.0f}%点", "値": f"強豪10% {strong.quantile(0.1):.1f} < 中位90% {mid.quantile(0.9):.1f}、強豪中央 {strong.median():.1f} > 中位{e_q * 100:.0f}% {mid.quantile(e_q):.1f}", "合否": strong.quantile(0.1) < mid.quantile(0.9) and strong.median() > mid.quantile(e_q)},
         ]
+        # (a)(d)(e)(f) は設計、(b)(c) は実在（12球団の平均・最小・最大に合わせる）
+        C.add(f"{key}.a", "設計", f"{label} (a) 強豪 > 中位 > 弱小（隣のレベルとの差の最小が正）", min(strong.mean() - mid.mean(), mid.mean() - weak.mean()), 1e-9, None,
+              section=sec, shown=f"{strong.mean():.1f} > {mid.mean():.1f} > {weak.mean():.1f}", target="差が正")
+        C.add(f"{key}.b", "実在", f"{label} (b) 中位の平均が実在平均±3%", mid.mean() / real_mean - 1, -0.03, 0.03, section=sec,
+              shown=f"{(mid.mean() / real_mean - 1) * 100:+.1f}%", real=f"実在平均 {real_mean:.1f}")
+        C.add(f"{key}.c_p10", "実在", f"{label} (c) 全体の10%が実在の最小の97%以上", p10 / real_min, 0.97, None, section=sec, shown=f"{p10:.1f}", real=f"実在の最小 {real_min:.1f}")
+        C.add(f"{key}.c_p90", "実在", f"{label} (c) 全体の90%が実在の最大の103%以下", p90 / real_max, None, 1.03, section=sec, shown=f"{p90:.1f}", real=f"実在の最大 {real_max:.1f}")
+        C.add(f"{key}.d", "設計", f"{label} (d) レベル内の標準偏差 ≥ 強豪と中位の差の30%（余り）", min(strong.std(), mid.std(), weak.std()) - gap * 0.3, 0.0, None, section=sec,
+              shown=f"強豪 {strong.std():.1f} / 中位 {mid.std():.1f} / 弱小 {weak.std():.1f}（差の30% = {gap * 0.3:.1f}）", target="0以上")
+        C.add(f"{key}.e_tail", "設計", f"{label} (e) 強豪の下位10% < 中位の上位10%（差）", strong.quantile(0.1) - mid.quantile(0.9), None, 0.0, section=sec,
+              shown=f"強豪10% {strong.quantile(0.1):.1f} / 中位90% {mid.quantile(0.9):.1f}", target="0以下")
+        C.add(f"{key}.e_median", "設計", f"{label} (e) 強豪の中央値 > 中位の{e_q * 100:.0f}%点（差）", strong.median() - mid.quantile(e_q), 1e-9, None, section=sec,
+              shown=f"強豪中央 {strong.median():.1f} / 中位{e_q * 100:.0f}% {mid.quantile(e_q):.1f}", target="差が正")
     corr = frame["metric_pitcher_top"].corr(frame["metric_fielder_top"])
     z_p = (frame["metric_pitcher_top"] - frame["metric_pitcher_top"].mean()) / frame["metric_pitcher_top"].std()
     z_f = (frame["metric_fielder_top"] - frame["metric_fielder_top"].mean()) / frame["metric_fielder_top"].std()
@@ -515,10 +557,11 @@ def strength_tables(records: list[dict[str, Any]], real: pd.DataFrame) -> tuple[
         "値": f"相関 {corr:.2f}（投高打低 {int((gap > 1).sum())}球団・打高投低 {int((gap < -1).sum())}球団・偏りなし {int((gap.abs() <= 1).sum())}球団、zの差±1で区分）",
         "合否": CORRELATION_RANGE[0] <= corr <= CORRELATION_RANGE[1],
     })
-    return table, checks
+    C.add(f"{SCRIPT}.strength.corr_pitcher_fielder", "設計", f"投手指標と野手指標の相関 {CORRELATION_RANGE[0]}〜{CORRELATION_RANGE[1]}", corr, *CORRELATION_RANGE, section=sec, shown=f"{corr:.2f}")
+    return table, checks, C
 
 
-def color_tables(records: list[dict[str, Any]]) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+def color_tables(records: list[dict[str, Any]]) -> tuple[pd.DataFrame, list[dict[str, Any]], Checks]:
     frame = pd.DataFrame(records)
     base = frame[frame.color == team_lib.NO_COLOR]
     base_means = {
@@ -527,6 +570,7 @@ def color_tables(records: list[dict[str, Any]]) -> tuple[pd.DataFrame, list[dict
         "fielding": base["dom_fielding"].mean(), "arm": base["dom_arm"].mean(), "age": base["dom_age"].mean(),
     }
     rows, checks = [], []
+    C = Checks(SCRIPT)
     for color, _weight in team_lib.COLOR_WEIGHTS:
         sub = frame[frame.color == color]
         if sub.empty:
@@ -546,11 +590,19 @@ def color_tables(records: list[dict[str, Any]]) -> tuple[pd.DataFrame, list[dict
             ok = any(r[-1] for r in results) if color in COLOR_ANY_OF else all(r[-1] for r in results)
             text = "、".join(f"{label} {value:+.2f}（目安 {low:+g}〜{high:+g}）" for label, value, low, high, _ok in results)
             checks.append({"カラー": color, "結果": text, "合否": ok})
+            # チームカラーの目安は設計。「どちらか」のカラーは、範囲の外へのはみ出しの最小を値にして 0 以下を合格にする
+            outside = [(0.0 if low <= v <= high else (low - v if v < low else v - high)) for _label, v, low, high, _ok in results]
+            if color in COLOR_ANY_OF:
+                C.add(f"{SCRIPT}.color.{color}.any", "設計", f"{color}：{'、'.join(r[0] for r in results)}のどちらかが目安内（はみ出しの最小）", min(outside), None, 0.0,
+                      section="チームカラー", shown=text, target="0（目安内）")
+            else:
+                for (label, v, low, high, _ok), (key, *_rest), gap in zip(results, COLOR_CHECKS[color], outside):
+                    C.add(f"{SCRIPT}.color.{color}.{key}", "設計", f"{color}：{label}が目安内", v, low, high, section="チームカラー", shown=f"{v:+.2f}", target=f"{low:+g}〜{high:+g}")
     table = pd.DataFrame(rows).rename(columns={
         "pitcher_top_pct": f"投手上位{team_lib.TOP_PITCHER_COUNT}人査定(%)", "power": "パワー", "contact_power": "ミート+パワー",
         "speed": "走力", "fielding": "守備力", "arm": "肩力", "age": "平均年齢",
     })
-    return table, checks
+    return table, checks, C
 
 
 def color_intensity_table(records: list[dict[str, Any]]) -> pd.DataFrame:
@@ -622,6 +674,22 @@ def uniform_tables(records: list[dict[str, Any]]) -> tuple[pd.DataFrame, pd.Data
     return usage, bands, summary
 
 
+def uniform_checks(summary: dict[str, Any]) -> Checks:
+    """背番号の確認項目のうち、uniform_tables の集計から決まるもの。"""
+    C = Checks(SCRIPT)
+    sec = "背番号"
+    key = f"{SCRIPT}.uniform"
+    empty, high_used = summary["empty_low"], summary["high_used"]
+    C.add(f"{key}.empty_low.p10", "実在", "0〜69と00の空き番号の10%が3以上", empty["10%"], 3, None, section=sec, real="実在 3〜13（平均7.7）")
+    C.add(f"{key}.empty_low.p90", "実在", "0〜69と00の空き番号の90%が13以下", empty["90%"], None, 13, section=sec, real="実在 3〜13（平均7.7）")
+    C.add(f"{key}.high_used.mean", "実在", "70〜98の使用数の平均が5.2±2", high_used["平均"], 3.2, 7.2, section=sec, real="実在 平均5.2")
+    C.add(f"{key}.rate_99", "実在", "99の使用率が80%±15%", summary["rate_99"], 0.65, 0.95, section=sec, shown=f"{summary['rate_99'] * 100:.1f}%", real="実在 80%")
+    C.add(f"{key}.pitcher_rate_11_21", "設計", "11〜21番の投手率90%以上", summary["pitcher_rate_11_21"], 0.90, None, section=sec, shown=f"{summary['pitcher_rate_11_21'] * 100:.1f}%")
+    for number, rate in summary["catcher_rate"].items():
+        C.add(f"{key}.catcher_rate.{number}", "設計", f"{number}番の捕手率30%以上", rate, 0.30, None, section=sec, shown=f"{rate * 100:.1f}%")
+    return C
+
+
 # 背番号補正_改修指示.md §1・§3 の実在の値と目標（実在は日本人・外国人を分けた集計、年齢は2026年版の日本人）
 UNIFORM_FOREIGN_RATE_TARGETS = {
     # 番号: (実在の外国人の割合, 下限, 上限)。下限・上限が None の番号は表に出すだけ
@@ -638,9 +706,6 @@ UNIFORM_AGE_TARGETS = {
     ("投手", "11-21"): (28.5, 0.00, 0.32), ("投手", "22-30"): (27.7, None, None), ("投手", "31-69"): (26.1, 0.28, 0.15),
 }
 UNIFORM_HIGH_PERCENTILE_REAL = 0.365
-# 番号ごとの使用率と実在の相関の下限（固定）。PR #102 第2版の背番号の重みでは0.9857、選手の査定・年齢が変わると少し動くため固定の下限にした
-UNIFORM_USE_RATE_CORR_MIN = 0.980
-
 
 def _range_text(low: float | None, high: float | None) -> str:
     if low is None and high is None:
@@ -650,7 +715,7 @@ def _range_text(low: float | None, high: float | None) -> str:
     return f"{low}〜{high}"
 
 
-def uniform_detail_tables(records: list[dict[str, Any]]) -> tuple[dict[str, pd.DataFrame], list[tuple[str, bool]]]:
+def uniform_detail_tables(records: list[dict[str, Any]]) -> tuple[dict[str, pd.DataFrame], Checks]:
     """背番号補正_改修指示.md §3 の確認項目（外国人の番号、年齢、70〜98番、使用率の相関）。"""
     stats = team_lib.load_uniform_number_stats()
     by_number: dict[str, Counter] = defaultdict(Counter)
@@ -673,7 +738,9 @@ def uniform_detail_tables(records: list[dict[str, Any]]) -> tuple[dict[str, pd.D
             if number != "00" and 70 <= int(number) <= 98:
                 high_percentiles.append(row["percentile"])
         teams_used.update(used)
-    passes: list[tuple[str, bool]] = []
+    C = Checks(SCRIPT)
+    sec = "背番号（外国人・年齢・70〜98番）"
+    key = f"{SCRIPT}.uniform"
 
     rows = []
     for number, (real, low, high) in UNIFORM_FOREIGN_RATE_TARGETS.items():
@@ -682,7 +749,7 @@ def uniform_detail_tables(records: list[dict[str, Any]]) -> tuple[dict[str, pd.D
         target = _range_text(low, high)
         rows.append({"番号": number, "実在": real, "生成": round(rate, 3), "目標": target, "合否": "OK" if ok else "NG"})
         if low is not None or high is not None:
-            passes.append((f"{number}番の外国人の割合 {target}（生成 {rate:.3f}）", ok))
+            C.add(f"{key}.foreign_rate.{number}", "実在", f"{number}番の外国人の割合 {target}", rate, low, high, section=sec, shown=f"{rate:.3f}", target=target, real=f"実在 {real}")
     foreign_rate = pd.DataFrame(rows)
 
     total_foreign = sum(foreign_by_band.values()) or 1
@@ -694,7 +761,8 @@ def uniform_detail_tables(records: list[dict[str, Any]]) -> tuple[dict[str, pd.D
         target = _range_text(low, high) if band in UNIFORM_FOREIGN_RANGE_TARGETS else ""
         rows.append({"番号の範囲": band, "実在": UNIFORM_FOREIGN_RANGE_REAL[band], "生成": round(share, 3), "目標": target, "合否": "OK" if ok else "NG"})
         if band in UNIFORM_FOREIGN_RANGE_TARGETS:
-            passes.append((f"外国人のうち {band} 番の割合 {target}（生成 {share:.3f}）", ok))
+            C.add(f"{key}.foreign_range.{band}", "実在", f"外国人のうち {band} 番の割合 {target}", share, low, high, section=sec, shown=f"{share:.3f}", target=target,
+                  real=f"実在 {UNIFORM_FOREIGN_RANGE_REAL[band]}")
     foreign_range = pd.DataFrame(rows)
 
     rows = []
@@ -707,31 +775,34 @@ def uniform_detail_tables(records: list[dict[str, Any]]) -> tuple[dict[str, pd.D
         rows.append({"区分": role, "番号の範囲": band, "人数": len(values), "平均年齢 実在": real_mean, "平均年齢 生成": round(mean, 2),
                      "23歳以下 実在": real_u23, "23歳以下 生成": round(u23, 3), "31歳以上 実在": real_o31, "31歳以上 生成": round(o31, 3),
                      "合否": "OK" if ok else "NG"})
-        passes.append((f"日本人{role}の{band}番の平均年齢 {real_mean - 1:.1f}〜{real_mean + 1:.1f}（生成 {mean:.2f}）", ok))
+        role_key = {"野手": "fielder", "投手": "pitcher"}[role]
+        C.add(f"{key}.age.{role_key}.{band}.mean", "実在", f"日本人{role}の{band}番の平均年齢 {real_mean - 1:.1f}〜{real_mean + 1:.1f}", mean, real_mean - 1.0, real_mean + 1.0,
+              section=sec, shown=f"{mean:.2f}", real=f"実在 {real_mean}")
         if (role, band) == ("野手", "31-69"):
-            passes.append((f"日本人野手の31〜69番で31歳以上が16%以下（生成 {o31 * 100:.1f}%）", o31 <= 0.16))
+            C.add(f"{key}.age.fielder.31-69.over31", "実在", "日本人野手の31〜69番で31歳以上が16%以下", o31, None, 0.16, section=sec, shown=f"{o31 * 100:.1f}%", real=f"実在 {real_o31}")
         if (role, band) == ("野手", "0-10"):
-            passes.append((f"日本人野手の0〜10番で31歳以上が33%以上（生成 {o31 * 100:.1f}%）", o31 >= 0.33))
+            C.add(f"{key}.age.fielder.0-10.over31", "実在", "日本人野手の0〜10番で31歳以上が33%以上", o31, 0.33, None, section=sec, shown=f"{o31 * 100:.1f}%", real=f"実在 {real_o31}")
     age_table = pd.DataFrame(rows)
 
     high_mean = statistics.fmean(high_percentiles) if high_percentiles else math.nan
     high_count = len(high_percentiles) / len(records)
-    passes.append((f"70〜98番の査定の百分位の平均 0.30〜0.45（生成 {high_mean:.3f}、実在 {UNIFORM_HIGH_PERCENTILE_REAL}）", 0.30 <= high_mean <= 0.45))
-    passes.append((f"70〜98番の使用数 1球団あたり4.2〜6.2個（生成 {high_count:.2f}）", 4.2 <= high_count <= 6.2))
+    C.add(f"{key}.high_percentile", "実在", "70〜98番の査定の百分位の平均 0.30〜0.45", high_mean, 0.30, 0.45, section=sec, shown=f"{high_mean:.3f}", real=f"実在 {UNIFORM_HIGH_PERCENTILE_REAL}")
+    C.add(f"{key}.high_count", "実在", "70〜98番の使用数 1球団あたり4.2〜6.2個", high_count, 4.2, 6.2, section=sec, shown=f"{high_count:.2f}", real="実在 5.2")
     real_rates = [stats[n]["use_rate"] for n in team_lib.UNIFORM_NUMBERS]
     gen_rates = [teams_used[n] / len(records) for n in team_lib.UNIFORM_NUMBERS]
     corr = float(pd.Series(real_rates).corr(pd.Series(gen_rates)))
-    passes.append((f"番号ごとの使用率と実在の相関が{UNIFORM_USE_RATE_CORR_MIN:.3f}以上（生成 {corr:.4f}）", corr >= UNIFORM_USE_RATE_CORR_MIN))
+    # 番号ごとの使用率と実在の相関の下限。PR #102 第2版の背番号の重みでは0.9857、選手の査定・年齢が変わると少し動くため固定の下限にした（data/config/check_baselines.json）
+    C.fixed(f"{key}.use_rate_corr", "番号ごとの使用率と実在の相関が下限以上", corr, 0.0, section=sec, shown=f"{corr:.4f}")
     high = pd.DataFrame([
         {"項目": "70〜98番の査定の百分位の平均", "実在": UNIFORM_HIGH_PERCENTILE_REAL, "生成": round(high_mean, 3)},
         {"項目": "70〜98番の使用数（1球団あたり）", "実在": 5.2, "生成": round(high_count, 2)},
-        {"項目": "番号ごとの使用率と実在の相関", "実在": f"下限 {UNIFORM_USE_RATE_CORR_MIN:.3f}", "生成": round(corr, 4)},
+        {"項目": "番号ごとの使用率と実在の相関", "実在": "固定の下限（基準値ファイル）", "生成": round(corr, 4)},
     ])
-    return {"foreign_rate": foreign_rate, "foreign_range": foreign_range, "age": age_table, "high": high}, passes
+    return {"foreign_rate": foreign_rate, "foreign_range": foreign_range, "age": age_table, "high": high}, C
 
 
-def spread_section(records: list[dict[str, Any]], output: Path) -> tuple[list[str], list[tuple[str, bool]]]:
-    table, class_table, passes = spread_tables(records)
+def spread_section(records: list[dict[str, Any]], output: Path, real_values: dict[str, list[float]]) -> tuple[list[str], Checks]:
+    table, class_table, C = spread_tables(records, real_values)
     table.to_csv(output / "spread_metrics.csv", index=False, encoding="utf-8-sig")
     class_table.to_csv(output / "spread_class_counts.csv", index=False, encoding="utf-8-sig")
     history, class_history = spread_history_entry(records)
@@ -750,7 +821,7 @@ def spread_section(records: list[dict[str, Any]], output: Path) -> tuple[list[st
         "### 選手格の人数（国内選手、1球団あたり）", "",
         to_markdown(class_table), "",
     ]
-    return lines, passes
+    return lines, C
 
 
 def svg_scatter(frame: pd.DataFrame, x: str, y: str, title: str, width: int = 520, height: int = 360) -> str:
@@ -782,6 +853,156 @@ def to_markdown(frame: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# 判定（誤差・合否）
+# ---------------------------------------------------------------------------
+def real_metrics_frame() -> pd.DataFrame:
+    return real_team_metrics()
+
+
+def slim(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """誤差の計算で使い回す球団の記録（年齢帯の判定用の行は check_age_profile.py で扱うので除く）。"""
+    return [{key: value for key, value in record.items() if key != "age_rows"} for record in records]
+
+
+def build(data: dict[str, list[dict[str, Any]]], real: dict[str, Any]) -> tuple[Checks, dict[str, Any]]:
+    """球団生成の記録から、判定（Checks）と、レポートに載せる表（tables）を作る。"""
+    C = Checks(SCRIPT)
+    tables: dict[str, Any] = {}
+    main_records = data["main"]
+    frame = pd.DataFrame(main_records)
+    # --- 構成
+    tables["comp"], comp_checks = composition_compare(main_records)
+    C.extend(comp_checks)
+    design = f"{SCRIPT}.design"
+    sec = "構成・名前・背番号の基本条件"
+    C.add(f"{design}.total_max70", "設計", "総数が70を超えない（超えた球団数）", int((frame["comp_total"] > 70).sum()), None, 0, section=sec, shown=f"{int((frame['comp_total'] > 70).sum())}球団")
+    bad = int(((frame["comp_pos_C"] < 5) | (frame["comp_pos_SS"] < 2)).sum())
+    C.add(f"{design}.catcher_ss", "設計", "捕手5人以上・遊撃手2人以上（満たさない球団数）", bad, None, 0, section=sec, shown=f"{bad}球団")
+    bad = int((frame["comp_closer_aptitude"] < 2).sum())
+    C.add(f"{design}.closer_aptitude", "設計", "抑え適性ありが2人以上（満たさない球団数）", bad, None, 0, section=sec, shown=f"{bad}球団")
+    bad = int(frame["name_duplicates"].sum())
+    C.add(f"{design}.name_duplicates", "設計", "名前の重複が0件", bad, None, 0, section=sec, shown=f"{bad}件")
+    bad = int(frame["number_duplicates"].sum() + frame["retired_used"].sum() + frame["number_missing"].sum())
+    C.add(f"{design}.number_conflicts", "設計", "背番号の重複が0件・欠番を使っていない・全員に背番号", bad, None, 0, section=sec, shown=f"{bad}件")
+    bad = int((~frame.loc[frame.relaxed_total == 0, "targets_match"]).sum())
+    C.add(f"{design}.targets_match", "設計", "目標の人数と実際の人数が一致（条件をゆるめた球団を除く。外れた球団数）", bad, None, 0, section=sec, shown=f"{bad}球団")
+    # --- 背番号
+    tables["usage"], tables["bands"], uni = uniform_tables(main_records)
+    C.extend(uniform_checks(uni))
+    tables["uni"] = uni
+    tables["uniform_detail"], detail_checks = uniform_detail_tables(main_records)
+    C.extend(detail_checks)
+    # --- 戦力
+    if data.get("strength"):
+        tables["strength"], tables["strength_checks"], strength = strength_tables(data["strength"], real["metrics"])
+        C.extend(strength)
+    # --- カラー
+    if data.get("color"):
+        tables["color"], tables["color_checks"], colors = color_tables(data["color"])
+        C.extend(colors)
+    # --- 散らばり
+    if data.get("spread"):
+        spread_table, class_table, spread = spread_tables(data["spread"], real["spread_values"])
+        tables["spread"], tables["spread_class"] = spread_table, class_table
+        C.extend(spread)
+    return C, tables
+
+
+_REAL: dict[str, Any] = {}
+
+
+def real_context() -> dict[str, Any]:
+    """実在側のデータ（読み込みは1回）。"""
+    if not _REAL:
+        spread_frame = real_spread_frame()
+        _REAL.update({"spread_frame": spread_frame, "spread_values": {label: spread_frame[label].dropna().tolist() for label in spread_frame.columns}, "metrics": real_metrics_frame()})
+    return _REAL
+
+
+def evaluate_data(data: dict[str, list[dict[str, Any]]]) -> Checks:
+    return build(data, real_context())[0]
+
+
+def resample_data(data: dict[str, list[dict[str, Any]]], rng: Any) -> dict[str, list[dict[str, Any]]]:
+    """球団を単位に、球団の記録の集まりごとに引き直す。"""
+    return {key: checklib.resample_list(records, rng) if records else records for key, records in data.items()}
+
+
+def real_se_map(data: dict[str, list[dict[str, Any]]], boot: int) -> dict[str, float]:
+    """実在側の誤差。実在の36チーム（散らばり）・12チーム（戦力）を球団単位で引き直し、背番号の実在の割合・年齢は件数から求める。"""
+    if not boot:
+        return {}
+    real = real_context()
+    out: dict[str, float] = {}
+    if data.get("spread"):
+        spread_records = data["spread"]
+
+        def spread_checks(frame: pd.DataFrame) -> Checks:
+            values = {label: frame[label].dropna().tolist() for label in frame.columns}
+            return spread_tables(spread_records, values)[2]
+
+        out.update(checklib.bootstrap_se(spread_checks, real["spread_frame"], lambda f, rng: checklib.resample_frame(f, rng), n=boot, offset=True))
+    if data.get("strength"):
+        strength_records = data["strength"]
+        out.update(checklib.bootstrap_se(lambda metrics: strength_tables(strength_records, metrics)[2], real["metrics"], lambda f, rng: checklib.resample_frame(f, rng), n=boot, offset=True))
+    out.update(uniform_real_se())
+    return out
+
+
+def uniform_real_se() -> dict[str, float]:
+    """背番号の実在側の誤差。割合は件数（二項分布）、年齢は選手のばらつき（標準偏差÷√人数）から求める。"""
+    stats = team_lib.load_uniform_number_stats()
+    out: dict[str, float] = {}
+    key = f"{SCRIPT}.uniform"
+    for number, (real, low, high) in UNIFORM_FOREIGN_RATE_TARGETS.items():
+        counts = stats.get(number, {})
+        n = sum(counts.get(k, 0) for k in ("pitcher", "catcher", "infielder", "outfielder"))
+        if n and (low is not None or high is not None):
+            out[f"{key}.foreign_rate.{number}"] = math.sqrt(real * (1 - real) / n)
+    total_foreign = sum(stats.get(n, {}).get("foreign", 0) for n in team_lib.UNIFORM_NUMBERS)
+    for band in UNIFORM_FOREIGN_RANGE_TARGETS:
+        share = UNIFORM_FOREIGN_RANGE_REAL[band]
+        if total_foreign:
+            out[f"{key}.foreign_range.{band}"] = math.sqrt(share * (1 - share) / total_foreign)
+    from generator import real_data
+
+    players = real_data.load_real_players((real_data.AGE_SEASON,))
+    if players is not None:
+        players = players[~players["is_foreign"]].assign(band=lambda f: f["uniform_number"].map(team_lib.uniform_number_band))
+        for (role, band), (_mean, _u23, _o31) in UNIFORM_AGE_TARGETS.items():
+            part = players[(players["role"] == role) & (players["band"] == band)]["age"].dropna()
+            role_key = {"野手": "fielder", "投手": "pitcher"}[role]
+            if len(part) > 1:
+                out[f"{key}.age.{role_key}.{band}.mean"] = float(part.std() / math.sqrt(len(part)))
+    return out
+
+
+def grade_data(data: dict[str, list[dict[str, Any]]], boot: int, workers: int, quick: bool = False) -> tuple[list[checklib.Check], dict[str, Any]]:
+    slimmed = {key: slim(records) for key, records in data.items()}
+    checks, tables = build(slimmed, real_context())
+    se_gen = checklib.bootstrap_se(evaluate_data, slimmed, resample_data, n=boot, workers=workers) if boot else {}
+    se_real = real_se_map(slimmed, boot)
+    return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick), tables
+
+
+def sort_key(check: checklib.Check) -> tuple[int, str]:
+    order = {checklib.FAIL: 0, checklib.WARN: 1, checklib.ACCEPTED: 2, checklib.PASS: 3, checklib.INFO: 4}
+    return order[check.status], check.id
+
+
+def checks_section(graded: list[checklib.Check]) -> list[str]:
+    """summary.md の「合否」の節。合格以外を先に、合格はまとめて数える。"""
+    c = checklib.counts(graded)
+    lines = ["## 合否", "", checklib.summary_line(graded), "",
+             "種類: 実在＝実在に合わせる（範囲の外でも境界から誤差の2倍以内は要注意）／固定＝改修前から変わっていない／設計＝実在とは別の条件（範囲の内側なら合格）／参考＝合否なし。", ""]
+    others = [check for check in sorted(graded, key=sort_key) if check.status not in (checklib.PASS, checklib.INFO)]
+    if others:
+        lines += checklib.markdown_rows(others) + [""]
+    lines += [f"合格 {c[checklib.PASS]} 件は reports/checks/validate_team_mode.csv に一覧。", ""]
+    return lines
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="球団生成モードの検証レポートを作ります。")
     parser.add_argument("--teams", type=int, default=500, help="構成・背番号の確認に使う球団数")
@@ -794,17 +1015,19 @@ def main() -> None:
     parser.add_argument("--spread-teams", type=int, default=300, help="球団ごとの散らばりの確認に使う球団数（seed 1〜）")
     parser.add_argument("--skip-spread", action="store_true")
     parser.add_argument("--spread-only", action="store_true", help="球団ごとの散らばりの節だけを作る（spread_summary.md）")
+    checklib.add_common_args(parser)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     logging.disable(logging.WARNING)
 
     if args.spread_only:
-        spread_lines, spread_passes = spread_section(run_spread_jobs(args.spread_teams, args.workers), args.output)
-        lines = ["# 球団生成モード 検証レポート（球団ごとの散らばりのみ）", "", "## 合否", ""]
-        lines += [f"- {'✅' if ok else '❌'} {label}" for label, ok in spread_passes] + [""] + spread_lines
+        spread_records = run_spread_jobs(args.spread_teams, args.workers)
+        spread_lines, _spread = spread_section(spread_records, args.output, real_context()["spread_values"])
+        spread_checks = grade_spread_only(spread_records, args.boot, args.quick)
+        lines = ["# 球団生成モード 検証レポート（球団ごとの散らばりのみ）", ""] + checks_section(spread_checks) + spread_lines
         (args.output / "spread_summary.md").write_text("\n".join(lines), encoding="utf-8")
         print("\n".join(lines))
-        return
+        sys.exit(checklib.finish(SCRIPT + "_spread", spread_checks, args))
 
     main_records = run_jobs([(BASE_SEED + i, None) for i in range(args.teams)], args.workers, "構成・背番号")
     strength_records = []
@@ -815,44 +1038,27 @@ def main() -> None:
     if not args.skip_color:
         jobs = [(COLOR_BASE_SEED + i, {"color": color, "color_intensity": 1.0, "sub_color": ""}) for color, _w in team_lib.COLOR_WEIGHTS for i in range(args.color_teams)]
         color_records = run_jobs(jobs, args.workers, "カラー")
+    spread_records = [] if args.skip_spread else run_spread_jobs(args.spread_teams, args.workers)
 
-    lines = ["# 球団生成モード 検証レポート", ""]
-    passes: list[tuple[str, bool]] = []
+    data = {"main": main_records, "strength": strength_records, "color": color_records, "spread": spread_records}
+    graded, tables = grade_data(data, args.boot, args.workers, args.quick)
+    # 年齢帯別の特能・ランク（check_age_profile.py と同じ判定。日本人）。誤差は check_age_profile.py と同じ方法で求める
+    age_frame = pd.DataFrame([row for record in main_records for row in record["age_rows"]])
+    age_graded = check_age_profile.grade_frame(age_frame, args.boot, args.workers, args.quick)
+    graded += age_graded
 
-    # --- 構成 ---
-    comp = composition_compare(main_records)
+    frame = pd.DataFrame(slim(main_records))
+    comp, usage, bands, uni, uniform_detail = tables["comp"], tables["usage"], tables["bands"], tables["uni"], tables["uniform_detail"]
     comp.to_csv(args.output / "composition_compare.csv", index=False, encoding="utf-8-sig")
-    frame = pd.DataFrame(main_records)
-    passes.append(("全項目の10〜90%が実在の最小〜最大に収まる", bool((comp["合否"] == "OK").all())))
-    passes.append(("総数が70を超えない", bool((frame["comp_total"] <= 70).all())))
-    passes.append(("捕手5人以上・遊撃手2人以上", bool((frame["comp_pos_C"] >= 5).all() and (frame["comp_pos_SS"] >= 2).all())))
-    passes.append(("抑え適性ありが2人以上", bool((frame["comp_closer_aptitude"] >= 2).all())))
-    passes.append(("名前の重複が0件", int(frame["name_duplicates"].sum()) == 0))
-    passes.append(("背番号の重複が0件・欠番を使っていない・全員に背番号", int(frame["number_duplicates"].sum() + frame["retired_used"].sum() + frame["number_missing"].sum()) == 0))
-    passes.append(("目標の人数と実際の人数が一致（条件をゆるめた球団を除く）", bool(frame.loc[frame.relaxed_total == 0, "targets_match"].all())))
-
-    usage, bands, uni = uniform_tables(main_records)
     usage.to_csv(args.output / "uniform_number_usage.csv", index=False, encoding="utf-8-sig")
     bands.to_csv(args.output / "uniform_number_bands.csv", index=False, encoding="utf-8-sig")
-    passes.append((f"0〜69と00の空き番号の10〜90%が3〜13（生成 {uni['empty_low']['10%']}〜{uni['empty_low']['90%']}）", 3 <= uni["empty_low"]["10%"] and uni["empty_low"]["90%"] <= 13))
-    passes.append((f"70〜98の使用数の平均が5.2±2（生成 {uni['high_used']['平均']}）", abs(uni["high_used"]["平均"] - 5.2) <= 2))
-    passes.append((f"99の使用率が80%±15%（生成 {uni['rate_99'] * 100:.1f}%）", abs(uni["rate_99"] - 0.80) <= 0.15))
-    passes.append((f"11〜21番の投手率90%以上（生成 {uni['pitcher_rate_11_21'] * 100:.1f}%）", uni["pitcher_rate_11_21"] >= 0.90))
-    uniform_detail, uniform_detail_passes = uniform_detail_tables(main_records)
-    passes += uniform_detail_passes
-    # 基準値は check_age_profile.BASELINE を使う。球団・投手の査定値の平均は 296.8 → 291.9 に更新。
-    # 救援投手のコントロール補正（PR #107 相当）で下がった。実在の投手の査定の平均は 287.4（2024〜2026年版）／292.5（2026年版）（外国人を含む）。
-    age_lines, age_failures = check_age_profile.report(pd.DataFrame([row for record in main_records for row in record["age_rows"]]))
-    passes.append((f"年齢帯別の特能・ランク（check_age_profile.py、日本人）の不合格が0（不合格 {age_failures}）", age_failures == 0))
-    passes.append((f"2・27番の捕手率30%以上（生成 2番 {uni['catcher_rate']['2'] * 100:.1f}%・27番 {uni['catcher_rate']['27'] * 100:.1f}%）", min(uni["catcher_rate"].values()) >= 0.30))
-    spread_lines: list[str] = []
-    if not args.skip_spread:
-        spread_lines, spread_passes = spread_section(run_spread_jobs(args.spread_teams, args.workers), args.output)
-        passes += spread_passes
+    age_lines = check_age_profile.report(age_frame, age_graded)
 
     elapsed = frame["elapsed"]
     relaxed_cols = [c for c in frame.columns if c.startswith("relaxed_") and c != "relaxed_total"]
-    lines += ["## 合否", ""] + [f"- {'✅' if ok else '❌'} {label}" for label, ok in passes] + [""]
+    lines = ["# 球団生成モード 検証レポート", ""]
+    lines += ["簡易版（合否には使わない）", ""] if args.quick else []
+    lines += checks_section(graded)
     lines += [
         "## 生成時間と条件をゆるめた件数", "",
         f"- 球団数: {len(frame)}（seed {BASE_SEED}〜）、並列数 {args.workers}",
@@ -865,10 +1071,10 @@ def main() -> None:
         *age_lines,
     ]
 
-    # --- 戦力 ---
+    # --- 戦力
     if strength_records:
-        real = real_team_metrics()
-        strength_table, strength_checks = strength_tables(strength_records, real)
+        real = real_context()["metrics"]
+        strength_table, strength_checks = tables["strength"], tables["strength_checks"]
         strength_table.to_csv(args.output / "strength_metrics.csv", index=False, encoding="utf-8-sig")
         sframe = pd.DataFrame(strength_records).drop(columns=["uniform_rows", "age_rows"])
         sframe.to_csv(args.output / "strength_teams.csv", index=False, encoding="utf-8-sig")
@@ -885,9 +1091,9 @@ def main() -> None:
                   "実在12球団の各球団の値:", "", to_markdown(real.round(1)), ""]
         lines += ["散布図: strength_scatter.html", ""]
 
-    # --- カラー ---
+    # --- カラー
     if color_records:
-        color_table, color_checks = color_tables(color_records)
+        color_table, color_checks = tables["color"], tables["color_checks"]
         color_table.to_csv(args.output / "color_effects.csv", index=False, encoding="utf-8-sig")
         lines += [f"## チームカラー（各カラー{args.color_teams}球団、t=1.0・サブカラーなしに固定。国内選手の平均の、特色なしとの差）", "",
                   to_markdown(color_table), "",
@@ -897,7 +1103,7 @@ def main() -> None:
         intensity.to_csv(args.output / "color_intensity.csv", index=False, encoding="utf-8-sig")
         lines += ["### 効き具合 t と効果の大きさ（通常抽選の球団、サブカラーなし）", "", to_markdown(intensity), ""]
 
-    # --- 背番号 ---
+    # --- 背番号
     focus = usage[usage["番号"].isin(["0", "00", "1", "2", "7", "11", "18", "22", "27", "42", "51", "70", "71", "90", "95", "99"])]
     lines += [
         "## 背番号（実在60チームと生成）", "",
@@ -915,10 +1121,25 @@ def main() -> None:
         "### 70〜98番（§1-3）", "", to_markdown(uniform_detail["high"]), "",
         "全番号の表: uniform_number_usage.csv", "",
     ]
-    lines += spread_lines
+    if spread_records:
+        spread_lines, _spread = spread_section(spread_records, args.output, real_context()["spread_values"])
+        lines += spread_lines
     (args.output / "summary.md").write_text("\n".join(lines), encoding="utf-8")
     print("\n".join(lines[:40]))
     print(f"レポート: {args.output / 'summary.md'}")
+    sys.exit(checklib.finish(SCRIPT, graded, args))
+
+
+def grade_spread_only(spread_records: list[dict[str, Any]], boot: int, quick: bool) -> list[checklib.Check]:
+    """球団ごとの散らばりだけの判定（--spread-only）。"""
+    data = {"main": [], "spread": slim(spread_records)}
+    real = real_context()
+    checks = spread_tables(data["spread"], real["spread_values"])[2]
+    evaluate = lambda d: spread_tables(d, real["spread_values"])[2]  # noqa: E731
+    se_gen = checklib.bootstrap_se(evaluate, data["spread"], checklib.resample_list, n=boot) if boot else {}
+    se_real = real_se_map({"spread": data["spread"]}, boot)
+    se_real = {key: value for key, value in se_real.items() if key.startswith(f"{SCRIPT}.spread.")}
+    return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
 
 
 if __name__ == "__main__":

@@ -140,7 +140,15 @@ Also save generated players into SQLite and allow CSV export.
 
 
 
-\## Git
+\## Verification
+
+- 改修の完了報告には、`scripts/run_checks.py` の正式な結果（`--quick` なし）を使う。
+- `--quick` の結果で合否を話さない（簡易版はすべての合否が「参考」で、規模が小さいため誤差が大きい）。
+- 前回の正式な結果（data/config/check_snapshot.csv）より悪化した項目は不合格になる。意図した変更なら `--update-snapshot --reason "理由"` で更新し、PRの説明に「更新した項目と理由」を載せる。
+- 検証の判定の種類・誤差・基準値・受け入れ記録の使い方は README.md の「検証スクリプト」を参照。
+  意図して改修前の値を変えたときは `--update-baselines --reason "理由"` で `data/config/check_baselines.json` を更新する。
+
+## Git
 
 
 
