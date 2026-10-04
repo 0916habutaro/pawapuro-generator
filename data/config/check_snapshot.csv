@@ -60,7 +60,7 @@ check_age_profile.individual.pitcher.rk_pts.band_diff_max,実在,0.8305732484,0.
 check_age_profile.individual.pitcher.rk_pts.sd_band21,実在,6.333419164,0.1884445938
 check_age_profile.individual.pitcher.rk_pts.sd_old_max,実在,8.871594363,0.193065734
 check_age_profile.individual.pitcher.rk_pts.sd_old_min,実在,8.64548154,0.1761006289
-check_age_profile.individual.pitcher.young.20〜21.class_order,設計,15.79196767,4.604223413
+check_age_profile.individual.pitcher.young.20〜21.class_order,設計,15.78950004,4.904401945
 check_age_profile.individual.pitcher.young.20〜21.control.mean,実在,44.18968213,0.2489778517
 check_age_profile.individual.pitcher.young.20〜21.control.sd,実在,10.12000352,0.1395833509
 check_age_profile.individual.pitcher.young.20〜21.speed.mean,実在,151.3001563,0.075219295
@@ -140,7 +140,7 @@ check_age_profile.team.pitcher.rk_pts.band_diff_max,実在,1.208608971,0.1852706
 check_age_profile.team.pitcher.rk_pts.sd_band21,実在,6.31729972,0.1258133256
 check_age_profile.team.pitcher.rk_pts.sd_old_max,実在,8.943380794,0.1070009026
 check_age_profile.team.pitcher.rk_pts.sd_old_min,実在,8.725565418,0.07524854222
-check_age_profile.team.pitcher.young.20〜21.class_order,設計,24.16548734,3.413498958
+check_age_profile.team.pitcher.young.20〜21.class_order,設計,24.76714172,3.511441722
 check_age_profile.team.pitcher.young.20〜21.control.mean,実在,45.00312012,0.2948737696
 check_age_profile.team.pitcher.young.20〜21.control.sd,実在,10.44333386,0.1735949208
 check_age_profile.team.pitcher.young.20〜21.speed.mean,実在,151.4235569,0.09533001656
@@ -260,7 +260,7 @@ check_fictional_balance.fielder.subpos.サブポジ適性 ◎,実在,0.349819059
 check_fictional_balance.fielder.subpos.内野手（二・三・遊）の平均,実在,2.553452116,0.02152970842
 check_fictional_balance.fielder.subpos.遊撃手のサブポジ二塁手,実在,0.9050715215,0.01027919739
 check_fictional_balance.pitcher.ability.コントロール20未満,実在,0,0
-check_fictional_balance.pitcher.ability.コントロール×スタミナ相関,実在,0.4799691136,0.01144615742
+check_fictional_balance.pitcher.ability.コントロール×スタミナ相関,実在,0.4727586231,0.01166056908
 check_fictional_balance.pitcher.ability.球速145以下,実在,0.06996248069,0.003801914049
 check_fictional_balance.pitcher.ability.球速162以上,実在,0.001544912823,0.0005711482589
 check_fictional_balance.pitcher.ability.球速×コントロール相関,実在,-0.2738118712,0.01598196319
@@ -399,11 +399,20 @@ check_pitcher_control.control_hand.救援・左 中央,実在,46,0.5159211404
 check_pitcher_control.control_hand.救援・左 平均,実在,47.36826992,0.2898975234
 check_pitcher_control.control_hand.救援・左 標準偏差,実在,10.97875684,0.1798701106
 check_pitcher_control.control_hand.日本人全体の平均,実在,51.61877516,0.1260182066
-check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 全体,実在,0.4971104116,0.007829261704
+check_pitcher_control.movement.先発 平均,実在,6.535085904,0.02254679404
+check_pitcher_control.movement.先発 標準偏差,実在,1.725092066,0.0155970512
+check_pitcher_control.movement.先発 総変化量×コントロール相関,実在,0.501297835,0.009500129276
+check_pitcher_control.movement.先発 総変化量×スタミナ相関,実在,0.4782392826,0.01048789508
+check_pitcher_control.movement.救援 平均,実在,6.265899718,0.0222686891
+check_pitcher_control.movement.救援 標準偏差,実在,1.551495073,0.01474675837
+check_pitcher_control.movement.救援 総変化量×コントロール相関,実在,0.2676416128,0.01277061156
+check_pitcher_control.movement.査定上位⅓の総変化量の平均,実在,7.423088732,0.02601492432
+check_pitcher_control.movement.査定下位⅓の総変化量の平均,実在,5.319211823,0.02569830227
+check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 全体,実在,0.4911818288,0.007959144926
 check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 救援,実在,0.2162892807,0.01340963847
 check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 救援・右,実在,0.2219802186,0.01652734454
 check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 救援・左,実在,0.2094450488,0.02608045904
-check_pitcher_control.reliever_stamina.スタミナ×査定の相関 救援,実在,0.4549003438,0.01098808339
+check_pitcher_control.reliever_stamina.スタミナ×査定の相関 救援,実在,0.4481448062,0.01086602346
 check_pitcher_control.reliever_stamina.救援 10%,実在,40,0.2248036553
 check_pitcher_control.reliever_stamina.救援 90%,実在,55,0.4972221832
 check_pitcher_control.reliever_stamina.救援 中央,実在,47,0.5011544461
@@ -411,11 +420,19 @@ check_pitcher_control.reliever_stamina.救援 平均,実在,46.74712394,0.083058
 check_pitcher_control.reliever_stamina.救援 標準偏差,実在,5.87997624,0.06226923376
 check_pitcher_control.reliever_stamina.救援・右 平均,実在,46.63347853,0.09655700817
 check_pitcher_control.reliever_stamina.救援・左 平均,実在,47.00933238,0.1521039878
+check_pitcher_control.starter_stamina.先発 10%,実在,42,0.3609643004
+check_pitcher_control.starter_stamina.先発 90%,実在,70,0.4992896965
+check_pitcher_control.starter_stamina.先発 中央,実在,56,0.3936605047
+check_pitcher_control.starter_stamina.先発・右 平均,実在,57.38516962,0.1846855577
+check_pitcher_control.starter_stamina.先発・右 標準偏差,実在,10.84702292,0.1228762748
+check_pitcher_control.starter_stamina.先発・左 平均,実在,55.25266667,0.2671985042
+check_pitcher_control.starter_stamina.先発・左 標準偏差,実在,10.47966484,0.1573169874
+check_pitcher_control.starter_stamina.左右差（左−右） 先発,実在,-2.132502952,0.3206295183
 validate_team_mode.color.ベテラン重視.age,設計,1.276573015,0.02178743812
 validate_team_mode.color.守備重視.arm,設計,1.609870892,0.1776097316
 validate_team_mode.color.守備重視.fielding,設計,2.349381475,0.1712342538
 validate_team_mode.color.強力打線.any,設計,0,0
-validate_team_mode.color.投手王国.pitcher_top_pct,設計,5.254660973,0.3955761529
+validate_team_mode.color.投手王国.pitcher_top_pct,設計,5.780654755,0.4358441348
 validate_team_mode.color.機動力.speed,設計,3.319443277,0.1954204478
 validate_team_mode.color.若手育成.age,設計,-1.409779378,0.02264190498
 validate_team_mode.composition.age_23_25.p10,実在,15,0.4754379098
@@ -477,25 +494,25 @@ validate_team_mode.design.number_conflicts,設計,0,0
 validate_team_mode.design.targets_match,設計,0,0
 validate_team_mode.design.total_max70,設計,0,0
 validate_team_mode.spread.先発のコントロール.sd_ratio,実在,1.103914822,0.04849254713
-validate_team_mode.spread.先発のスタミナ.sd_ratio,実在,0.9260913745,0.05440928399
+validate_team_mode.spread.先発のスタミナ.sd_ratio,実在,1.009207834,0.05602346463
 validate_team_mode.spread.先発の球速.sd_ratio,実在,0.8877557186,0.03888016649
-validate_team_mode.spread.全員平均.p10,実在,263.8400001,0.6352937523
-validate_team_mode.spread.全員平均.p90,実在,281.190336,0.7858284886
-validate_team_mode.spread.全員平均.sd_ratio,実在,1.057334682,0.04563994124
-validate_team_mode.spread.投手の査定の平均.p10,実在,279.4332237,0.7479640842
-validate_team_mode.spread.投手の査定の平均.p90,実在,303.0660995,1.239067782
-validate_team_mode.spread.投手の査定の平均.sd_ratio,実在,1.135720909,0.05772811035
-validate_team_mode.spread.投手力.p10,実在,328.2923074,1.330764753
-validate_team_mode.spread.投手力.p90,実在,360.692308,1.424747052
-validate_team_mode.spread.投手力.sd_ratio,実在,0.9857302492,0.04151169704
+validate_team_mode.spread.全員平均.p10,実在,261.7685718,0.6967420266
+validate_team_mode.spread.全員平均.p90,実在,280.1112183,0.7573677593
+validate_team_mode.spread.全員平均.sd_ratio,実在,1.100269211,0.04743720479
+validate_team_mode.spread.投手の査定の平均.p10,実在,275.9388939,0.7857555848
+validate_team_mode.spread.投手の査定の平均.p90,実在,300.0413315,1.302719901
+validate_team_mode.spread.投手の査定の平均.sd_ratio,実在,1.210969992,0.06120586381
+validate_team_mode.spread.投手力.p10,実在,327.1307691,1.164106613
+validate_team_mode.spread.投手力.p90,実在,363.330769,1.396605692
+validate_team_mode.spread.投手力.sd_ratio,実在,1.077853746,0.04512608573
 validate_team_mode.spread.救援のコントロール.p90_margin,実在,51.090909,0.2376317986
 validate_team_mode.spread.救援のコントロール.sd_ratio,実在,0.9165440451,0.03698001084
 validate_team_mode.spread.救援のスタミナ.sd_ratio,実在,0.7056698085,0.03238514598
 validate_team_mode.spread.救援の球速.sd_ratio,実在,1.230886777,0.05820701084
-validate_team_mode.spread.総合力.median,実在,0.01347857181,0.002999342188
-validate_team_mode.spread.総合力.p10,実在,315.782143,1.175336315
-validate_team_mode.spread.総合力.p90,実在,342.1107144,0.8610362307
-validate_team_mode.spread.総合力.sd_ratio,実在,1.052190804,0.04188228742
+validate_team_mode.spread.総合力.median,実在,0.01166308983,0.002643277504
+validate_team_mode.spread.総合力.p10,実在,314.1357142,0.9461945101
+validate_team_mode.spread.総合力.p90,実在,342.6107144,1.098566853
+validate_team_mode.spread.総合力.sd_ratio,実在,1.113195037,0.04435059618
 validate_team_mode.spread.野手のパワー.sd_ratio,実在,1.028150847,0.04847229759
 validate_team_mode.spread.野手のミート.sd_ratio,実在,0.8479492691,0.03438733249
 validate_team_mode.spread.野手の守備力.sd_ratio,実在,1.11129193,0.05418510857
@@ -509,14 +526,14 @@ validate_team_mode.spread.野手の走力.sd_ratio,実在,1.18442397,0.052759535
 validate_team_mode.spread.野手力.p10,実在,286.7933336,1.254805387
 validate_team_mode.spread.野手力.p90,実在,319.333333,0.924452694
 validate_team_mode.spread.野手力.sd_ratio,実在,1.176443555,0.04100049154
-validate_team_mode.strength.all.a,設計,6.100522369,0.4606889106
-validate_team_mode.strength.all.b,実在,-0.004622465811,0.001291212382
-validate_team_mode.strength.all.c_p10,実在,0.996262671,0.002249404557
-validate_team_mode.strength.all.c_p90,実在,0.9978257326,0.001921412294
-validate_team_mode.strength.all.d,設計,3.195083002,0.3348529799
-validate_team_mode.strength.all.e_median,設計,2.722947761,0.844265134
-validate_team_mode.strength.all.e_tail,設計,-9.276291215,1.194843826
-validate_team_mode.strength.corr_pitcher_fielder,設計,0.1684840137,0.03754134039
+validate_team_mode.strength.all.a,設計,6.416123445,0.4695362727
+validate_team_mode.strength.all.b,実在,-0.01030530758,0.001333370543
+validate_team_mode.strength.all.c_p10,実在,0.9880257706,0.002121860469
+validate_team_mode.strength.all.c_p90,実在,0.9939497013,0.001810341931
+validate_team_mode.strength.all.d,設計,3.229633552,0.3460875556
+validate_team_mode.strength.all.e_median,設計,2.330136402,0.9650767416
+validate_team_mode.strength.all.e_tail,設計,-9.615654927,1.314520111
+validate_team_mode.strength.corr_pitcher_fielder,設計,0.1717503885,0.03744423098
 validate_team_mode.strength.fielder_top.a,設計,6.644101545,0.8503899168
 validate_team_mode.strength.fielder_top.b,実在,-0.001991474478,0.001995643133
 validate_team_mode.strength.fielder_top.c_p10,実在,1.000642939,0.002652126995
@@ -524,46 +541,46 @@ validate_team_mode.strength.fielder_top.c_p90,実在,0.9886570248,0.00288608344
 validate_team_mode.strength.fielder_top.d,設計,6.434637281,0.6607094379
 validate_team_mode.strength.fielder_top.e_median,設計,5.613333333,1.147907939
 validate_team_mode.strength.fielder_top.e_tail,設計,-18.02666667,1.304519514
-validate_team_mode.strength.pitcher_top.a,設計,5.713259336,1.199882479
-validate_team_mode.strength.pitcher_top.b,実在,-0.006187416479,0.002115820329
-validate_team_mode.strength.pitcher_top.c_p10,実在,0.9980787037,0.002896897689
-validate_team_mode.strength.pitcher_top.c_p90,実在,0.9852260888,0.002757109351
-validate_team_mode.strength.pitcher_top.d,設計,7.791364792,0.6722116139
-validate_team_mode.strength.pitcher_top.e_median,設計,1.723076923,1.64521685
-validate_team_mode.strength.pitcher_top.e_tail,設計,-24.43846154,1.767586429
-validate_team_mode.strength.top28.a,設計,7.345296421,0.6459736918
-validate_team_mode.strength.top28.b,実在,-0.0006036282485,0.001508453082
-validate_team_mode.strength.top28.c_p10,実在,1.003262219,0.002067270879
-validate_team_mode.strength.top28.c_p90,実在,0.9907159067,0.001862399611
-validate_team_mode.strength.top28.d,設計,4.721004843,0.422107424
-validate_team_mode.strength.top28.e_median,設計,2.205357143,1.362780294
-validate_team_mode.strength.top28.e_tail,設計,-14.29642857,1.423215172
-validate_team_mode.uniform.age.fielder.0-10.mean,実在,29.10618583,0.06693806647
-validate_team_mode.uniform.age.fielder.0-10.over31,実在,0.3360881543,0.006656978527
-validate_team_mode.uniform.age.fielder.22-30.mean,実在,28.83651945,0.13563013
-validate_team_mode.uniform.age.fielder.31-69.mean,実在,25.4277193,0.04081324964
-validate_team_mode.uniform.age.fielder.31-69.over31,実在,0.09754385965,0.002598024588
-validate_team_mode.uniform.age.pitcher.11-21.mean,実在,29.40721788,0.07586346925
-validate_team_mode.uniform.age.pitcher.22-30.mean,実在,28.5610016,0.1305097469
-validate_team_mode.uniform.age.pitcher.31-69.mean,実在,25.41399317,0.04355292384
-validate_team_mode.uniform.catcher_rate.2,設計,0.467,0.02540881025
-validate_team_mode.uniform.catcher_rate.27,設計,0.436,0.02435435171
-validate_team_mode.uniform.empty_low.p10,実在,6,0.007071067812
-validate_team_mode.uniform.empty_low.p90,実在,10,0.1712905492
-validate_team_mode.uniform.foreign_range.11-21,実在,0.06444514304,0.004128930794
-validate_team_mode.uniform.foreign_range.90-99,実在,0.1455517133,0.006050024339
-validate_team_mode.uniform.foreign_rate.1,実在,0.00283286119,0.003102366957
-validate_team_mode.uniform.foreign_rate.17,実在,0.002590673575,0.002372712489
+validate_team_mode.strength.pitcher_top.a,設計,6.342997763,1.298787168
+validate_team_mode.strength.pitcher_top.b,実在,-0.005242096399,0.002314672669
+validate_team_mode.strength.pitcher_top.c_p10,実在,0.99375,0.002892739761
+validate_team_mode.strength.pitcher_top.c_p90,実在,0.9900187539,0.003638942958
+validate_team_mode.strength.pitcher_top.d,設計,8.233678427,0.6925317596
+validate_team_mode.strength.pitcher_top.e_median,設計,1.538461538,1.719137116
+validate_team_mode.strength.pitcher_top.e_tail,設計,-26.07692308,2.161981686
+validate_team_mode.strength.top28.a,設計,7.712141259,0.6909306266
+validate_team_mode.strength.top28.b,実在,-0.001901950903,0.00159448854
+validate_team_mode.strength.top28.c_p10,実在,0.999751665,0.002298225225
+validate_team_mode.strength.top28.c_p90,実在,0.9911285331,0.002063654108
+validate_team_mode.strength.top28.d,設計,4.986811653,0.4393992288
+validate_team_mode.strength.top28.e_median,設計,2.285714286,1.412151814
+validate_team_mode.strength.top28.e_tail,設計,-14.99285714,1.449298551
+validate_team_mode.uniform.age.fielder.0-10.mean,実在,29.22369739,0.06846721033
+validate_team_mode.uniform.age.fielder.0-10.over31,実在,0.3419338677,0.006871988333
+validate_team_mode.uniform.age.fielder.22-30.mean,実在,28.70144357,0.1342143387
+validate_team_mode.uniform.age.fielder.31-69.mean,実在,25.40582433,0.04278840009
+validate_team_mode.uniform.age.fielder.31-69.over31,実在,0.09488022546,0.002942580477
+validate_team_mode.uniform.age.pitcher.11-21.mean,実在,29.48779179,0.0784540708
+validate_team_mode.uniform.age.pitcher.22-30.mean,実在,28.72747133,0.1344553306
+validate_team_mode.uniform.age.pitcher.31-69.mean,実在,25.33502997,0.04190218249
+validate_team_mode.uniform.catcher_rate.2,設計,0.45,0.02235874195
+validate_team_mode.uniform.catcher_rate.27,設計,0.471,0.02347533668
+validate_team_mode.uniform.empty_low.p10,実在,6,0.374261081
+validate_team_mode.uniform.empty_low.p90,実在,10,0.3422035452
+validate_team_mode.uniform.foreign_range.11-21,実在,0.06287331028,0.004174873641
+validate_team_mode.uniform.foreign_range.90-99,実在,0.1496384785,0.005967558762
+validate_team_mode.uniform.foreign_rate.1,実在,0,0
+validate_team_mode.uniform.foreign_rate.17,実在,0.002570694087,0.002359450328
 validate_team_mode.uniform.foreign_rate.18,実在,0,0
 validate_team_mode.uniform.foreign_rate.19,実在,0,0
-validate_team_mode.uniform.foreign_rate.42,実在,0.7962184874,0.02103389766
-validate_team_mode.uniform.foreign_rate.91,実在,0.3410852713,0.04317527914
-validate_team_mode.uniform.foreign_rate.95,実在,0.2436548223,0.03057662637
-validate_team_mode.uniform.foreign_rate.96,実在,0.2,0.03352188896
-validate_team_mode.uniform.foreign_rate.98,実在,0.3786982249,0.03413145086
-validate_team_mode.uniform.foreign_rate.99,実在,0.5025,0.02454662458
-validate_team_mode.uniform.high_count,実在,4.736,0.06499511462
-validate_team_mode.uniform.high_percentile,実在,0.3899395956,0.006727105063
-validate_team_mode.uniform.high_used.mean,実在,4.74,0.06506338232
-validate_team_mode.uniform.pitcher_rate_11_21,設計,0.918,0.004072826362
-validate_team_mode.uniform.rate_99,実在,0.8,0.0178930828
+validate_team_mode.uniform.foreign_rate.42,実在,0.7705263158,0.0191212034
+validate_team_mode.uniform.foreign_rate.91,実在,0.3669064748,0.03940024315
+validate_team_mode.uniform.foreign_rate.95,実在,0.309178744,0.0316579133
+validate_team_mode.uniform.foreign_rate.96,実在,0.1666666667,0.03032414396
+validate_team_mode.uniform.foreign_rate.98,実在,0.3952095808,0.03809559893
+validate_team_mode.uniform.foreign_rate.99,実在,0.4757033248,0.02404980474
+validate_team_mode.uniform.high_count,実在,4.772,0.06942359598
+validate_team_mode.uniform.high_percentile,実在,0.3991950798,0.006173120511
+validate_team_mode.uniform.high_used.mean,実在,4.77,0.06926083175
+validate_team_mode.uniform.pitcher_rate_11_21,設計,0.917,0.003783855549
+validate_team_mode.uniform.rate_99,実在,0.782,0.01640921116

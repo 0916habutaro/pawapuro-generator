@@ -164,6 +164,35 @@ def test_update_baselines_requires_reason_and_reports_changes(baseline_file):
     assert fixed("t.stamina", 59.6).status == "合格"
 
 
+def test_update_baselines_only_filters_by_id_or_section(baseline_file):
+    def graded():
+        checks = Checks("t")
+        checks.fixed("t.stamina", "項目", 59.5, 0.3)
+        checks.fixed("t.stamina_other", "別の項目", 1.0, 0.3)
+        checks.fixed("t.new", "新しい項目", 1.5, 0.2)
+        return checklib.grade(checks, accepted={})
+
+    # id に完全一致するものだけ（前方一致で t.stamina_other を巻き込まない）
+    assert [c[0] for c in checklib.update_baselines(graded(), "理由", only=["t.stamina"])] == ["t.stamina"]
+    items = json.loads(baseline_file.read_text(encoding="utf-8"))["items"]
+    assert "t.new" not in items and "t.stamina_other" not in items
+    # 節（id の先頭部分）で絞る
+    assert {c[0] for c in checklib.update_baselines(graded(), "理由", only=["t."])} == {"t.stamina_other", "t.new"}
+
+
+def test_update_baselines_without_only_asks_for_confirmation(baseline_file):
+    checks = Checks("t")
+    checks.fixed("t.stamina", "項目", 59.5, 0.3)
+    graded = checklib.grade(checks, accepted={})
+    seen = []
+    assert checklib.update_baselines(graded, "理由", confirm=lambda changed: seen.append(changed) or False) == []
+    assert seen and json.loads(baseline_file.read_text(encoding="utf-8"))["items"]["t.stamina"]["value"] == 58.75  # 断られたら書かない
+    # 絞り込みがあれば確認しない
+    assert checklib.update_baselines(graded, "理由", only=["t.stamina"], confirm=lambda changed: pytest.fail("確認は出さない"))
+    assert not checklib.confirm_all_baselines([("t.x", 1.0, 2.0)])  # 端末でも --yes でもないときは書かない
+    assert checklib.confirm_all_baselines([("t.x", 1.0, 2.0)], assume_yes=True)
+
+
 def test_update_baselines_ignores_non_fixed_kinds(baseline_file):
     checks = Checks("t")
     checks.add("t.real", "実在", "項目", 5.0, 4.0, 6.0)

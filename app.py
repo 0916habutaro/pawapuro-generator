@@ -6797,6 +6797,22 @@ FICTIONAL_STAMINA_PER_SPEED = -0.06
 # 21歳以下にはかけない（21歳以下の補正は改修前の分布に合わせてあり、かけると球団生成の〜19歳のスタミナが 41.4→42.0 に上がって
 # check_age_profile.py の範囲（39〜42、実在39.9）を外れる。若手は改修前と同じ）。
 FICTIONAL_RELIEVER_STAMINA_TRANSFORM = {"S0": 48.0, "A": 0.76, "B": 0.21, "C0": 48.0, "D": -0.9}
+# 先発（22歳以上）のスタミナの変換。stamina = S0 + A × (stamina − S0) + D[投げ手]。
+# 既存処理の先発は実在（2024〜2026年版の日本人。右 平均57.42・標準偏差11.61、左 55.03・9.81）より平均が高く（右+1.4、左+3.3）、
+# 幅が狭い（標準偏差9.8）うえに左右差がない（実在は左が2.4低い）。幅を広げ（A）、投げ手ごとに平均をずらす（D）。値は球団生成（seed 1〜300）で合わせた。
+# コントロールとの結びつきは実在と合っているので、コントロールは使わない。
+# 21歳以下にはかけない（21歳以下の補正は先発・救援で共通の定数で、若手の範囲の判定を崩さないため）。
+FICTIONAL_STARTER_STAMINA_TRANSFORM = {"S0": 57.0, "A": 1.15, "D": {"右": -2.0, "左": -4.4}}
+# 変化球の総変化量を投手の良し悪しに合わせて増減する（実在は良い投手ほど変化球も良い。生成は結びつきが弱い）。
+# 良し悪し q = 先発 ((コントロール−55)/13 + (スタミナ−57)/11)/2、救援 (コントロール−48)/10。
+# 増減の段階 delta = round(B × q + O + u)（u は −0.5〜0.5 の一様乱数）を −3〜+3 に収め、総変化量を動かす。
+# B は q との結びつきの強さ、O は役割ごとの平均のずらし。値は球団生成（seed 1〜300）で合わせた。
+FICTIONAL_MOVEMENT_QUALITY_NAMESPACE = "fictional_pitcher_movement_v1"
+FICTIONAL_MOVEMENT_QUALITY = {
+    "先発": {"B": 0.8, "O": -0.1, "control": (55.0, 13.0), "stamina": (57.0, 11.0)},
+    "救援": {"B": 0.2, "O": -0.4, "control": (48.0, 10.0)},
+}
+FICTIONAL_MOVEMENT_QUALITY_MAX_STEPS = 3
 # 抑え（守護神格）の決め球の変化量
 FICTIONAL_CLOSER_FINISHER_MOVEMENT_WEIGHTS = [(4, 50), (5, 38), (6, 12)]
 # チェンジアップ系は左投手の球種。右投手は同じ方向の別球種に替える（名前, 確率, 替える先の候補）。
@@ -7424,6 +7440,40 @@ def fictional_pitcher_breaking_balls(rng: random.Random, breaking_balls: list[di
     return balls
 
 
+def fictional_movement_by_quality(rng: random.Random, breaking_balls: list[dict[str, Any]], role: str, control: float, stamina: float, protect_finisher: bool = False) -> list[dict[str, Any]]:
+    """投手の良し悪し（コントロール・スタミナ）に合わせて、変化球の総変化量を最大3段階増減する。種類・数・方向は変えない。
+
+    増やすときは変化量が小さい球から1段ずつ（その球種の上限まで）、減らすときは大きい球から1段ずつ（下限まで）。
+    ストレート系第二球種と第二球種は数えない。"""
+    cfg = FICTIONAL_MOVEMENT_QUALITY[role]
+    c_mid, c_sd = cfg["control"]
+    q = (control - c_mid) / c_sd
+    if "stamina" in cfg:
+        s_mid, s_sd = cfg["stamina"]
+        q = (q + (stamina - s_mid) / s_sd) / 2
+    steps = round(cfg["B"] * q + cfg["O"] + rng.uniform(-0.5, 0.5))
+    steps = max(-FICTIONAL_MOVEMENT_QUALITY_MAX_STEPS, min(FICTIONAL_MOVEMENT_QUALITY_MAX_STEPS, steps))
+    if steps == 0:
+        return breaking_balls
+    balls = [dict(ball) for ball in breaking_balls]
+    primaries = primary_breaking_balls(balls)
+    up = steps > 0
+    for _ in range(abs(steps)):
+        if up:
+            movable = [b for b in primaries if pitch_movement(b) < int(BREAKING_BY_NAME[str(b["name"])].get("max_movement", 7))]
+            pick = min(movable, key=pitch_movement, default=None)
+        else:
+            movable = [b for b in primaries if pitch_movement(b) > int(BREAKING_BY_NAME[str(b["name"])].get("min_movement", 1))]
+            if protect_finisher and primaries:
+                movable = [b for b in movable if b is not max(primaries, key=pitch_movement)]
+            pick = max(movable, key=pitch_movement, default=None)
+        if pick is None:
+            break
+        pick["movement"] = pick["level"] = pitch_movement(pick) + (1 if up else -1)
+    enforce_second_pitch_movement_order(balls)
+    return balls
+
+
 def fictional_adjust_physique(rng: random.Random, player: dict[str, Any], role: str) -> None:
     """日本人の身長を実在に合わせて1〜2cm下げ、体重も連動して下げる（平均 投手181・野手179）。"""
     height_drop = (2 if rng.random() < 0.7 else 1) if role == "投手" else 1
@@ -7476,6 +7526,10 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
         t = FICTIONAL_RELIEVER_STAMINA_TRANSFORM
         stamina = t["S0"] + t["A"] * (stamina - t["S0"]) - t["B"] * (control - t["C0"]) + t["D"]
         stamina = clamp(round(stamina), 15, 100)
+    if position == "先発" and age > FICTIONAL_YOUNG_MAX_AGE:
+        t = FICTIONAL_STARTER_STAMINA_TRANSFORM
+        stamina = t["S0"] + t["A"] * (stamina - t["S0"]) + t["D"]["左" if batting_throwing.startswith("左投") else "右"]
+        stamina = clamp(round(stamina), 15, 100)
     if age and age <= FICTIONAL_YOUNG_MAX_AGE:
         young = {"球速": float(speed), "コントロール": float(control), "スタミナ": float(stamina)}
         # 若手の補正で左右差が縮まないよう、投げ手のずらしを球速・コントロールの役割別のずらしに足して渡す。
@@ -7493,6 +7547,12 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     abilities["肩力"] = ability(clamp(speed - 81 + weighted_choice(rng, [(-1, 15), (0, 35), (1, 35), (2, 15)]), 49, 82))
 
     player["breaking_balls"] = fictional_pitcher_breaking_balls(rng, list(player.get("breaking_balls", [])), batting_throwing, position)
+    # 19歳以下は変化量の上限（fictional_young_breaking_balls）で決まるので、良し悪しの増減はかけない。
+    if not age or age > FICTIONAL_YOUNG_BREAKING_MAX_AGE:
+        player["breaking_balls"] = fictional_movement_by_quality(
+            make_sub_rng(seed, FICTIONAL_MOVEMENT_QUALITY_NAMESPACE), player["breaking_balls"],
+            "先発" if position == "先発" else "救援", control, stamina, protect_finisher=position == "抑え",
+        )
     player["breaking_balls"] = fictional_young_breaking_balls(player["breaking_balls"], age)
     player["special_abilities"] = fictional_adjust_specials(
         rng, master, "投手", str(player.get("player_class", "")), list(player.get("special_abilities", [])),

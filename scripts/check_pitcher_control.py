@@ -9,7 +9,7 @@
 - 球団生成で作った球団の日本人投手を、実在（2024〜2026年版の日本人投手1,126人）と比べる。
   役割の区分は、position が「先発」なら先発、「中継ぎ」「抑え」は救援。`batting_throwing` の先頭が「左」なら左。
 - 判定する項目（指示書3-1）: 4区分（先発・救援×右・左）の平均、左右差、救援−先発、救援の標準偏差と10%・中央・90%、
-  救援で60以上・70以上の割合、日本人全体の平均、先発のスタミナの平均（改修前から動いていないこと）。
+  救援で60以上・70以上の割合、日本人全体の平均、先発のスタミナ・総変化量（`投手の仕上げ_改修指示.md` 2-1）。
 - 救援のスタミナ（`救援スタミナ相関_改修指示.md` 3-1）: コントロール×スタミナの相関（救援・右・左・全体）、
   救援のスタミナの平均（全体・右・左）・標準偏差・10%・中央・90%、スタミナ×査定の相関（救援）。
 - 参考表示（判定しない）: 球団ごとの平均（救援・先発、外国人を含む。球団分析と同じ集計）の分布、
@@ -37,16 +37,15 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import checklib  # noqa: E402
-from check_fictional_balance import Result, control_hand_rows, num, ok_range, reliever_stamina_rows  # noqa: E402
+from check_fictional_balance import (  # noqa: E402
+    Result, control_hand_rows, movement_rows, num, ok_range, reliever_stamina_rows, starter_stamina_rows,
+)
 from generator import team as team_lib  # noqa: E402
 from generator import team_analysis  # noqa: E402
 
 SCRIPT = "check_pitcher_control"
-# 改修前（球団生成 seed 1〜300）の日本人の先発投手のスタミナの平均は data/config/check_baselines.json（「固定」）。
-# 救援のコントロール・スタミナの調整で変わっていないことの確認用。球団ごとの散らばり_改修指示.md で選手格の構成（全球団の基準の倍率）を
-# 変えたため 58.75／58.70 に更新した（旧 58.42／58.59）。実在（2024〜2026年版の日本人。先発 右57.42／左55.03）からは少し離れている。
-# 救援（旧 47.83／48.10）は救援スタミナ相関_改修指示.md で直したので、「救援のスタミナ」の節で実在と比べる
-STAMINA_KEYS = (("先発", "右"), ("先発", "左"))
+# 先発のスタミナは `投手の仕上げ_改修指示.md` で直したので、「先発のスタミナ」の節で実在と比べる（旧: 改修前の値±0.3の「固定」）。
+# 救援のスタミナは `救援スタミナ相関_改修指示.md` で直したので、「救援のスタミナ」の節で実在と比べる
 # 実在（2024〜2026年版の36チーム、外国人を含む）の球団ごとのコントロールの平均の分布（最小, 10%, 中央, 90%, 最大）
 REAL_TEAM_MEANS = {
     "救援": (43.67, 44.46, 47.97, 50.77, 53.88),
@@ -117,9 +116,10 @@ def evaluate(frame: pd.DataFrame) -> Result:
     R = Result(SCRIPT)
     s = "コントロールの役割・左右（実在は2024〜2026年版）"
     control_hand_rows(R, s, group, hand, japanese["コントロール"], formal=True)
-    for g, h in STAMINA_KEYS:
-        v = japanese.loc[(group == g) & (hand == h), "スタミナ"].mean()
-        R.fixed(s, f"{g}・{h} スタミナ平均", v, num(v), id=f"{SCRIPT}.{'starter' if g == '先発' else 'relief'}.stamina.mean.{h}")
+    s = "先発のスタミナ（実在は2024〜2026年版の日本人。投手の仕上げ_改修指示.md）"
+    starter_stamina_rows(R, s, group, hand, japanese["スタミナ"], formal=True)
+    s = "総変化量（実在は2024〜2026年版の日本人。ストレート系第二球種・第二球種は数えない）"
+    movement_rows(R, s, group, japanese["コントロール"], japanese["スタミナ"], japanese["総変化量"], japanese["rating"], japanese["team_key"], formal=True)
     s = "救援のスタミナ（実在は2024〜2026年版の日本人。救援スタミナ相関_改修指示.md）"
     reliever_stamina_rows(R, s, group, hand, japanese["コントロール"], japanese["スタミナ"], japanese["rating"], formal=True)
     s = "相関（参考。判定は check_fictional_balance.py の個別生成5000人）"

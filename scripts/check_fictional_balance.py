@@ -71,7 +71,7 @@ def any_rank(ranked, letter):
 # 判定の id の節の部分。表示名を直しても id は変えないため、節の表示名（先頭一致）から決まった短い名前に対応させる
 SECTION_KEYS = {
     "投打": "batting", "能力": "ability", "球速の左右・役割": "speed_hand", "コントロールの役割・左右": "control_hand",
-    "救援のスタミナ": "reliever_stamina", "抑え・起用適性": "closer", "フォーム": "form", "変化球": "breaking",
+    "救援のスタミナ": "reliever_stamina", "先発のスタミナ": "starter_stamina", "総変化量": "movement", "抑え・起用適性": "closer", "フォーム": "form", "変化球": "breaking",
     "特殊能力": "special", "ランク特能": "ranked", "サブポジ": "subpos", "ポジション（チーム単位）": "position",
     "プロ入り年齢": "entry", "相関（参考": "corr_info", "球団ごとの救援の平均": "team_mean",
 }
@@ -181,10 +181,6 @@ SPEED_HAND_REAL = {
 }
 SPEED_HAND_QUANTILES_REAL = {"右": (148, 152, 157), "左": (145, 149, 153)}
 SPEED_JAPANESE_MEAN_REAL = 151.37
-# 改修前（seed 1〜5000）の先発のスタミナの平均は data/config/check_baselines.json（「固定」）。左右の球速・救援のコントロール・
-# 救援のスタミナの調整で変わっていないことの確認用。（コントロールは「コントロールの役割・左右」の節で実在と比べる。
-# 救援のスタミナは `救援スタミナ相関_改修指示.md` で直したので、「救援のスタミナ」の節で実在と比べる）
-SPEED_HAND_STAMINA_KEYS = (("先発", "右"), ("先発", "左"))
 
 # 救援のスタミナ（`救援スタミナ相関_改修指示.md`）。実在は2024〜2026年版の日本人の救援投手553人（右416／左137）。
 # 正式な判定は球団生成300球団（scripts/check_pitcher_control.py）。個別生成は参考表示にし、救援の相関だけ 0.10〜0.35 を判定する。
@@ -294,6 +290,67 @@ def reliever_stamina_rows(R, s, group, hand, ct, st, rating, formal):
               f"{real - 0.10:.3f}〜{real + 0.10:.3f}", num(real, 3), info=not formal)
 
 
+# 先発のスタミナ・総変化量（`投手の仕上げ_改修指示.md`）。実在は2024〜2026年版の日本人投手（先発573人／救援553人）。
+# 正式な判定は球団生成300球団（scripts/check_pitcher_control.py）。個別生成は参考表示にする。
+STARTER_STAMINA_REAL = {"右": (57.42, 11.61), "左": (55.03, 9.81)}  # (平均, 標準偏差)
+STARTER_STAMINA_HAND_GAP_REAL = -2.39  # 左−右
+STARTER_STAMINA_QUANTILES_REAL = (43, 56, 72)  # 先発全体の10%・中央・90%
+MOVEMENT_REAL = {
+    # 役割: (平均, 標準偏差, ×コントロールの相関)
+    "先発": (6.50, 1.63, 0.461), "救援": (6.27, 1.49, 0.310),
+}
+MOVEMENT_STAMINA_CORR_REAL = 0.615  # 先発の総変化量×スタミナ
+MOVEMENT_STAMINA_CORR_MIN = 0.45
+MOVEMENT_RATING_TERCILES_REAL = (5.34, 7.49)  # 球団内の査定の下位⅓・上位⅓の総変化量の平均
+
+
+def starter_stamina_rows(R, s, group, hand, st, formal):
+    """先発（22歳以上の補正の結果）のスタミナの平均・標準偏差・左右差・10%・中央・90%。formal=False なら参考表示。"""
+    group, hand, st = np.asarray(group), np.asarray(hand), pd.Series(np.asarray(st, dtype=float))
+    starter = group == "先発"
+    info = not formal
+    for h, (real_mean, real_sd) in STARTER_STAMINA_REAL.items():
+        x = st[starter & (hand == h)]
+        R.add(s, f"先発・{h} 平均", num(x.mean()), ok_range(x.mean(), real_mean - 0.8, real_mean + 0.8),
+              f"{real_mean - 0.8:.2f}〜{real_mean + 0.8:.2f}", num(real_mean), info=info)
+        R.add(s, f"先発・{h} 標準偏差", num(x.std()), ok_range(x.std(), real_sd - 1.2, real_sd + 1.2),
+              f"{real_sd - 1.2:.2f}〜{real_sd + 1.2:.2f}", num(real_sd), info=info)
+    gap = st[starter & (hand == "左")].mean() - st[starter & (hand == "右")].mean()
+    real = STARTER_STAMINA_HAND_GAP_REAL
+    R.add(s, "左右差（左−右） 先発", num(gap), ok_range(gap, real - 1.0, real + 1.0), f"{real - 1.0:+.1f}〜{real + 1.0:+.1f}", f"{real:+.2f}", info=info)
+    x = st[starter]
+    for label, q, rq in zip(("10%", "中央", "90%"), x.quantile([0.1, 0.5, 0.9]).tolist(), STARTER_STAMINA_QUANTILES_REAL):
+        R.add(s, f"先発 {label}", num(q, 0), ok_range(q, rq - 2, rq + 2), f"{rq - 2}〜{rq + 2}", str(rq), info=info)
+
+
+def movement_rows(R, s, group, ct, st, movement, rating, team, formal):
+    """総変化量（ストレート系第二球種・第二球種を除く変化球の変化量の合計）の平均・標準偏差・コントロール／スタミナ／査定との結びつき。
+    rating が None なら査定との結びつきは出さない（team はその球団内の順位に使う。None なら全体で順位をつける）。"""
+    group = np.asarray(group)
+    ct, st, mv = (pd.Series(np.asarray(x, dtype=float)) for x in (ct, st, movement))
+    info = not formal
+    for g, (real_mean, real_sd, real_corr) in MOVEMENT_REAL.items():
+        mask = group == g
+        v = mv[mask].mean()
+        R.add(s, f"{g} 平均", num(v), ok_range(v, real_mean - 0.2, real_mean + 0.2), f"{real_mean - 0.2:.2f}〜{real_mean + 0.2:.2f}", num(real_mean), info=info)
+        v = mv[mask].std()
+        R.add(s, f"{g} 標準偏差", num(v), ok_range(v, real_sd - 0.2, real_sd + 0.2), f"{real_sd - 0.2:.2f}〜{real_sd + 0.2:.2f}", num(real_sd), info=info)
+        v = mv[mask].corr(ct[mask])
+        R.add(s, f"{g} 総変化量×コントロール相関", num(v, 3), ok_range(v, real_corr - 0.10, real_corr + 0.10),
+              f"{real_corr - 0.10:.3f}〜{real_corr + 0.10:.3f}", num(real_corr, 3), info=info)
+    mask = group == "先発"
+    v = mv[mask].corr(st[mask])
+    R.add(s, "先発 総変化量×スタミナ相関", num(v, 3), ok_range(v, MOVEMENT_STAMINA_CORR_MIN), f"{MOVEMENT_STAMINA_CORR_MIN:.2f}以上",
+          num(MOVEMENT_STAMINA_CORR_REAL, 3), info=info)
+    if rating is not None:
+        rank = pd.Series(np.asarray(rating, dtype=float))
+        keys = pd.Series(np.asarray(team)) if team is not None else pd.Series(0, index=rank.index)
+        pct_rank = rank.groupby(keys).rank(pct=True)
+        for label, mask, real in (("下位⅓", pct_rank <= 1 / 3, MOVEMENT_RATING_TERCILES_REAL[0]), ("上位⅓", pct_rank > 2 / 3, MOVEMENT_RATING_TERCILES_REAL[1])):
+            v = mv[mask].mean()
+            R.add(s, f"査定{label}の総変化量の平均", num(v), ok_range(v, real - 0.3, real + 0.3), f"{real - 0.3:.2f}〜{real + 0.3:.2f}", num(real), info=info)
+
+
 def check_pitcher_control_by_hand(R, d):
     s = "コントロールの役割・左右（個別生成は下限だけ判定。正式な判定は check_pitcher_control.py）"
     group = np.where(d.position == "先発", "先発", "救援")
@@ -328,9 +385,6 @@ def check_pitcher_speed_by_hand(R, d):
             R.add(s, f"{h}投手の{label}", num(q, 0), ok_range(q, real - 1, real + 1), f"{real - 1}〜{real + 1}", str(real))
     v = (sp[hand == "左"] >= 155).mean()
     R.add(s, "左投手で155以上", pct(v), ok_range(v, hi=0.06), "6%以下", "3.2%")
-    for g, h in SPEED_HAND_STAMINA_KEYS:
-        v = d.stamina[(group == g) & (hand == h)].mean()
-        R.fixed(s, f"{g}・{h} スタミナ平均", v, num(v), id=f"{SCRIPT}.pitcher.speed_hand.stamina_mean.{g}_{h}")
 
 
 def check_pitchers(d):
@@ -361,6 +415,9 @@ def check_pitchers(d):
     hand = np.where(bt.str.startswith("左"), "左", "右")
     reliever_stamina_rows(R, "救援のスタミナ（個別生成は救援の相関だけ判定。正式な判定は check_pitcher_control.py）",
                           group, hand, ct, st, None, formal=False)
+    starter_stamina_rows(R, "先発のスタミナ（個別生成は参考表示。正式な判定は check_pitcher_control.py）", group, hand, st, formal=False)
+    total_movement = brk.map(lambda l: sum(int(x.get("movement") or 0) for x in l if not x.get("is_second_pitch")))
+    movement_rows(R, "総変化量（個別生成は参考表示。正式な判定は check_pitcher_control.py）", group, ct, st, total_movement, None, None, formal=False)
 
     s = "抑え・起用適性"
     v = sp[closer].mean() if closer.any() else np.nan

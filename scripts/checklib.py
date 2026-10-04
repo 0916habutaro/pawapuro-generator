@@ -14,7 +14,7 @@
 受け入れ済みの不合格（3章）: data/config/accepted_deviations.json。記録された値より悪くなっていなければ「受け入れ済み」、
     誤差の2倍を超えて悪化したら「不合格」。範囲に戻ったら「合格」と表示し、記録を外すよう促す。
 
-基準値（4章）: data/config/check_baselines.json。各スクリプトの `--update-baselines --reason "理由"` で更新する。
+基準値（4章）: data/config/check_baselines.json。各スクリプトの `--update-baselines --reason "理由" --only <id または節>` で更新する（--only なしは全部を書き換えるので確認が出る。--yes で省略）。
 """
 from __future__ import annotations
 
@@ -217,31 +217,62 @@ def accepted_deviations(path: Path | None = None) -> dict[str, dict[str, Any]]:
     return {item["id"]: item for item in items} if isinstance(items, list) else dict(items)
 
 
-def update_baselines(checks: Iterable[Check], reason: str, *, pr: str = "", path: Path | None = None) -> list[tuple[str, float | None, float]]:
-    """「固定」の判定の今の値を基準値ファイルに書く。reason が空なら書かない。(id, 前の値, 新しい値) を返す。"""
+def _matches_only(check_id: str, only: Iterable[str] | None) -> bool:
+    """only が空なら全部。id が一致するか、「節」（id の先頭部分。末尾の . は省略可）に当たれば True。"""
+    patterns = [p.strip() for p in (only or []) if p.strip()]
+    if not patterns:
+        return True
+    return any(check_id == p or check_id.startswith(p if p.endswith(".") else p + ".") for p in patterns)
+
+
+def update_baselines(
+    checks: Iterable[Check], reason: str, *, pr: str = "", path: Path | None = None,
+    only: Iterable[str] | None = None, confirm: Callable[[list[tuple[str, float | None, float]]], bool] | None = None,
+) -> list[tuple[str, float | None, float]]:
+    """「固定」の判定の今の値を基準値ファイルに書く。reason が空なら書かない。(id, 前の値, 新しい値) を返す。
+
+    only に id（または節＝idの先頭部分）を渡すと、それに当たる項目だけを更新する。only が空（全部を書き換える）で
+    confirm が渡されたときは、書く前に変更の一覧で confirm を呼び、False なら何も書かずに空を返す。"""
     if not reason.strip():
         raise SystemExit("--update-baselines には --reason \"理由\" が必要です（基準値は書き換えていません）")
     path = path or BASELINES_PATH
     data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"version": 1, "items": {}}
     items = data.setdefault("items", {})
-    changed: list[tuple[str, float | None, float]] = []
+    plan: list[tuple[Check, dict[str, Any] | None, float]] = []
     for check in checks:
-        if check.kind != KIND_FIXED or math.isnan(check.value):
+        if check.kind != KIND_FIXED or math.isnan(check.value) or not _matches_only(check.id, only):
             continue
         old = items.get(check.id)
-        width = float(old["width"]) if old else _default_width(check)
         new_value = round(float(check.value), 4)
         if old and abs(float(old["value"]) - new_value) < 1e-9:
             continue
+        plan.append((check, old, new_value))
+    changed = [(check.id, float(old["value"]) if old else None, new_value) for check, old, new_value in plan]
+    if not [p for p in (only or []) if p.strip()] and confirm is not None and changed and not confirm(changed):
+        return []
+    for check, old, new_value in plan:
+        width = float(old["width"]) if old else _default_width(check)
         items[check.id] = {
             "value": new_value, "width": width, "direction": old.get("direction", "both") if old else "both",
             "label": check.label, "pr": pr or (old or {}).get("pr", ""), "reason": reason.strip(), "date": date.today().isoformat(),
         }
-        changed.append((check.id, float(old["value"]) if old else None, new_value))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     reload_config()
     return changed
+
+
+def confirm_all_baselines(changed: list[tuple[str, float | None, float]], assume_yes: bool = False) -> bool:
+    """絞り込みなしで全部の基準値を書き換えるときの確認。一覧を出し、--yes か、端末での「yes」の入力で進める。"""
+    print(f"\n[確認] 絞り込み（--only）なしで、基準値 {len(changed)} 項目を書き換えます:")
+    for key, old, new in changed:
+        print(f"  {key}: {'（新規）' if old is None else old} → {new}")
+    if assume_yes:
+        return True
+    if sys.stdin is not None and sys.stdin.isatty():
+        return input("書き換えてよければ yes と入力: ").strip().lower() == "yes"
+    print("書き換えていません。進めるには --yes を付けるか、--only <id または節> で項目を絞ってください。")
+    return False
 
 
 def _default_width(check: Check) -> float:
@@ -476,6 +507,8 @@ def add_common_args(parser: Any, *, default_boot: int = DEFAULT_BOOTSTRAP) -> No
     parser.add_argument("--boot", type=int, default=default_boot, help="誤差の見積もりに使うブートストラップの回数（0で誤差なし＝要注意なし）")
     parser.add_argument("--update-baselines", action="store_true", help="「固定」の判定の今の値を基準値ファイルに書く（--reason が必要）")
     parser.add_argument("--reason", default="", help="--update-baselines の理由（空なら書かない）")
+    parser.add_argument("--only", default="", help="--update-baselines で更新する項目を id（または節＝idの先頭部分）で絞る。カンマ区切りで複数。空なら全部（確認が出る）")
+    parser.add_argument("--yes", action="store_true", help="--update-baselines で絞り込みなしに全部を書き換える確認を省く")
     parser.add_argument("--baseline-pr", default="", help="--update-baselines を行うPR（記録用）")
     parser.add_argument("--quick", action="store_true", help="簡易版: すべての合否を『参考』にする（正式な判定には使わない）")
     parser.add_argument("--checks-csv", type=Path, default=None, help="判定の一覧CSVの出力先（既定: reports/checks/<スクリプト名>.csv）")
@@ -484,7 +517,11 @@ def add_common_args(parser: Any, *, default_boot: int = DEFAULT_BOOTSTRAP) -> No
 def finish(script: str, checks: list[Check], args: Any) -> int:
     """基準値の更新・CSV出力を行い、終了コードを返す。"""
     if getattr(args, "update_baselines", False):
-        changed = update_baselines(checks, args.reason, pr=getattr(args, "baseline_pr", ""))
+        only = [p for p in (getattr(args, "only", "") or "").split(",") if p.strip()]
+        changed = update_baselines(
+            checks, args.reason, pr=getattr(args, "baseline_pr", ""), only=only,
+            confirm=lambda items: confirm_all_baselines(items, getattr(args, "yes", False)),
+        )
         print("\n[基準値の更新]")
         for key, old, new in changed:
             print(f"  {key}: {'（新規）' if old is None else old} → {new}")
