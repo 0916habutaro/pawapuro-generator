@@ -6787,6 +6787,13 @@ FICTIONAL_PITCHER_CONTROL_CENTER = 50.0
 FICTIONAL_CONTROL_PER_SPEED = -0.75
 FICTIONAL_STAMINA_PER_CONTROL = 0.12
 FICTIONAL_STAMINA_PER_SPEED = -0.06
+# 救援（中継ぎ・抑え）のスタミナの変換。stamina = S0 + A × (stamina − S0) − B × (control − C0) + D。
+# 既存処理は救援でも選手格・コントロールの連動が先発と同じくらい効き、コントロール×スタミナの相関（0.51）・幅（標準偏差8.0）が
+# 実在の日本人の救援（2024〜2026年版。相関0.216、標準偏差5.84、平均46.96）より大きい。幅を縮め（A）、最終的なコントロールとの
+# 結びつきを打ち消し（B）、平均をずらす（D）。先発には何もしない。値は球団生成（seed 1〜300）で合わせた。
+# 21歳以下にはかけない（21歳以下の補正は改修前の分布に合わせてあり、かけると球団生成の〜19歳のスタミナが 41.4→42.0 に上がって
+# check_age_profile.py の範囲（39〜42、実在39.9）を外れる。若手は改修前と同じ）。
+FICTIONAL_RELIEVER_STAMINA_TRANSFORM = {"S0": 48.0, "A": 0.76, "B": 0.21, "C0": 48.0, "D": -0.9}
 # 抑え（守護神格）の決め球の変化量
 FICTIONAL_CLOSER_FINISHER_MOVEMENT_WEIGHTS = [(4, 50), (5, 38), (6, 12)]
 # チェンジアップ系は左投手の球種。右投手は同じ方向の別球種に替える（名前, 確率, 替える先の候補）。
@@ -7462,6 +7469,10 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     stamina += FICTIONAL_STAMINA_PER_SPEED * (linked_speed - FICTIONAL_PITCHER_SPEED_CENTER)
     stamina = clamp(round(stamina), 15, 100)
     age = int(player.get("age") or 0)
+    if hand_key[0] == "救援" and age > FICTIONAL_YOUNG_MAX_AGE:
+        t = FICTIONAL_RELIEVER_STAMINA_TRANSFORM
+        stamina = t["S0"] + t["A"] * (stamina - t["S0"]) - t["B"] * (control - t["C0"]) + t["D"]
+        stamina = clamp(round(stamina), 15, 100)
     if age and age <= FICTIONAL_YOUNG_MAX_AGE:
         young = {"球速": float(speed), "コントロール": float(control), "スタミナ": float(stamina)}
         # 若手の補正で左右差が縮まないよう、投げ手のずらしを球速・コントロールの役割別のずらしに足して渡す。

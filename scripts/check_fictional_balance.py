@@ -149,12 +149,22 @@ SPEED_HAND_REAL = {
 }
 SPEED_HAND_QUANTILES_REAL = {"右": (148, 152, 157), "左": (145, 149, 153)}
 SPEED_JAPANESE_MEAN_REAL = 151.37
-# 改修前（seed 1〜5000）のスタミナの平均。左右の球速・救援のコントロールの調整で変わっていないことの確認用。
-# （コントロールは「コントロールの役割・左右」の節で実在と比べる）
+# 改修前（seed 1〜5000）の先発のスタミナの平均。左右の球速・救援のコントロール・救援のスタミナの調整で変わっていないことの確認用。
+# （コントロールは「コントロールの役割・左右」の節で実在と比べる。救援のスタミナは `救援スタミナ相関_改修指示.md` で
+# 直したので、「救援のスタミナ」の節で実在と比べる）
 SPEED_HAND_STAMINA_BEFORE = {
     ("先発", "右"): 57.33, ("先発", "左"): 57.54,
-    ("救援", "右"): 46.97, ("救援", "左"): 47.06,
 }
+
+# 救援のスタミナ（`救援スタミナ相関_改修指示.md`）。実在は2024〜2026年版の日本人の救援投手553人（右416／左137）。
+# 正式な判定は球団生成300球団（scripts/check_pitcher_control.py）。個別生成は参考表示にし、救援の相関だけ 0.10〜0.35 を判定する。
+RELIEVER_STAMINA_CORR_REAL = {"全体": 0.216, "右": 0.184, "左": 0.297}  # コントロール×スタミナ
+RELIEVER_STAMINA_MEAN_REAL = {"全体": 46.96, "右": 47.10, "左": 46.53}
+RELIEVER_STAMINA_SD_REAL = 5.84
+RELIEVER_STAMINA_QUANTILES_REAL = (39, 47, 54)  # 10%・中央・90%
+RELIEVER_STAMINA_RATING_CORR_REAL = 0.424  # スタミナ×査定
+PITCHER_CONTROL_STAMINA_CORR_REAL = 0.491  # 日本人投手全体のコントロール×スタミナ
+RELIEVER_STAMINA_INDIVIDUAL_CORR = (0.10, 0.35)
 
 # コントロールの役割・左右（`救援投手コントロール_改修指示.md`）。実在は2024〜2026年版の日本人投手1,126人。
 # 正式な判定は球団生成300球団（scripts/check_pitcher_control.py）。個別生成は二軍級が多く、どの区分も球団生成より
@@ -210,6 +220,48 @@ def control_hand_rows(R, s, group, hand, ct, formal):
     v = ct.mean()
     R.add(s, "日本人全体の平均", num(v), ok_range(v, CONTROL_JAPANESE_MEAN_REAL - 0.5, CONTROL_JAPANESE_MEAN_REAL + 0.5),
           f"{CONTROL_JAPANESE_MEAN_REAL - 0.5:.2f}〜{CONTROL_JAPANESE_MEAN_REAL + 0.5:.2f}", num(CONTROL_JAPANESE_MEAN_REAL), info=not formal)
+
+
+def reliever_stamina_rows(R, s, group, hand, ct, st, rating, formal):
+    """救援のスタミナの表。formal=True（球団生成）なら指示書3-1の範囲で判定し、
+    False（個別生成）なら救援の相関（0.10〜0.35）だけ判定して、ほかは参考表示にする。rating が None なら査定との相関は出さない。"""
+    group, hand = np.asarray(group), np.asarray(hand)
+    ct, st = pd.Series(np.asarray(ct, dtype=float)), pd.Series(np.asarray(st, dtype=float))
+    rel = group == "救援"
+    for h in ("全体", "右", "左"):
+        mask = rel if h == "全体" else rel & (hand == h)
+        real = RELIEVER_STAMINA_CORR_REAL[h]
+        tol = 0.08 if h == "全体" else 0.12
+        label = "救援" if h == "全体" else f"救援・{h}"
+        v = ct[mask].corr(st[mask])
+        if h == "全体" and not formal:
+            lo, hi = RELIEVER_STAMINA_INDIVIDUAL_CORR
+            R.add(s, f"コントロール×スタミナ相関 {label}", num(v, 3), ok_range(v, lo, hi), f"{lo:.2f}〜{hi:.2f}（個別生成）", num(real, 3))
+        else:
+            R.add(s, f"コントロール×スタミナ相関 {label}", num(v, 3), ok_range(v, real - tol, real + tol),
+                  f"{real - tol:.3f}〜{real + tol:.3f}", num(real, 3), info=not formal)
+    v = ct.corr(st)
+    real = PITCHER_CONTROL_STAMINA_CORR_REAL
+    R.add(s, "コントロール×スタミナ相関 全体", num(v, 3), ok_range(v, real - 0.05, real + 0.05),
+          f"{real - 0.05:.3f}〜{real + 0.05:.3f}", num(real, 3), info=not formal)
+    for h in ("全体", "右", "左"):
+        mask = rel if h == "全体" else rel & (hand == h)
+        real = RELIEVER_STAMINA_MEAN_REAL[h]
+        tol = 0.5 if h == "全体" else 0.8
+        v = st[mask].mean()
+        R.add(s, f"{'救援' if h == '全体' else '救援・' + h} 平均", num(v), ok_range(v, real - tol, real + tol),
+              f"{real - tol:.2f}〜{real + tol:.2f}", num(real), info=not formal)
+    x = st[rel]
+    v = x.std()
+    real = RELIEVER_STAMINA_SD_REAL
+    R.add(s, "救援 標準偏差", num(v), ok_range(v, real - 0.6, real + 0.6), f"{real - 0.6:.2f}〜{real + 0.6:.2f}", num(real), info=not formal)
+    for label, q, rq in zip(("10%", "中央", "90%"), x.quantile([0.1, 0.5, 0.9]).tolist(), RELIEVER_STAMINA_QUANTILES_REAL):
+        R.add(s, f"救援 {label}", num(q, 0), ok_range(q, rq - 2, rq + 2), f"{rq - 2}〜{rq + 2}", str(rq), info=not formal)
+    if rating is not None:
+        v = st[rel].corr(pd.Series(np.asarray(rating, dtype=float))[rel])
+        real = RELIEVER_STAMINA_RATING_CORR_REAL
+        R.add(s, "スタミナ×査定の相関 救援", num(v, 3), ok_range(v, real - 0.10, real + 0.10),
+              f"{real - 0.10:.3f}〜{real + 0.10:.3f}", num(real, 3), info=not formal)
 
 
 def check_pitcher_control_by_hand(R, d):
@@ -275,6 +327,10 @@ def check_pitchers(d):
 
     check_pitcher_speed_by_hand(R, d)
     check_pitcher_control_by_hand(R, d)
+    group = np.where(d.position == "先発", "先発", "救援")
+    hand = np.where(bt.str.startswith("左"), "左", "右")
+    reliever_stamina_rows(R, "救援のスタミナ（個別生成は救援の相関だけ判定。正式な判定は check_pitcher_control.py）",
+                          group, hand, ct, st, None, formal=False)
 
     s = "抑え・起用適性"
     v = sp[closer].mean() if closer.any() else np.nan
