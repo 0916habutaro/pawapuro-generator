@@ -1,42 +1,6 @@
 {
   "version": 1,
   "items": {
-    "check_pitcher_control.starter.stamina.mean.右": {
-      "value": 58.75,
-      "width": 0.3,
-      "direction": "both",
-      "label": "先発・右 スタミナ平均（球団生成300球団）",
-      "pr": "#108",
-      "reason": "球団ごとの散らばり_改修指示.md で選手格の構成を変えたため 58.42／58.59 から更新。救援の調整で先発が動いていないことの確認用",
-      "date": "2026-10-04"
-    },
-    "check_pitcher_control.starter.stamina.mean.左": {
-      "value": 58.7,
-      "width": 0.3,
-      "direction": "both",
-      "label": "先発・左 スタミナ平均（球団生成300球団）",
-      "pr": "#108",
-      "reason": "球団ごとの散らばり_改修指示.md で選手格の構成を変えたため 58.42／58.59 から更新。救援の調整で先発が動いていないことの確認用",
-      "date": "2026-10-04"
-    },
-    "check_fictional_balance.pitcher.speed_hand.stamina_mean.先発_右": {
-      "value": 57.33,
-      "width": 0.3,
-      "direction": "both",
-      "label": "先発・右 スタミナ平均（個別生成5000人）",
-      "pr": "#106, #107",
-      "reason": "改修前（seed 1〜5000）の値。左右の球速・救援の調整で先発が動いていないことの確認用",
-      "date": "2026-10-04"
-    },
-    "check_fictional_balance.pitcher.speed_hand.stamina_mean.先発_左": {
-      "value": 57.54,
-      "width": 0.3,
-      "direction": "both",
-      "label": "先発・左 スタミナ平均（個別生成5000人）",
-      "pr": "#106, #107",
-      "reason": "改修前（seed 1〜5000）の値。左右の球速・救援の調整で先発が動いていないことの確認用",
-      "date": "2026-10-04"
-    },
     "check_age_profile.individual.fielder.n_total": {
       "value": 4.19,
       "width": 0.1,
@@ -74,12 +38,12 @@
       "date": "2026-10-04"
     },
     "check_age_profile.individual.pitcher.rating_mean": {
-      "value": 287.0,
+      "value": 278.55,
       "width": 5.0,
       "direction": "both",
       "label": "個別生成 seed 1〜5000 投手の査定値の平均",
-      "pr": "#103",
-      "reason": "特能ランク年齢補正の修正前の値。全年齢の分布が動いていないことの確認用",
+      "pr": "投手の仕上げ",
+      "reason": "投手の仕上げ_改修指示.md: 先発のスタミナ・総変化量を投手の良し悪しに連動させたため、投手の査定の平均が下がった（意図した変更）",
       "date": "2026-10-04"
     },
     "check_age_profile.individual.pitcher.rating_sd": {
@@ -128,12 +92,12 @@
       "date": "2026-10-04"
     },
     "check_age_profile.team.pitcher.rating_mean": {
-      "value": 291.9,
+      "value": 286.79,
       "width": 5.0,
       "direction": "both",
       "label": "球団生成 500球団 投手の査定値の平均",
-      "pr": "#107, #108",
-      "reason": "球団・投手: 査定の平均は 296.8→291.9（救援のコントロール補正 #107）、特能の数は 4.33→4.27（球団ごとの散らばり #108 で選手格の構成を変えた）",
+      "pr": "投手の仕上げ",
+      "reason": "投手の仕上げ_改修指示.md: 先発のスタミナ・総変化量を投手の良し悪しに連動させたため、投手の査定の平均が下がった（意図した変更）",
       "date": "2026-10-04"
     },
     "check_age_profile.team.pitcher.rating_sd": {
