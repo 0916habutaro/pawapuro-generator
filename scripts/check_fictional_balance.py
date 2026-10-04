@@ -149,11 +149,74 @@ SPEED_HAND_REAL = {
 }
 SPEED_HAND_QUANTILES_REAL = {"右": (148, 152, 157), "左": (145, 149, 153)}
 SPEED_JAPANESE_MEAN_REAL = 151.37
-# 改修前（seed 1〜5000）のコントロール・スタミナの平均。左右の球速の調整で変わっていないことの確認用。
-SPEED_HAND_CONTROL_STAMINA_BEFORE = {
-    ("先発", "右"): (53.93, 57.33), ("先発", "左"): (53.47, 57.54),
-    ("救援", "右"): (49.01, 46.97), ("救援", "左"): (49.56, 47.06),
+# 改修前（seed 1〜5000）のスタミナの平均。左右の球速・救援のコントロールの調整で変わっていないことの確認用。
+# （コントロールは「コントロールの役割・左右」の節で実在と比べる）
+SPEED_HAND_STAMINA_BEFORE = {
+    ("先発", "右"): 57.33, ("先発", "左"): 57.54,
+    ("救援", "右"): 46.97, ("救援", "左"): 47.06,
 }
+
+# コントロールの役割・左右（`救援投手コントロール_改修指示.md`）。実在は2024〜2026年版の日本人投手1,126人。
+# 正式な判定は球団生成300球団（scripts/check_pitcher_control.py）。個別生成は二軍級が多く、どの区分も球団生成より
+# 1〜2低くなるので、このスクリプト（個別生成）では下限だけを判定し、ほかは参考表示にする。
+CONTROL_HAND_REAL = {
+    # (区分, 投げ手): (平均, 標準偏差, 10%, 中央, 90%)
+    ("先発", "右"): (54.47, 12.7, 40, 53, 71), ("先発", "左"): (56.67, 14.2, 39, 55, 74),
+    ("救援", "右"): (48.54, 10.0, 36, 48, 62), ("救援", "左"): (47.01, 11.4, 34, 46, 63),
+}
+CONTROL_HAND_GAP_REAL = {"先発": (2.2, 1.0), "救援": (-1.5, 1.0)}  # 左−右（実在, 許容幅）
+CONTROL_RELIEF_GAP_REAL = {"右": (-5.9, 1.0), "左": (-9.7, 1.5)}  # 救援−先発（実在, 許容幅）
+CONTROL_JAPANESE_MEAN_REAL = 51.78
+CONTROL_RELIEVER_60_REAL, CONTROL_RELIEVER_70_REAL = 0.156, 0.025
+# 個別生成の下限: 4区分の平均が実在より2.5以上低くならない、救援で60以上が9%以上
+CONTROL_INDIVIDUAL_MAX_DROP = 2.5
+CONTROL_INDIVIDUAL_RELIEVER_60_MIN = 0.09
+
+
+def control_hand_rows(R, s, group, hand, ct, formal):
+    """コントロールの役割・左右の表。formal=True（球団生成）なら指示書3-1の範囲で判定し、
+    False（個別生成）なら下限だけ判定して、ほかは参考表示にする。"""
+    group, hand, ct = np.asarray(group), np.asarray(hand), pd.Series(np.asarray(ct, dtype=float))
+    mean = {}
+    for (g, h), (real, real_sd, *real_qs) in CONTROL_HAND_REAL.items():
+        x = ct[(group == g) & (hand == h)]
+        mean[(g, h)] = v = x.mean()
+        if formal:
+            R.add(s, f"{g}・{h} 平均", num(v), ok_range(v, real - 0.8, real + 0.8), f"{real - 0.8:.2f}〜{real + 0.8:.2f}", num(real))
+        else:
+            low = real - CONTROL_INDIVIDUAL_MAX_DROP
+            R.add(s, f"{g}・{h} 平均", num(v), ok_range(v, low), f"{low:.2f}以上（下限）", num(real))
+        if g == "救援":
+            v = x.std()
+            R.add(s, f"{g}・{h} 標準偏差", num(v), ok_range(v, real_sd - 1.0, real_sd + 1.0),
+                  f"{real_sd - 1.0:.1f}〜{real_sd + 1.0:.1f}", num(real_sd, 1), info=not formal)
+            for label, q, rq in zip(("10%", "中央", "90%"), x.quantile([0.1, 0.5, 0.9]).tolist(), real_qs):
+                R.add(s, f"{g}・{h} {label}", num(q, 0), ok_range(q, rq - 2, rq + 2), f"{rq - 2}〜{rq + 2}", str(rq), info=not formal)
+    for g, (real, tol) in CONTROL_HAND_GAP_REAL.items():
+        v = mean[(g, "左")] - mean[(g, "右")]
+        R.add(s, f"左右差（左−右） {g}", num(v), ok_range(v, real - tol, real + tol), f"{real - tol:+.1f}〜{real + tol:+.1f}", f"{real:+.1f}", info=not formal)
+    for h, (real, tol) in CONTROL_RELIEF_GAP_REAL.items():
+        v = mean[("救援", h)] - mean[("先発", h)]
+        R.add(s, f"救援−先発 {h}", num(v), ok_range(v, real - tol, real + tol), f"{real - tol:+.1f}〜{real + tol:+.1f}", f"{real:+.1f}", info=not formal)
+    rel = ct[group == "救援"]
+    v = (rel >= 60).mean()
+    if formal:
+        R.add(s, "救援で60以上", pct(v), ok_range(v, 0.12, 0.19), "12〜19%", pct(CONTROL_RELIEVER_60_REAL))
+    else:
+        low = CONTROL_INDIVIDUAL_RELIEVER_60_MIN
+        R.add(s, "救援で60以上", pct(v), ok_range(v, low), f"{low * 100:.0f}%以上（下限）", pct(CONTROL_RELIEVER_60_REAL))
+    v = (rel >= 70).mean()
+    R.add(s, "救援で70以上", pct(v), ok_range(v, 0.015, 0.04), "1.5〜4%", pct(CONTROL_RELIEVER_70_REAL), info=not formal)
+    v = ct.mean()
+    R.add(s, "日本人全体の平均", num(v), ok_range(v, CONTROL_JAPANESE_MEAN_REAL - 0.5, CONTROL_JAPANESE_MEAN_REAL + 0.5),
+          f"{CONTROL_JAPANESE_MEAN_REAL - 0.5:.2f}〜{CONTROL_JAPANESE_MEAN_REAL + 0.5:.2f}", num(CONTROL_JAPANESE_MEAN_REAL), info=not formal)
+
+
+def check_pitcher_control_by_hand(R, d):
+    s = "コントロールの役割・左右（個別生成は下限だけ判定。正式な判定は check_pitcher_control.py）"
+    group = np.where(d.position == "先発", "先発", "救援")
+    hand = np.where(d.throws_bats.str.startswith("左"), "左", "右")
+    control_hand_rows(R, s, group, hand, d.control, formal=False)
 
 
 def check_pitcher_speed_by_hand(R, d):
@@ -183,12 +246,9 @@ def check_pitcher_speed_by_hand(R, d):
             R.add(s, f"{h}投手の{label}", num(q, 0), ok_range(q, real - 1, real + 1), f"{real - 1}〜{real + 1}", str(real))
     v = (sp[hand == "左"] >= 155).mean()
     R.add(s, "左投手で155以上", pct(v), ok_range(v, hi=0.06), "6%以下", "3.2%")
-    for (g, h), (ct_before, st_before) in SPEED_HAND_CONTROL_STAMINA_BEFORE.items():
-        x = d[(group == g) & (hand == h)]
-        for label, col, before in (("コントロール", "control", ct_before), ("スタミナ", "stamina", st_before)):
-            v = x[col].mean()
-            R.add(s, f"{g}・{h} {label}平均", num(v), ok_range(v, before - 0.5, before + 0.5),
-                  f"改修前{before:.2f}±0.5", "")
+    for (g, h), before in SPEED_HAND_STAMINA_BEFORE.items():
+        v = d.stamina[(group == g) & (hand == h)].mean()
+        R.add(s, f"{g}・{h} スタミナ平均", num(v), ok_range(v, before - 0.3, before + 0.3), f"改修前{before:.2f}±0.3", "")
 
 
 def check_pitchers(d):
@@ -214,6 +274,7 @@ def check_pitchers(d):
     c = ct.corr(st); R.add(s, "コントロール×スタミナ相関", num(c), ok_range(c, 0.38, 0.58), "+0.38〜+0.58", "+0.46")
 
     check_pitcher_speed_by_hand(R, d)
+    check_pitcher_control_by_hand(R, d)
 
     s = "抑え・起用適性"
     v = sp[closer].mean() if closer.any() else np.nan

@@ -6751,6 +6751,19 @@ FICTIONAL_PITCHER_HAND_SPEED_TAILS = {
     ("救援", "右"): ((149.0, 0.5, False),),
     ("救援", "左"): ((151.0, 0.55, True),),
 }
+# 救援（中継ぎ・抑え）のコントロールの幅を縮める。control = 中心 + 倍率 × (control − 中心)。
+# 倍率は投げ手ごとに（中心より下, 中心より上）。既存処理は救援の幅が実在（標準偏差 右10.0・左11.4）より広く、
+# 60以上が実在の約1.6倍いる。実在の救援は上側に裾が長い（70以上も2.5%いる）形なので、下側を強めに縮める。
+FICTIONAL_RELIEVER_CONTROL_CENTER = 50.0
+FICTIONAL_RELIEVER_CONTROL_SCALES = {"右": (0.7, 0.95), "左": (0.75, 1.0)}
+# 役割の区分（先発／救援）×投げ手ごとのコントロールのずらし。救援の縮めの後に足す。
+# 実在の日本人投手（2024〜2026）は、先発は左が約2高く、救援は左が約1.5低い。値は球団生成（seed 1〜300）で合わせた
+# （個別生成は二軍級が多いので、どの区分も球団生成より1〜2低くなる）。
+# スタミナの連動には、縮め・このずらしを入れる前のコントロールを使う（スタミナは実在とおおむね合っている）。
+FICTIONAL_PITCHER_HAND_CONTROL_SHIFTS = {
+    ("先発", "右"): -0.5, ("先発", "左"): 1.0,
+    ("救援", "右"): -2.9, ("救援", "左"): -4.6,
+}
 FICTIONAL_PITCHER_SPEED_CENTER = 151.0
 FICTIONAL_PITCHER_CONTROL_CENTER = 50.0
 # 速球派ほど制球が荒い（球速1km/hあたりのコントロール）、制球の良い投手ほどスタミナがある。
@@ -7419,19 +7432,26 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     speed = round(speed)
     control = float(ability_numeric_value(abilities, "コントロール") or 50) + control_shift
     control += FICTIONAL_CONTROL_PER_SPEED * (linked_speed - FICTIONAL_PITCHER_SPEED_CENTER)
-    control = clamp(round(compress_tail(control, 35.0, 0.7, upper=False)), 15, 95)
+    # スタミナの連動には、救援の縮め・投げ手のずらしを入れる前のコントロールを使う。
+    linked_control = clamp(round(compress_tail(control, 35.0, 0.7, upper=False)), 15, 95)
+    if hand_key[0] == "救援":
+        center = FICTIONAL_RELIEVER_CONTROL_CENTER
+        lower_scale, upper_scale = FICTIONAL_RELIEVER_CONTROL_SCALES[hand_key[1]]
+        control = center + (lower_scale if control < center else upper_scale) * (control - center)
+    control_hand_shift = FICTIONAL_PITCHER_HAND_CONTROL_SHIFTS[hand_key]
+    control = clamp(round(compress_tail(control + control_hand_shift, 35.0, 0.7, upper=False)), 15, 95)
     stamina = float(ability_numeric_value(abilities, "スタミナ") or 50) + stamina_shift
-    stamina += FICTIONAL_STAMINA_PER_CONTROL * (control - FICTIONAL_PITCHER_CONTROL_CENTER)
+    stamina += FICTIONAL_STAMINA_PER_CONTROL * (linked_control - FICTIONAL_PITCHER_CONTROL_CENTER)
     stamina += FICTIONAL_STAMINA_PER_SPEED * (linked_speed - FICTIONAL_PITCHER_SPEED_CENTER)
     stamina = clamp(round(stamina), 15, 100)
     age = int(player.get("age") or 0)
     if age and age <= FICTIONAL_YOUNG_MAX_AGE:
         young = {"球速": float(speed), "コントロール": float(control), "スタミナ": float(stamina)}
-        # 若手の補正で左右差が縮まないよう、投げ手のずらしを球速の役割別のずらしに足して渡す。
+        # 若手の補正で左右差が縮まないよう、投げ手のずらしを球速・コントロールの役割別のずらしに足して渡す。
         role_devs = FICTIONAL_YOUNG_PITCHER_ROLE_DEVS.get(position, (0.0, 0.0, 0.0))
         fictional_young_transform(
             young, age, FICTIONAL_YOUNG_PITCHER_MEANS,
-            (role_devs[0] + hand_shift, *role_devs[1:]), FICTIONAL_YOUNG_PITCHER_TRANSFORM,
+            (role_devs[0] + hand_shift, role_devs[1] + control_hand_shift, role_devs[2]), FICTIONAL_YOUNG_PITCHER_TRANSFORM,
         )
         speed = round(young["球速"])
         control = clamp(round(young["コントロール"]), 15, 95)
