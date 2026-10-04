@@ -547,6 +547,8 @@ def main() -> None:
     passes.append((f"11〜21番の投手率90%以上（生成 {uni['pitcher_rate_11_21'] * 100:.1f}%）", uni["pitcher_rate_11_21"] >= 0.90))
     uniform_detail, uniform_detail_passes = uniform_detail_tables(main_records)
     passes += uniform_detail_passes
+    # 基準値は check_age_profile.BASELINE を使う。球団・投手の査定値の平均は 296.8 → 291.9 に更新。
+    # 救援投手のコントロール補正（PR #107 相当）で下がった。実在の投手の査定の平均は 287.4（2024〜2026年版）／292.5（2026年版）（外国人を含む）。
     age_lines, age_failures = check_age_profile.report(pd.DataFrame([row for record in main_records for row in record["age_rows"]]))
     passes.append((f"年齢帯別の特能・ランク（check_age_profile.py、日本人）の不合格が0（不合格 {age_failures}）", age_failures == 0))
     passes.append((f"2・27番の捕手率30%以上（生成 2番 {uni['catcher_rate']['2'] * 100:.1f}%・27番 {uni['catcher_rate']['27'] * 100:.1f}%）", min(uni["catcher_rate"].values()) >= 0.30))
