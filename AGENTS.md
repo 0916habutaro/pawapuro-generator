@@ -62,6 +62,8 @@ streamlit run app.py
 
 \- Prioritize working MVP over perfect balancing.
 
+- 乱数を引きながら順番に回す集まりは、集合（set・frozenset）にしない。リスト・タプルか `sorted(...)` にする（集合の並びは文字列のハッシュで起動のたびに変わり、同じseedでも結果が変わる）。確認は `tests/test_hash_independence.py`。
+
 
 
 \## Requirements

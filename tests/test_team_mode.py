@@ -24,8 +24,8 @@ def fingerprint(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
-# 改修前の app.py で作った指紋と比べるスクリプト。ドラフト候補の野手は文字列のハッシュ順に依存する
-# 既存の処理があるため（改修前から）、PYTHONHASHSEED を固定した別プロセスで比べる。
+# 改修前の app.py で作った指紋と比べるスクリプト。PYTHONHASHSEED を固定した別プロセスで比べる
+# （ハッシュによらないことは test_hash_independence.py で確かめている。念のための固定）。
 BASELINE_SCRIPT = r"""
 import hashlib, json, logging, sys
 sys.path.insert(0, sys.argv[1])
