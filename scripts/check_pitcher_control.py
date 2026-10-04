@@ -16,7 +16,8 @@
   年齢帯×役割のコントロール（実在は2026年版の12球団だけ）。
   球団ごとの散らばりは戦力レベルによる選手格の構成で決まるため、今回の調整の対象外（指示書 0-4）。
 - 個別生成の判定（下限）と、コントロール20未満・相関などの既存項目は check_fictional_balance.py（個別生成5000人）。
-- 終了コード: 全項目合格なら 0、不合格があれば 1。
+- 判定の種類・誤差・合否の付け方は checklib.py（判定の整理_改修指示.md）。誤差は、生成側は球団、実在側は実在の投手1,126人を再抽出して見積もる。
+- 終了コード: 不合格が1件でもあれば 1（要注意・受け入れ済みは 0）。
 """
 from __future__ import annotations
 
@@ -35,17 +36,17 @@ sys.path.insert(0, str(APP_DIR / "scripts"))
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+import checklib  # noqa: E402
 from check_fictional_balance import Result, control_hand_rows, num, ok_range, reliever_stamina_rows  # noqa: E402
 from generator import team as team_lib  # noqa: E402
 from generator import team_analysis  # noqa: E402
 
-# 改修前（球団生成 seed 1〜300）の日本人の先発投手のスタミナの平均。救援のコントロール・スタミナの調整で変わっていないことの確認用。
-# 球団ごとの散らばり_改修指示.md で選手格の構成（全球団の基準の倍率）を変えたため、今回の値に更新した
-# （旧 58.42／58.59 → 58.75／58.70）。実在（2024〜2026年版の日本人。先発 右57.42／左55.03）からは少し離れている。
+SCRIPT = "check_pitcher_control"
+# 改修前（球団生成 seed 1〜300）の日本人の先発投手のスタミナの平均は data/config/check_baselines.json（「固定」）。
+# 救援のコントロール・スタミナの調整で変わっていないことの確認用。球団ごとの散らばり_改修指示.md で選手格の構成（全球団の基準の倍率）を
+# 変えたため 58.75／58.70 に更新した（旧 58.42／58.59）。実在（2024〜2026年版の日本人。先発 右57.42／左55.03）からは少し離れている。
 # 救援（旧 47.83／48.10）は救援スタミナ相関_改修指示.md で直したので、「救援のスタミナ」の節で実在と比べる
-STAMINA_BEFORE = {
-    ("先発", "右"): 58.75, ("先発", "左"): 58.70,
-}
+STAMINA_KEYS = (("先発", "右"), ("先発", "左"))
 # 実在（2024〜2026年版の36チーム、外国人を含む）の球団ごとのコントロールの平均の分布（最小, 10%, 中央, 90%, 最大）
 REAL_TEAM_MEANS = {
     "救援": (43.67, 44.46, 47.97, 50.77, 53.88),
@@ -113,17 +114,17 @@ def evaluate(frame: pd.DataFrame) -> Result:
     pitchers = frame[frame["role"] == "投手"]
     japanese = pitchers[~pitchers["is_foreign"]]
     group, hand = japanese["pitcher_role"].to_numpy(), np.where(japanese["throws"] == "左", "左", "右")
-    R = Result()
+    R = Result(SCRIPT)
     s = "コントロールの役割・左右（実在は2024〜2026年版）"
     control_hand_rows(R, s, group, hand, japanese["コントロール"], formal=True)
-    for (g, h), before in STAMINA_BEFORE.items():
+    for g, h in STAMINA_KEYS:
         v = japanese.loc[(group == g) & (hand == h), "スタミナ"].mean()
-        R.add(s, f"{g}・{h} スタミナ平均", num(v), ok_range(v, before - 0.3, before + 0.3), f"改修前{before:.2f}±0.3", "")
+        R.fixed(s, f"{g}・{h} スタミナ平均", v, num(v), id=f"{SCRIPT}.{'starter' if g == '先発' else 'relief'}.stamina.mean.{h}")
     s = "救援のスタミナ（実在は2024〜2026年版の日本人。救援スタミナ相関_改修指示.md）"
     reliever_stamina_rows(R, s, group, hand, japanese["コントロール"], japanese["スタミナ"], japanese["rating"], formal=True)
     s = "相関（参考。判定は check_fictional_balance.py の個別生成5000人）"
     ct = japanese["コントロール"]
-    R.add(s, "球速×コントロール相関", num(japanese["球速"].corr(ct), 3), True, "−0.40〜−0.15", "−0.274", info=True)
+    R.add(s, "球速×コントロール相関", num(japanese["球速"].corr(ct), 3), ok_range(japanese["球速"].corr(ct)), "−0.40〜−0.15", "−0.274", info=True)
     s = "球団ごとの救援の平均（参考。外国人を含む）"
     means = pitchers[pitchers["pitcher_role"] == "救援"].groupby("team_key")["コントロール"].mean()
     real = REAL_TEAM_MEANS["救援"]
@@ -133,23 +134,46 @@ def evaluate(frame: pd.DataFrame) -> Result:
     return R
 
 
+def real_japanese_pitchers() -> pd.DataFrame | None:
+    """実在（2024〜2026年版の日本人投手1,126人）。evaluate に渡せる形。選手データ（local_data）が無いときは None。"""
+    from generator import real_data
+
+    players = real_data.load_real_players((2024, 2025, 2026))
+    if players is None:
+        return None
+    players = players[(players["role"] == "投手") & (~players["is_foreign"])]
+    return players.reset_index(drop=True)
+
+
+def grade_all(frame: pd.DataFrame, boot: int, quick: bool = False) -> list[checklib.Check]:
+    """球団を単位に生成側の誤差を、実在の投手を単位に実在側の誤差を求めて合否を付ける。"""
+    evaluate_checks = lambda f: evaluate(f).checks  # noqa: E731
+    checks = evaluate_checks(frame)
+    se_gen = checklib.bootstrap_se(evaluate_checks, frame, lambda f, rng: checklib.resample_frame(f, rng, "team_key"), n=boot) if boot else {}
+    real = real_japanese_pitchers() if boot else None
+    se_real = checklib.bootstrap_se(evaluate_checks, real, checklib.resample_frame, n=boot) if real is not None else {}
+    return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="架空球団用（日本人）投手のコントロールの役割・左右を、球団生成で判定します。")
     parser.add_argument("--teams", type=int, default=300, help="球団数（正式な判定は300）")
     parser.add_argument("--start", type=int, default=1, help="最初の球団seed")
     parser.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    checklib.add_common_args(parser)
     args = parser.parse_args()
 
     frame = collect(args.teams, args.start, args.workers)
     pitchers = frame[frame["role"] == "投手"]
     japanese = pitchers[~pitchers["is_foreign"]]
     title = f"球団生成 {args.teams}球団（seed {args.start}〜{args.start + args.teams - 1}） 日本人投手 {len(japanese)}人"
-    ng = evaluate(frame).show(title)
+    graded = grade_all(frame, args.boot, args.quick)
+    checklib.print_checks(graded, title)
     print("\n[球団ごとのコントロールの平均の分布（参考。外国人を含む。改修前は seed 1〜300）]")
     print(team_mean_table(pitchers).to_string(index=False))
     print("\n[年齢帯×役割のコントロールの平均（参考。日本人。実在は2026年版のみ）]")
     print(age_band_table(japanese).to_string(index=False))
-    sys.exit(1 if ng else 0)
+    sys.exit(checklib.finish(SCRIPT, graded, args))
 
 
 if __name__ == "__main__":

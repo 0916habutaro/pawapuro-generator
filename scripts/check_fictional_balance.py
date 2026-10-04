@@ -3,7 +3,7 @@
 架空球団 生成バランス チェッカー
 
 使い方:
-    python check_fictional_balance.py <生成CSV> [<生成CSV> ...] [--team]
+    python check_fictional_balance.py <生成CSV> [<生成CSV> ...] [--team] [--boot 200] [--update-baselines --reason 理由] [--quick]
 
 - `category=架空球団用` の行だけを対象にし、そのうち日本人（`roster_origin=domestic`）を判定する。
   外国人（foreign_import）は `check_foreign_balance.py` の担当なので、ここでは人数だけ表示する。
@@ -15,16 +15,27 @@
 - 球種数は外国人と同じ数え方（kind=breaking のみ。ストレートとストレート系第二球種は数えない）。
 - `--team` を付けると、チーム単位で生成したCSV向けに「捕手・一塁手の比率」も合否に含める。
   付けない場合は参考表示だけ（投手／野手を別々に抽出したCSVでは比率に意味がないため）。
-- 終了コード: 全項目合格なら 0、不合格があれば 1。
+- 判定の種類・誤差・合否の付け方は checklib.py（判定の整理_改修指示.md）。判定の一覧は reports/checks/check_fictional_balance.csv。
+- 終了コード: 不合格が1件でもあれば 1（要注意・受け入れ済みは 0）。
 - 正式な判定は投手・野手それぞれ 5000人（例: seed 1〜5000）で行う。1000人の結果は途中確認用。
   基準に合わせるために分布そのものを歪めないこと。
 """
+import argparse
 import json
 import re
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import checklib  # noqa: E402
+from checklib import Checks, in_range as ok_range  # noqa: E402,F401
+
+SCRIPT = "check_fictional_balance"
+# 実在の日本人の人数（2022〜2026年版の延べ。投手1878人／野手1867人）。実在側の誤差を、生成側の誤差の人数比で見積もる
+REAL_N = {"投手": 1878, "野手": 1867}
 
 # ---------------------------------------------------------------- 共通
 
@@ -49,12 +60,6 @@ def rate(mask, cond):
     return cond[mask].mean() if mask.any() else float("nan")
 
 
-def ok_range(v, lo=None, hi=None):
-    if pd.isna(v):
-        return False
-    return (lo is None or v >= lo) and (hi is None or v <= hi)
-
-
 def has_sp(sp, name):
     return sp.map(lambda l: name in l)
 
@@ -63,31 +68,58 @@ def any_rank(ranked, letter):
     return ranked.map(lambda d: any(v == letter for v in d.values()))
 
 
+# 判定の id の節の部分。表示名を直しても id は変えないため、節の表示名（先頭一致）から決まった短い名前に対応させる
+SECTION_KEYS = {
+    "投打": "batting", "能力": "ability", "球速の左右・役割": "speed_hand", "コントロールの役割・左右": "control_hand",
+    "救援のスタミナ": "reliever_stamina", "抑え・起用適性": "closer", "フォーム": "form", "変化球": "breaking",
+    "特殊能力": "special", "ランク特能": "ranked", "サブポジ": "subpos", "ポジション（チーム単位）": "position",
+    "プロ入り年齢": "entry", "相関（参考": "corr_info", "球団ごとの救援の平均": "team_mean",
+}
+
+
+def section_key(section):
+    for head, key in SECTION_KEYS.items():
+        if section.startswith(head):
+            return key
+    return re.sub(r"\W+", "_", section)
+
+
 class Result:
-    def __init__(self):
-        self.rows = []
+    """判定の集まり。`add` は従来どおり（ok に `ok_range(...)` の結果を渡すと、値と範囲を判定に使う）。
+    id は「<prefix>.<節のキー>.<項目名>」。項目名を直すときは id= で元の id を渡す。"""
 
-    def add(self, section, item, value, ok, target, real="", info=False):
-        st = "参考" if info else ("OK" if ok else "NG")
-        self.rows.append((section, item, value, st, target, real))
+    def __init__(self, prefix=SCRIPT):
+        self.prefix = prefix
+        self.checks = Checks(prefix)
 
-    def show(self, title):
-        print(f"\n===== {title} =====")
-        if not self.rows:
-            print("（対象なし）")
-            return 0
-        w = max(len(r[1]) for r in self.rows)
-        cur = None
-        for sec, item, val, st, tgt, real in self.rows:
-            if sec != cur:
-                print(f"\n[{sec}]")
-                cur = sec
-            mark = "✗ " if st == "NG" else "  "
-            print(f"{mark}{st:<4}{item.ljust(w)}  値={val:<10} 目標={tgt:<16} 実在={real}")
-        ng = sum(r[3] == "NG" for r in self.rows)
-        judged = sum(r[3] != "参考" for r in self.rows)
-        print(f"\n合計 {judged} 項目 / 不合格 {ng}")
-        return ng
+    def _id(self, section, item, id):
+        return id or f"{self.prefix}.{section_key(section)}.{item}"
+
+    def add(self, section, item, value, ok, target, real="", info=False, kind=None, id=None):
+        key = self._id(section, item, id)
+        if kind is None:
+            kind = "参考" if info else ("設計" if ("仕様" in target or item.startswith(("実在にない特能", "矛盾ペア"))) else "実在")
+        if info:
+            kind = "参考"
+        if isinstance(ok, checklib.Verdict):
+            self.checks.add(key, kind, item, ok.value, ok.low, ok.high, section=section, shown=str(value), target=target, real=str(real))
+        else:  # 値と範囲が無い（True/False だけ）。条件を満たせば 1、満たさなければ 0
+            self.checks.add(key, kind, item, 1.0 if ok else 0.0, 1.0, None, section=section, shown=str(value), target=target, real=str(real))
+
+    def fixed(self, section, item, value, shown, target_real="", default_width=0.3, id=None):
+        self.checks.fixed(self._id(section, item, id), item, value, default_width, section=section, shown=shown, real=target_real)
+
+    def extend(self, other):
+        self.checks.extend(other.checks)
+
+
+def grade_part(fn, data, boot, real_n=None, quick=False):
+    """fn(data) -> Result|Checks を評価し、データの行を再抽出した誤差で合否を付ける。"""
+    evaluate = lambda d: (lambda r: r.checks if isinstance(r, Result) else r)(fn(d))  # noqa: E731
+    checks = evaluate(data)
+    se_gen = checklib.bootstrap_se(evaluate, data, checklib.resample_frame, n=boot) if boot else {}
+    se_real = checklib.scale_se(se_gen, len(data), real_n) if real_n else {}
+    return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
 
 
 # ---------------------------------------------------------------- 生成CSV → 共通の形
@@ -149,12 +181,10 @@ SPEED_HAND_REAL = {
 }
 SPEED_HAND_QUANTILES_REAL = {"右": (148, 152, 157), "左": (145, 149, 153)}
 SPEED_JAPANESE_MEAN_REAL = 151.37
-# 改修前（seed 1〜5000）の先発のスタミナの平均。左右の球速・救援のコントロール・救援のスタミナの調整で変わっていないことの確認用。
-# （コントロールは「コントロールの役割・左右」の節で実在と比べる。救援のスタミナは `救援スタミナ相関_改修指示.md` で
-# 直したので、「救援のスタミナ」の節で実在と比べる）
-SPEED_HAND_STAMINA_BEFORE = {
-    ("先発", "右"): 57.33, ("先発", "左"): 57.54,
-}
+# 改修前（seed 1〜5000）の先発のスタミナの平均は data/config/check_baselines.json（「固定」）。左右の球速・救援のコントロール・
+# 救援のスタミナの調整で変わっていないことの確認用。（コントロールは「コントロールの役割・左右」の節で実在と比べる。
+# 救援のスタミナは `救援スタミナ相関_改修指示.md` で直したので、「救援のスタミナ」の節で実在と比べる）
+SPEED_HAND_STAMINA_KEYS = (("先発", "右"), ("先発", "左"))
 
 # 救援のスタミナ（`救援スタミナ相関_改修指示.md`）。実在は2024〜2026年版の日本人の救援投手553人（右416／左137）。
 # 正式な判定は球団生成300球団（scripts/check_pitcher_control.py）。個別生成は参考表示にし、救援の相関だけ 0.10〜0.35 を判定する。
@@ -298,13 +328,13 @@ def check_pitcher_speed_by_hand(R, d):
             R.add(s, f"{h}投手の{label}", num(q, 0), ok_range(q, real - 1, real + 1), f"{real - 1}〜{real + 1}", str(real))
     v = (sp[hand == "左"] >= 155).mean()
     R.add(s, "左投手で155以上", pct(v), ok_range(v, hi=0.06), "6%以下", "3.2%")
-    for (g, h), before in SPEED_HAND_STAMINA_BEFORE.items():
+    for g, h in SPEED_HAND_STAMINA_KEYS:
         v = d.stamina[(group == g) & (hand == h)].mean()
-        R.add(s, f"{g}・{h} スタミナ平均", num(v), ok_range(v, before - 0.3, before + 0.3), f"改修前{before:.2f}±0.3", "")
+        R.fixed(s, f"{g}・{h} スタミナ平均", v, num(v), id=f"{SCRIPT}.pitcher.speed_hand.stamina_mean.{g}_{h}")
 
 
 def check_pitchers(d):
-    R = Result()
+    R = Result(f"{SCRIPT}.pitcher")
     sp, ct, st = d.speed, d.control, d.stamina
     specials, ranked, bt = d.sp, d.ranked, d.throws_bats
     brk = d.bb.map(lambda l: [x for x in l if x.get("kind") == "breaking"])
@@ -337,7 +367,7 @@ def check_pitchers(d):
     R.add(s, "抑えの球速平均", num(v, 1), ok_range(v, 153), "153以上", "153.6（守護神）")
     v = mx[closer].mean() if closer.any() else np.nan
     R.add(s, "抑えの最大変化量平均", num(v), ok_range(v, 4.2), "4.2以上", "4.45（守護神）")
-    v = closer.mean(); R.add(s, "抑えの割合", pct(v), True, "3〜4%（目安）", "2.7%（守護神）", info=True)
+    v = closer.mean(); R.add(s, "抑えの割合", pct(v), ok_range(v), "3〜4%（目安）", "2.7%（守護神）", info=True)
     apt = d.main_apt.fillna("")
     v = (apt.str.contains("先") & apt.str.contains("中")).mean()
     R.add(s, "先発・中継ぎの両方が◎", pct(v), ok_range(v, 0.20, 0.35), "20〜35%", "28.8%")
@@ -350,9 +380,9 @@ def check_pitchers(d):
 
     s = "変化球"
     v = (right & names.map(lambda x: bool(x & LEFT_ONLY))).sum()
-    R.add(s, "右投手のスクリュー", f"{v}件", v == 0, "0件（仕様）", "0件")
+    R.add(s, "右投手のスクリュー", f"{v}件", ok_range(v, hi=0), "0件（仕様）", "0件")
     v = (left & names.map(lambda x: bool(x & RIGHT_ONLY))).sum()
-    R.add(s, "左投手のシンカー・Hシンカー", f"{v}件", v == 0, "0件（仕様）", "0件")
+    R.add(s, "左投手のシンカー・Hシンカー", f"{v}件", ok_range(v, hi=0), "0件（仕様）", "0件")
     has_chg = names.map(lambda x: bool(x & CHANGEUP))
     v = rate(right, has_chg); R.add(s, "チェンジアップ系（右投手）", pct(v), ok_range(v, hi=0.18), "18%以下", "13.6%")
     v = rate(left, has_chg); R.add(s, "チェンジアップ系（左投手）", pct(v), ok_range(v, 0.42), "42%以上", "51.3%")
@@ -383,14 +413,14 @@ F_NOT_REAL = ["人気者", "窮地○", "チームプレイ×", "ムード○", 
 
 
 def check_fielders(d, team=False):
-    R = Result()
+    R = Result(f"{SCRIPT}.fielder")
     mt, pw, rn, ar, fd, tj = d.contact, d.power, d.run_speed, d.arm_strength, d.fielding, d.trajectory
     specials, ranked, bt, pos, subs = d.sp, d.ranked, d.throws_bats, d.position, d.subs
     rank_of = lambda key: ranked.map(lambda x: x.get(key, "D"))
 
     s = "投打"
     v = (bt == "右投左打").mean(); R.add(s, "右投左打", pct(v), ok_range(v, 0.35, 0.45), "35〜45%", "40.9%")
-    v = (bt == "左投右打").sum(); R.add(s, "左投右打", f"{v}件", v == 0, "0件", "0件")
+    v = (bt == "左投右打").sum(); R.add(s, "左投右打", f"{v}件", ok_range(v, hi=0), "0件", "0件", kind="設計")
     v = bt.str.endswith("両打").mean(); R.add(s, "両打", pct(v), ok_range(v, hi=0.03), "3%以下", "1.6%")
     v = rate(pos.isin(["二塁手", "遊撃手"]), bt.str.endswith("左打"))
     R.add(s, "二塁手・遊撃手の左打ち", pct(v), ok_range(v, 0.45), "45%以上", "54%")
@@ -443,7 +473,7 @@ def check_fielders(d, team=False):
 
 
 def check_common(d):
-    R = Result()
+    R = Result(f"{SCRIPT}.common")
     s = "プロ入り年齢（2026）"
     if d.entry_route.notna().any():
         v = (d.entry_route == "その他").mean(); R.add(s, "入団経路「その他」", pct(v), ok_range(v, hi=0.02), "2%以下", "1.3%")
@@ -453,31 +483,46 @@ def check_common(d):
     return R
 
 
-def run(d, title, team=False):
-    ng = check_common(d).show(f"{title}  日本人 共通 {len(d)}人")
-    for role, fn in [("投手", check_pitchers), ("野手", lambda x: check_fielders(x, team))]:
-        x = d[d.role == role]
-        if len(x):
-            ng += fn(x.reset_index(drop=True)).show(f"{title}  日本人{role} {len(x)}人")
-    return ng
+def run(d, title, team=False, boot=checklib.DEFAULT_BOOTSTRAP, quick=False, suffix=""):
+    """共通・投手・野手の判定を評価して表示し、合否を付けた Check のリストを返す。suffix は同じ役割の CSV が複数あるときの id の区別。"""
+    graded = []
+    parts = [("共通", "共通", lambda x: check_common(x), None)]
+    parts += [(role, f"日本人{role}", fn, REAL_N[role]) for role, fn in
+              (("投手", check_pitchers), ("野手", lambda x: check_fielders(x, team)))]
+    for role, label, fn, real_n in parts:
+        x = d if role == "共通" else d[d.role == role]
+        if not len(x):
+            continue
+        x = x.reset_index(drop=True)
+        checks = grade_part(fn, x, boot, real_n, quick)
+        if suffix:
+            for check in checks:
+                check.id += suffix
+        checklib.print_checks(checks, f"{title}  {label} {len(x)}人")
+        graded += checks
+    return graded
 
 
 def main(argv):
-    team = "--team" in argv
-    paths = [a for a in argv if a != "--team"]
-    ng = 0
-    for p in paths:
+    parser = argparse.ArgumentParser(description="架空球団用の個別生成CSVを判定します。")
+    parser.add_argument("paths", nargs="+", help="生成CSV（scripts/generate_fictional_balance_sample.py で作る）")
+    parser.add_argument("--team", action="store_true", help="チーム単位で生成したCSV向けに「捕手・一塁手の比率」も合否に含める")
+    checklib.add_common_args(parser)
+    args = parser.parse_args(argv)
+    graded = []
+    for index, p in enumerate(args.paths):
         df = pd.read_csv(p, encoding="utf-8-sig")
         if "category" in df.columns:
             df = df[df.category == "架空球団用"]
         dom = df[df.roster_origin == "domestic"] if "roster_origin" in df.columns else df
         print(f"\n{p}: 架空球団用 {len(df)}人（日本人 {len(dom)}人 / 外国人 {len(df) - len(dom)}人は check_foreign_balance.py の担当）")
-        ng += run(normalize(dom), p, team)
-    sys.exit(1 if ng else 0)
+        graded += run(normalize(dom), p, args.team, args.boot, args.quick, suffix="" if index == 0 else f"#{index + 1}")
+    print("\n" + checklib.summary_line(graded))
+    sys.exit(checklib.finish(SCRIPT, graded, args))
 
 
 if __name__ == "__main__":
-    if not [a for a in sys.argv[1:] if a != "--team"]:
+    if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(2)
     main(sys.argv[1:])

@@ -3,7 +3,7 @@
 ドラフト候補 生成バランス チェッカー
 
 使い方:
-    python check_draft_balance.py <生成CSV> [<生成CSV> ...]
+    python check_draft_balance.py <生成CSV> [<生成CSV> ...] [--boot 200] [--update-baselines --reason 理由] [--quick]
 
 - CSV の category が「ドラフト候補用」の行だけを見る（category 列がなければ全行）。
 - 育成候補（player_class=育成候補）は除いて判定する（実在データは支配下指名の選手だけのため）。
@@ -13,16 +13,27 @@
   ドキュメントの目標値を変えたときは、このファイルの基準も合わせて直すこと。
 - 「実在」列は、パワプロ実在選手のプロ1年目（2022〜2026、投手167人／野手139人）の実測値。
   実在データを同じ形式に変換してこのチェッカーにかけると、全項目合格する（年齢の項目は対象外）。
-- 終了コード: 全項目合格なら 0、不合格があれば 1。
+- 判定の種類・誤差・合否の付け方は checklib.py（判定の整理_改修指示.md）。判定の一覧は reports/checks/check_draft_balance.csv。
+- 終了コード: 不合格が1件でもあれば 1（要注意・受け入れ済みは 0）。
 - 正式な判定は 5000人（例: seed 1〜5000）で行う。2000人だと経路別の人数が少なく
   境界付近の項目がまれに外れるので、途中確認用として扱う。
   基準に合わせるために分布そのものを歪めないこと。
 """
+import argparse
 import json
 import re
 import sys
+from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import checklib  # noqa: E402
+from checklib import Checks, in_range  # noqa: E402
+
+SCRIPT = "check_draft_balance"
+# 実在のプロ1年目の人数（2022〜2026、投手167人／野手139人）。実在側の誤差を、生成側の誤差の人数比で見積もる
+REAL_N = 153
 
 # ---------------------------------------------------------------- 共通
 
@@ -66,29 +77,30 @@ def tgt(lo, hi, f):
 
 
 class Result:
-    def __init__(self):
-        self.rows = []
+    """判定の集まり。id は「<prefix>.<節>.<項目名>」（節は表示名の空白を _ にしたもの。項目名を直すときは id= で元の id を渡す）。
+    「0件」の判定は設計、ほかは実在のプロ1年目に合わせる判定。"""
 
-    def add(self, section, item, value, ok, target, real=""):
-        self.rows.append((section, item, value, "OK" if ok else "NG", target, real))
+    def __init__(self, prefix=SCRIPT):
+        self.prefix = prefix
+        self.checks = Checks(prefix)
+
+    def add(self, section, item, value, v, lo, hi, target, real="", kind=None, id=None):
+        if kind is None:
+            kind = "設計" if (hi == 0 and lo is None) else "実在"
+        key = id or f"{self.prefix}.{section.replace(' ', '_')}.{item}"
+        self.checks.add(key, kind, item, in_range(v, lo, hi).value, lo, hi, section=section, shown=str(value), target=target, real=str(real))
 
     def rng(self, section, item, v, lo, hi, real="", kind="num"):
         f = pct if kind == "pct" else (lambda x: num(x, 1))
-        self.add(section, item, f(v), between(v, lo, hi), tgt(lo, hi, f), real)
+        self.add(section, item, f(v), v, lo, hi, tgt(lo, hi, f), real)
 
-    def show(self, title):
-        print(f"\n===== {title} =====")
-        w = max(len(r[1]) for r in self.rows)
-        cur = None
-        for sec, item, val, st, tg, real in self.rows:
-            if sec != cur:
-                print(f"\n[{sec}]")
-                cur = sec
-            mark = "  " if st == "OK" else "✗ "
-            print(f"{mark}{st}  {item.ljust(w)}  値={val:<9} 目標={tg:<14} 実在={real}")
-        ng = sum(r[3] == "NG" for r in self.rows)
-        print(f"\n合計 {len(self.rows)} 項目 / 不合格 {ng}")
-        return ng
+
+def grade_part(fn, data, boot, real_n=None, quick=False):
+    evaluate = lambda d: fn(d).checks  # noqa: E731
+    checks = evaluate(data)
+    se_gen = checklib.bootstrap_se(evaluate, data, checklib.resample_frame, n=boot) if boot else {}
+    se_real = checklib.scale_se(se_gen, len(data), real_n) if real_n else {}
+    return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
 
 
 def core_specials(lst):
@@ -129,7 +141,7 @@ def check_pitchers(df, R):
 
     s = "投手 変化球"
     R.rng(s, "2球種（全体）", (nb == 2).mean(), 0.25, 0.35, "28.1%", "pct")
-    R.add(s, "4球種以上", f"{(nb >= 4).sum()}件", (nb >= 4).sum() == 0, "0件", "0件")
+    R.add(s, "4球種以上", f"{(nb >= 4).sum()}件", (nb >= 4).sum(), None, 0, "0件", "0件")
     R.rng(s, "高卒 3球種", (nb[h] == 3).mean(), 0.50, 0.70, "60.9%", "pct")
     R.rng(s, "高卒 最大変化量4以上", (mx[h] >= 4).mean(), None, 0.02, "0%", "pct")
     R.rng(s, "大卒・社会人 最大変化量4以上", (mx[ds] >= 4).mean(), 0.18, 0.28, "20.3%", "pct")
@@ -245,8 +257,10 @@ def check_common(df, R):
     R.rng(s, "左投右打", (bt == "左投右打").mean(), None, 0.01, "0.3%", "pct")
     R.rng(s, "左投げのうち左打ち", (bt[left] == "左投左打").mean(), 0.95, None, "98.3%", "pct")
     R.rng(s, "両打ち（全体）", bt.str.endswith("両打").mean(), None, 0.03, "1.0%", "pct")
-    R.rng(s, "投手の左投げ", left[df.role == "投手"].mean(), 0.25, 0.33, "29.3%", "pct")
-    R.rng(s, "野手の左投げ", left[df.role == "野手"].mean(), 0.04, 0.10, "7.2%", "pct")
+    if (df.role == "投手").any():  # 片方の役割だけのCSVでは、もう片方の項目は出さない
+        R.rng(s, "投手の左投げ", left[df.role == "投手"].mean(), 0.25, 0.33, "29.3%", "pct")
+    if (df.role == "野手").any():
+        R.rng(s, "野手の左投げ", left[df.role == "野手"].mean(), 0.04, 0.10, "7.2%", "pct")
     if "age" in df.columns:
         for r, lo, hi in [("高卒", 18.0, 18.2), ("大卒", 21.7, 21.9), ("社会人", 23.8, 24.2)]:
             R.rng(s, f"{r} 年齢平均", df.age[df.entry_route == r].mean(), lo, hi, "（1年目は+0.7〜0.9）")
@@ -255,9 +269,27 @@ def check_common(df, R):
 # ---------------------------------------------------------------- main
 
 
-def main(paths):
-    ng = 0
-    for p in paths:
+def evaluate(df):
+    """ドラフト候補用（育成候補を除く）のデータフレーム全体の判定。"""
+    R = Result()
+    P = df[df.role == "投手"].reset_index(drop=True)
+    F = df[df.role == "野手"].reset_index(drop=True)
+    if len(P):
+        check_pitchers(P, R)
+    if len(F):
+        check_fielders(F, R)
+    check_spread(P, F, R)
+    check_common(df, R)
+    return R
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description="ドラフト候補用の個別生成CSVを判定します。")
+    parser.add_argument("paths", nargs="+", help="生成CSV（scripts/generate_draft_balance_sample.py で作る）")
+    checklib.add_common_args(parser)
+    args = parser.parse_args(argv)
+    graded = []
+    for index, p in enumerate(args.paths):
         df = pd.read_csv(p, encoding="utf-8-sig")
         if "category" in df.columns:
             df = df[df.category == "ドラフト候補用"]
@@ -265,21 +297,19 @@ def main(paths):
         if "player_class" in df.columns:
             df = df[df.player_class != "育成候補"]
         df = df.reset_index(drop=True)
-        R = Result()
-        P = df[df.role == "投手"].reset_index(drop=True)
-        F = df[df.role == "野手"].reset_index(drop=True)
-        if len(P):
-            check_pitchers(P, R)
-        if len(F):
-            check_fielders(F, R)
-        check_spread(P, F, R)
-        check_common(df, R)
+        P = df[df.role == "投手"]
+        F = df[df.role == "野手"]
+        checks = grade_part(evaluate, df, args.boot, REAL_N, args.quick)
+        if index:  # 複数のCSVを渡したときの id の区別
+            for check in checks:
+                check.id += f"#{index + 1}"
+        checklib.print_checks(checks, f"{p}  {n_all}人中 育成候補を除く{len(df)}人（投手{len(P)}／野手{len(F)}）")
+        graded += checks
         cnt = df.groupby(["role", "entry_route"]).size()
         small = [f"{k[0]}{k[1]}={v}" for k, v in cnt.items() if k[1] in MAIN_ROUTES and v < 200]
-        ng += R.show(f"{p}  {n_all}人中 育成候補を除く{len(df)}人（投手{len(P)}／野手{len(F)}）")
         if small:
             print("注意: 経路別の人数が200人未満の区分があります（揺れで境界付近が外れやすい）: " + ", ".join(small))
-    sys.exit(1 if ng else 0)
+    sys.exit(checklib.finish(SCRIPT, graded, args))
 
 
 if __name__ == "__main__":
