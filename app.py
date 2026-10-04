@@ -27,18 +27,25 @@ from generator import team_analysis as ta
 from generator.foreign_names import generate_foreign_profile, name_group_display_nationalities, nation_name_orders
 from generator.rating import player_rating, ranked_points
 from generator.team import (
+    CLASS_TARGET_NAMESPACE,
     COMPOSITION_ITEMS,
     PITCHER_ROLE_ORDER,
+    PLAYER_CLASSES,
     POSITION_COLUMNS,
+    TYPE_TARGET_NAMESPACE,
     UNIFORM_NUMBERS,
     TeamProfile,
     age_band_of,
     age_band_targets,
     assign_uniform_numbers,
+    assignment_feasible,
     average_age,
     build_team_profile,
     build_team_targets,
+    class_band_shares,
+    class_targets,
     real_composition_range,
+    round_expected_counts,
     team_composition_counts,
     team_rating_metrics,
     uniform_number_sort_key,
@@ -1044,6 +1051,11 @@ def multiply_weight_items(items: list[tuple[str, int | float]], multipliers: dic
 
 
 def choose_player_class(rng: random.Random, category: str, age: int, npb_years: int = 0, foreign_route: str = "", multipliers: dict[str, float] | None = None) -> str:
+    return weighted_choice(rng, player_class_weight_items(category, age, npb_years, foreign_route, multipliers))
+
+
+def player_class_weight_items(category: str, age: int, npb_years: int = 0, foreign_route: str = "", multipliers: dict[str, float] | None = None) -> list[tuple[str, int]]:
+    """選手格の重み（年齢による制限・球団生成モードの倍率を反映済み）。球団生成の選手格の目標人数の計算にも使う。"""
     items = list(PLAYER_CLASS_WEIGHTS.get(category, []))
     adjusted: list[tuple[str, int]] = []
     for label, weight in items:
@@ -1079,7 +1091,7 @@ def choose_player_class(rng: random.Random, category: str, age: int, npb_years: 
     if multipliers:
         # 球団生成モードの倍率。重みが小さい（スター級 3）ので、丸めで倍率が消えないよう100倍してからかける
         adjusted = multiply_weight_items([(label, weight * 100) for label, weight in adjusted], multipliers)
-    return weighted_choice(rng, positive_weight_items(adjusted))
+    return positive_weight_items(adjusted)
 
 
 def choose_development_stage(rng: random.Random, category: str, age: int, player_class: str, draft_source_type: str = "") -> str:
@@ -1107,6 +1119,11 @@ def choose_development_stage(rng: random.Random, category: str, age: int, player
 
 
 def choose_archetype(rng: random.Random, role: str, category: str, age: int | None = None, player_class: str = "", npb_years: int = 0, foreign_route: str = "", multipliers: dict[str, float] | None = None) -> str:
+    return weighted_choice(rng, archetype_weight_items(role, category, age, npb_years, foreign_route, multipliers))
+
+
+def archetype_weight_items(role: str, category: str, age: int | None = None, npb_years: int = 0, foreign_route: str = "", multipliers: dict[str, float] | None = None) -> list[tuple[str, int]]:
+    """型の重み（年齢・外国人の経歴・球団生成モードの倍率を反映済み）。球団生成の型の目標人数の計算にも使う。"""
     weights = list(FOREIGN_ARCHETYPE_WEIGHTS[role] if category == "助っ人外国人用" else ARCHETYPE_WEIGHTS[role])
     if category == "助っ人外国人用" and npb_years:
         weights = multiply_weight_items(weights, FOREIGN_ARCHETYPE_TENURE_MULTIPLIERS[role][foreign_tenure_band(npb_years)])
@@ -1117,7 +1134,7 @@ def choose_archetype(rng: random.Random, role: str, category: str, age: int | No
         weights = [(label, max(1, round(weight * veteran_multipliers[label]))) for label, weight in weights]
     if multipliers:
         weights = multiply_weight_items([(label, weight * 100) for label, weight in weights], multipliers)
-    return weighted_choice(rng, weights)
+    return weights
 
 
 def pitcher_acquisition_candidates(aptitudes: dict[str, str], batting_throwing: str) -> list[str]:
@@ -7924,6 +7941,9 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     team_profile: 球団生成モードの戦力・カラー。架空球団用の国内選手にだけ、年齢・選手格・型の重みの倍率として効く。
     accept: 球団生成モードの棄却サンプリング用。役割・ポジション・投打が決まった時点で呼び、False ならその場で None を返す
     （条件に合わない選手の能力を作らずに済ませるため。合格した選手の結果は accept なしと同じ）。
+    架空球団用・ドラフト候補用では、その前に年齢・選手格・出身区分が決まった時点でも1回呼ぶ（info の stage が "early"。
+    ポジション・投打はまだ無い）。外国人の名前づくりは重いので、条件に合わない候補をその前に落とすため。
+    型・ポジションスタイルが決まった時点でももう1回呼ぶ（stage が "type"）。
     どちらも None のときは乱数の消費順を含めて従来と完全に同じ結果になる。
     """
     seed = seed if seed is not None else random.SystemRandom().randrange(SEED_MAX)
@@ -7957,6 +7977,8 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         )
         nationality = choose_nationality(rng, category)
         roster_origin = determine_roster_origin(category, nationality, seed)
+        if accept is not None and not accept({"stage": "early", "role": role, "age": age, "player_class": player_class, "roster_origin": roster_origin}):
+            return None
         foreign_profile = None
         model_category = category
         if roster_origin == "foreign_import":
@@ -7992,7 +8014,7 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
     batting_throwing = generate_batting_throwing(rng, role, position, model_category)
     if accept is not None and not accept({
         "role": role, "position": position, "batting_throwing": batting_throwing, "age": age,
-        "roster_origin": roster_context.get("roster_origin"), **pitcher_aptitudes,
+        "roster_origin": roster_context.get("roster_origin"), "player_class": player_class, **pitcher_aptitudes,
     }):
         return None
     foreign_npby = int(roster_context.get("npb_years", 0)) if roster_context.get("roster_origin") == "foreign_import" else 0
@@ -8008,6 +8030,11 @@ def generate_player(role: str, category: str, master: MasterData, seed: int | No
         if archetype == "スタミナ":
             archetype = "総合"
     position_style = choose_position_style(rng, role, position, archetype)
+    if accept is not None and not accept({
+        "stage": "type", "role": role, "position": position, "age": age, "player_class": player_class,
+        "roster_origin": roster_context.get("roster_origin"), "archetype": archetype, "position_style": position_style,
+    }):
+        return None
     weakness_profile = choose_weakness_profile(rng, model_category, role, player_class, foreign_npby)
     growth_type = choose_growth_type(
         category=model_category, age=age, player_class=player_class, development_stage=development_stage,
@@ -8372,8 +8399,14 @@ def advance_foreign_import_roster_year(
 # ---------------------------------------------------------------------------
 TEAM_MODE_DOMESTIC_NAMESPACE = "team_mode_domestic_players_v1"
 TEAM_MODE_AGE_BAND_NAMESPACE = "team_mode_age_band_v1"
-# 条件をゆるめる段階（0: すべての条件、1: 左右をゆるめる、2: 年齢帯もゆるめる、3: 役割・ポジションもゆるめる）
-TEAM_MODE_RELAX_LABELS = {1: "左右の条件", 2: "年齢帯の条件", 3: "役割・ポジションの条件"}
+# 選手格・年齢帯・型の残り人数に合わせて候補を間引く乱数（下の slot_accepts を参照）
+TEAM_MODE_CLASS_ACCEPT_NAMESPACE = "team_mode_class_accept_v1"
+# 条件をゆるめる段階（0: すべての条件、1: 型をゆるめる、2: 選手格も、3: 左右も、4: 年齢帯も、5: 役割・ポジションもゆるめる）
+TEAM_MODE_RELAX_LABELS = {1: "型の条件", 2: "選手格の条件", 3: "左右の条件", 4: "年齢帯の条件", 5: "役割・ポジションの条件"}
+TEAM_MODE_RELAX_TYPE, TEAM_MODE_RELAX_CLASS, TEAM_MODE_RELAX_HAND, TEAM_MODE_RELAX_AGE, TEAM_MODE_RELAX_ROLE = 1, 2, 3, 4, 5
+# 選手格の先読み: 残りの選手格を残りの年齢帯に割り当てられる見込みが無くなる候補は採らない。
+# 年齢帯の中でその選手格になる確率がこれより低い組み合わせ（若い年齢帯のスター級など）は、割り当て先に数えない
+TEAM_MODE_CLASS_BAND_MIN_SHARE = 0.02
 
 
 @dataclass
@@ -8418,6 +8451,55 @@ def subtract_foreign_from_targets(targets: dict[str, Any], foreign_players: list
     return pitcher_slots, left, fielder_slots
 
 
+def team_class_weights_by_age(profile: TeamProfile, role: str) -> dict[int, list[tuple[str, int]]]:
+    """球団の年齢ごとの選手格の重み（choose_player_class と同じ重み）。"""
+    multipliers = profile.player_class_multipliers.get(role)
+    return {age: player_class_weight_items("架空球団用", age, multipliers=multipliers) for age, _weight in FICTIONAL_ROSTER_AGE_WEIGHTS}
+
+
+def team_type_weights_by_age(profile: TeamProfile, role: str) -> dict[int, list[tuple[str, int]]]:
+    """球団の年齢ごとの型の重み（choose_archetype と同じ重み）。"""
+    multipliers = profile.archetype_multipliers.get(role)
+    return {age: archetype_weight_items(role, "架空球団用", age, multipliers=multipliers) for age, _weight in FICTIONAL_ROSTER_AGE_WEIGHTS}
+
+
+def team_expected_counts(profile: TeamProfile, items_by_age: dict[int, list[tuple[str, int]]], count: int, age_targets: dict[str, int]) -> dict[str, float]:
+    """国内選手の区分（選手格・型）ごとの人数の期待値。
+
+    年齢帯の目標人数の割合で年齢帯を選び、年齢帯の中は年齢の重み（若手育成・ベテラン重視の傾きを含む）、
+    区分は items_by_age の重み（年齢による制限・戦力レベル・カラーの倍率を含む）で選んだときの値。
+    """
+    expected: dict[str, float] = {}
+    total = sum(max(0, value) for value in age_targets.values())
+    if count <= 0 or total <= 0:
+        return expected
+    age_items = profile.age_weight_items(FICTIONAL_ROSTER_AGE_WEIGHTS)
+    for band, target in age_targets.items():
+        items = [(age, weight) for age, weight in age_items if age_band_of(age) == band and weight > 0]
+        band_weight = sum(weight for _age, weight in items)
+        if target <= 0 or band_weight <= 0:
+            continue
+        for age, weight in items:
+            labels = items_by_age[age]
+            label_total = sum(value for _label, value in labels)
+            for label, value in labels:
+                expected[label] = expected.get(label, 0.0) + count * (target / total) * (weight / band_weight) * (value / label_total)
+    return expected
+
+
+def team_class_expected(profile: TeamProfile, role: str, count: int, age_targets: dict[str, int]) -> dict[str, float]:
+    """国内選手の選手格ごとの人数の期待値（team_expected_counts を参照）。"""
+    expected = team_expected_counts(profile, team_class_weights_by_age(profile, role), count, age_targets)
+    return {label: expected.get(label, 0.0) for label in PLAYER_CLASSES}
+
+
+def team_type_key(role: str, position: Any) -> str | None:
+    """型の目標人数の区分。野手は全員、投手は先発だけ（先発の制球型・スタミナ型などの人数をそろえる）。"""
+    if role == "野手":
+        return "野手"
+    return "先発" if position == "先発" else None
+
+
 def generate_team(team_seed: int | None = None, team_name: str = "", master: MasterData | None = None, profile: TeamProfile | None = None) -> dict[str, Any]:
     """実在NPB球団に近い人数構成の1球団分（支配下ロスター）を作る。
 
@@ -8442,38 +8524,131 @@ def generate_team(team_seed: int | None = None, team_name: str = "", master: Mas
         FICTIONAL_ROSTER_AGE_WEIGHTS, profile.age_weight_items(FICTIONAL_ROSTER_AGE_WEIGHTS), age_rng,
     )
 
-    # 3. 国内の選手を、作りにくい条件から順に棄却サンプリングで作る
+    # 3. 国内の選手格の目標人数（投手・野手別）。期待値は戦力レベル・カラーの倍率と年齢帯の目標人数から計算する
+    role_counts = {"投手": sum(pitcher_slots.values()), "野手": sum(fielder_slots.values())}
+    class_weights = {role: team_class_weights_by_age(profile, role) for role in role_counts}
+    class_goal = class_targets(
+        {role: team_class_expected(profile, role, count, age_targets) for role, count in role_counts.items()},
+        role_counts, make_sub_rng(team_seed, CLASS_TARGET_NAMESPACE),
+    )
+    age_weights = [(age, weight) for age, weight in profile.age_weight_items(FICTIONAL_ROSTER_AGE_WEIGHTS) if weight > 0]
+    band_shares = {role: class_band_shares(age_weights, class_weights[role]) for role in role_counts}
+    # 先読みで使う（選手格 → 入れてよい年齢帯）。likely は確率の低い組み合わせを除いたもの、possible は重みが正のもの全部
+    likely_cells = {(role, label): {band for band, values in band_shares[role].items() if values.get(label, 0.0) >= TEAM_MODE_CLASS_BAND_MIN_SHARE}
+                    for role in role_counts for label in PLAYER_CLASSES}
+    possible_cells = {(role, label): {band for band, values in band_shares[role].items() if values.get(label, 0.0) > 0}
+                      for role in role_counts for label in PLAYER_CLASSES}
+    # 候補の自然な出やすさ（年齢帯・選手格）
+    age_weight_total = sum(weight for _age, weight in age_weights)
+    natural_band = {band: sum(weight for age, weight in age_weights if age_band_of(age) == band) / age_weight_total for band in age_targets}
+    natural_class = {role: {label: sum(natural_band[band] * band_shares[role].get(band, {}).get(label, 0.0) for band in natural_band) for label in PLAYER_CLASSES}
+                     for role in role_counts}
+    # 型の目標人数（野手は全員の archetype、投手は先発の archetype ＝ 先発のポジションスタイル）
+    type_counts = {"野手": role_counts["野手"], "先発": pitcher_slots["先発"]}
+    type_expected = {
+        key: team_expected_counts(profile, team_type_weights_by_age(profile, "野手" if key == "野手" else "投手"), count, age_targets)
+        for key, count in type_counts.items()
+    }
+    type_rng = make_sub_rng(team_seed, TYPE_TARGET_NAMESPACE)
+    type_goal = {key: round_expected_counts(type_expected[key], type_counts[key], type_rng) for key in type_counts}
+    natural_type = {key: {label: value / sum(values.values()) for label, value in values.items()} if values else {} for key, values in type_expected.items()}
+    accept_rng = make_sub_rng(team_seed, TEAM_MODE_CLASS_ACCEPT_NAMESPACE)
+
+    # 4. 国内の選手を、作りにくい条件から順に棄却サンプリングで作る
     slots = [TeamSlot("野手", position) for position in POSITIONS["野手"] for _ in range(fielder_slots[position])]
     slots += [TeamSlot("投手", group) for group in ("先発", "救援") for _ in range(pitcher_slots[group])]
     seed_rng = make_sub_rng(team_seed, TEAM_MODE_DOMESTIC_NAMESPACE)
     age_remaining = dict(age_targets)
+    class_remaining = {role: dict(values) for role, values in class_goal.items()}
+    type_remaining = {key: dict(values) for key, values in type_goal.items()}
     left_remaining = left_target
     pitchers_remaining = sum(pitcher_slots.values())
     relaxed = {level: 0 for level in TEAM_MODE_RELAX_LABELS}
     domestic_players: list[dict[str, Any]] = []
+    lookahead: dict[str, Any] = {"cells": None}
 
-    def slot_accepts(info: dict[str, Any], slot: TeamSlot, level: int) -> bool:
+    def class_demands() -> dict[tuple[str, str], int]:
+        return {(role, label): count for role, values in class_remaining.items() for label, count in values.items()}
+
+    def remaining_ratio(remaining: dict[str, int], natural: dict[str, float], key: str) -> float:
+        """残り人数 ÷ 自然な出やすさ を、残っている区分の中の最大で割った値（0〜1）。"""
+        ratios = {name: count / natural[name] for name, count in remaining.items() if count > 0 and natural.get(name, 0.0) > 0}
+        return ratios.get(key, 0.0) / max(ratios.values()) if ratios else 1.0
+
+    def type_accepts(info: dict[str, Any], slot: TeamSlot, level: int, thin: bool) -> bool:
+        key = team_type_key(slot.role, slot.group)
+        if level >= TEAM_MODE_RELAX_TYPE or key is None:
+            return True
+        archetype = str(info.get("archetype", ""))
+        if type_remaining[key].get(archetype, 0) <= 0:
+            return False
+        # 選手格と同じく、残り人数 ÷ 出やすさ に比例する確率で採る
+        return not thin or accept_rng.random() < remaining_ratio(type_remaining[key], natural_type[key], archetype)
+
+    def slot_accepts(info: dict[str, Any], slot: TeamSlot, level: int, final: bool = False) -> bool:
+        """generate_player から3回呼ばれる（年齢・選手格が決まった時点の early、ポジション・投打が決まった時点、
+        型が決まった時点の type）。選手格の先読みと間引きは early、型の間引きは type のときだけ行う。
+        final は完成した選手での確かめ直し（乱数は引かない）。"""
+        stage = info.get("stage")
+        if stage == "type":
+            return type_accepts(info, slot, level, thin=True)
+        early = stage == "early"
         if info.get("roster_origin") != "domestic" or info.get("role") != slot.role:
             return False
-        if level < 3:
+        if level < TEAM_MODE_RELAX_ROLE and not early:
             group = team_pitcher_group(info.get("position")) if slot.role == "投手" else info.get("position")
             if group != slot.group:
                 return False
-        if level < 2 and age_remaining.get(age_band_of(int(info.get("age") or 0)), 0) <= 0:
+        if level < TEAM_MODE_RELAX_AGE and age_remaining.get(age_band_of(int(info.get("age") or 0)), 0) <= 0:
             return False
-        if level < 1 and slot.role == "投手":
+        if level < TEAM_MODE_RELAX_HAND and slot.role == "投手" and not early:
             is_left = str(info.get("batting_throwing", "")).startswith("左投")
             # 残りの左投手枠が残りの投手枠と同じなら左投げに、左投手が目標に達したら右投げに限定する
             if left_remaining >= pitchers_remaining and not is_left:
                 return False
             if left_remaining <= 0 and is_left:
                 return False
+        if level < TEAM_MODE_RELAX_CLASS:
+            player_class = str(info.get("player_class", ""))
+            if class_remaining[slot.role].get(player_class, 0) <= 0:
+                return False
+            if early and lookahead["cells"] is not None:
+                demands = class_demands()
+                demands[(slot.role, player_class)] -= 1
+                capacities = dict(age_remaining)
+                band = age_band_of(int(info.get("age") or 0))
+                capacities[band] = capacities.get(band, 0) - 1
+                if not assignment_feasible(demands, capacities, lookahead["cells"]):
+                    return False
+            if early:
+                # 自然な出やすさのままだと、出にくい選手格（スター級など）・年齢帯（〜22歳など）が最後まで残り、
+                # 最後の数人の抽選が長くなる。残り人数 ÷ 出やすさ に比例する確率で採り、残りの目標から順に引くのと同じにする
+                band = age_band_of(int(info.get("age") or 0))
+                rate = remaining_ratio(class_remaining[slot.role], natural_class[slot.role], player_class) * remaining_ratio(age_remaining, natural_band, band)
+                if accept_rng.random() >= rate:
+                    return False
+        if final and not type_accepts(info, slot, level, thin=False):
+            return False
         return True
+
+    def class_possible(role: str) -> bool:
+        """残りの年齢帯と残りの選手格の組み合わせが、重みの上で作れるか（作れない組み合わせで抽選を空回りさせないため）。"""
+        open_classes = {label for label, count in class_remaining[role].items() if count > 0}
+        return any(
+            label in open_classes
+            for age, _weight in age_weights if age_remaining.get(age_band_of(age), 0) > 0
+            for label, _value in class_weights[role][age]
+        )
 
     for slot in slots:
         chosen = None
         chosen_level = 0
-        for level in range(4):
+        type_key = team_type_key(slot.role, slot.group)
+        first_level = 0 if type_key is None or any(count > 0 for count in type_remaining[type_key].values()) else TEAM_MODE_RELAX_TYPE
+        first_level = first_level if class_possible(slot.role) else TEAM_MODE_RELAX_CLASS
+        # 今の時点で割り当てられる見込みがあるときだけ先読みする（確率の低い組み合わせを除いて → 重みが正の組み合わせ全部で）
+        lookahead["cells"] = next((cells for cells in (likely_cells, possible_cells) if assignment_feasible(class_demands(), age_remaining, cells)), None)
+        for level in range(first_level, TEAM_MODE_RELAX_ROLE + 1):
             for _attempt in range(TEAM_ROSTER_DOMESTIC_MAX_ATTEMPTS):
                 candidate = generate_player(
                     slot.role, "架空球団用", master,
@@ -8485,7 +8660,7 @@ def generate_team(team_seed: int | None = None, team_name: str = "", master: Mas
                 if candidate is None or str(candidate["name"]) in used_names:
                     continue
                 # 能力の調整後にポジションなどが変わっていないか、完成した選手でも確かめる
-                if not slot_accepts(candidate, slot, level):
+                if not slot_accepts(candidate, slot, level, final=True):
                     continue
                 chosen, chosen_level = candidate, level
                 break
@@ -8498,6 +8673,12 @@ def generate_team(team_seed: int | None = None, team_name: str = "", master: Mas
         used_names.add(str(chosen["name"]))
         band = age_band_of(int(chosen.get("age") or 0))
         age_remaining[band] = age_remaining.get(band, 0) - 1
+        player_class = str(chosen.get("player_class", ""))
+        class_remaining[slot.role][player_class] = class_remaining[slot.role].get(player_class, 0) - 1
+        chosen_type_key = team_type_key(slot.role, chosen.get("position"))
+        if chosen_type_key is not None:
+            archetype = str(chosen.get("archetype", ""))
+            type_remaining[chosen_type_key][archetype] = type_remaining[chosen_type_key].get(archetype, 0) - 1
         if slot.role == "投手":
             pitchers_remaining -= 1
             if str(chosen.get("batting_throwing", "")).startswith("左投"):
@@ -8537,6 +8718,9 @@ def generate_team(team_seed: int | None = None, team_name: str = "", master: Mas
         "targets": effective_targets,
         "actual": team_composition_counts(players),
         "retired_numbers": retired_numbers,
+        # 国内選手の選手格の目標人数（役割 → 選手格 → 人数）と型の目標人数（野手・先発 → 型 → 人数）
+        "class_targets": class_goal,
+        "type_targets": type_goal,
         "warnings": warnings,
         "relaxed": {TEAM_MODE_RELAX_LABELS[level]: count for level, count in relaxed.items()},
         "elapsed_seconds": round(time.perf_counter() - started, 3),

@@ -47,8 +47,13 @@ REAL_PLAYERS_DIR = APP_DIR / "reports" / "real_powerpro_players_12teams"
 BASE_SEED = 20261001
 STRENGTH_BASE_SEED = 30000000
 COLOR_BASE_SEED = 40000000
-# 投手指標と野手指標の相関の目標。実在12球団は0.37（12球団だけでは誤差が大きい）
-CORRELATION_RANGE = (0.25, 0.60)
+# 投手指標と野手指標の相関の目標。実在は 2026年版12球団 0.37、2024〜2026年版36球団 0.21、2022〜2026年版60球団 0.27。
+# 以前は12球団の値から 0.25〜0.60 にしていた。球団ごとの散らばり_改修指示.md で戦力レベルの倍率を弱めると
+# 共通の戦力指数の効きが小さくなり相関が下がるため、36・60球団の値を含む 0.10〜0.45 にした
+CORRELATION_RANGE = (0.10, 0.45)
+# (e) の「強豪の中央値 > 中位の〇%点」。総合力・全員平均は上位25%（75%点）のまま、投手力・野手力は60%点。
+# 球団ごとの散らばりを実在に合わせると、投手・野手の上位の平均は選手ごとのばらつきが大きく、強豪と中位の差が埋もれやすいため
+STRENGTH_E_MID_QUANTILE = {"metric_pitcher_top": 0.60, "metric_fielder_top": 0.60}
 COLOR_CHECKS = {
     "投手王国": [("pitcher_top_pct", 4.0, 10.0, "投手の査定の上位の平均（%）")],
     "強力打線": [("power", 2.0, 5.0, "野手のパワーの平均"), ("contact_power", 3.0, 7.0, "ミート＋パワー")],
@@ -159,6 +164,259 @@ def run_jobs(jobs: list[tuple[int, dict[str, Any] | None]], workers: int, label:
 
 
 # ---------------------------------------------------------------------------
+# 球団ごとの散らばり（球団ごとの散らばり_改修指示.md §3-1）
+# ---------------------------------------------------------------------------
+SPREAD_BASE_SEED = 1
+SPREAD_SEASONS = (2024, 2025, 2026)
+# (表示名, 軸, グループ, 指標)。指標の計算は generator/team_analysis.py の関数を使う（外国人を含む）
+SPREAD_RATING_ITEMS = (
+    ("総合力", "主要指標", "球団", "総合力"),
+    ("投手力", "主要指標", "球団", "投手力"),
+    ("野手力", "主要指標", "球団", "野手力"),
+    ("全員平均", "主要指標", "球団", "全員平均"),
+    ("投手の査定の平均", "投手/野手", "投手", "査定_平均"),
+    ("野手の査定の平均", "投手/野手", "野手", "査定_平均"),
+)
+SPREAD_ABILITY_ITEMS = (
+    *((f"{group}の{metric}", "投手役割", group, metric) for group in ("先発", "救援") for metric in ("球速", "コントロール", "スタミナ")),
+    *((f"野手の{metric}", "投手/野手", "野手", metric) for metric in ("弾道", "ミート", "パワー", "走力", "肩力", "守備力", "捕球")),
+)
+SPREAD_ITEMS = SPREAD_RATING_ITEMS + SPREAD_ABILITY_ITEMS
+# 合格の範囲
+SPREAD_RATING_SD_RATIO = (0.85, 1.20)
+SPREAD_RATING_TAIL_SD = 0.5
+SPREAD_ABILITY_SD_RATIO_MAX = 1.25
+SPREAD_TOP28_MEDIAN_RATE = 0.02
+SPREAD_RELIEVER_CONTROL_P90_MARGIN = 1.0
+# 能力の SD比の判定から除くチームカラー（その能力を動かすカラー。メイン・サブどちらでも除く）。
+# 年齢帯の判定で若手育成・ベテラン重視を除くのと同じ扱い。カラーの目安（機動力で走力+3以上など）を満たすと、
+# その分だけ球団ごとの散らばりが実在より大きくなるため（散らばりの表には除く前の値も出す）
+SPREAD_COLOR_EXCLUSIONS: dict[str, tuple[str, ...]] = {
+    "機動力": ("野手の走力",),
+    "守備重視": ("野手の守備力", "野手の肩力"),
+    "強力打線": ("野手のミート", "野手のパワー"),
+    "投手王国": tuple(f"{group}の{metric}" for group in ("先発", "救援") for metric in ("球速", "コントロール", "スタミナ")),
+}
+
+
+def spread_excluded_colors(label: str) -> set[str]:
+    return {color for color, labels in SPREAD_COLOR_EXCLUSIONS.items() if label in labels}
+# 選手格の人数の表に出す選手格（国内選手）
+SPREAD_CLASS_ROWS = (("投手", "スター級"), ("投手", "一軍主力級"), ("投手", "一軍控え級"), ("投手", "二軍級"), ("投手", "若手素材型"), ("投手", "ベテラン型"),
+                     ("野手", "スター級"), ("野手", "一軍主力級"), ("野手", "一軍控え級"), ("野手", "二軍級"), ("野手", "若手素材型"), ("野手", "ベテラン型"))
+# 改修前・途中の段階の値（同じ seed 1〜300 で計測した値）。各項目は (10%, 中央, 90%, SD)。
+# 表の「改修前」「ステップ1後」などの列に出す。最終の列は、この検証の実行結果。
+SPREAD_HISTORY: dict[str, dict[str, tuple[float, float, float, float]]] = {
+    "改修前": {
+        "総合力": (313.67, 330.77, 344.86, 12.52),
+        "投手力": (327.69, 346.42, 365.25, 14.86),
+        "野手力": (283.27, 304.93, 325.02, 15.69),
+        "全員平均": (259.64, 273.65, 286.2, 10.42),
+        "投手の査定の平均": (273.0, 291.66, 311.67, 14.42),
+        "野手の査定の平均": (238.77, 254.09, 268.83, 11.99),
+        "先発の球速": (149.59, 151.13, 152.63, 1.14),
+        "先発のコントロール": (49.73, 55.28, 60.07, 3.94),
+        "先発のスタミナ": (54.53, 58.43, 62.11, 2.9),
+        "救援の球速": (151.27, 152.64, 154.0, 1.12),
+        "救援のコントロール": (43.73, 48.16, 52.44, 3.19),
+        "救援のスタミナ": (44.65, 47.9, 50.92, 2.37),
+        "野手の弾道": (2.55, 2.69, 2.86, 0.12),
+        "野手のミート": (37.35, 40.22, 43.2, 2.17),
+        "野手のパワー": (51.16, 54.37, 57.31, 2.35),
+        "野手の走力": (60.06, 63.34, 68.38, 3.07),
+        "野手の肩力": (63.97, 66.71, 69.01, 1.93),
+        "野手の守備力": (48.44, 51.41, 55.0, 2.54),
+        "野手の捕球": (44.72, 48.06, 51.37, 2.48),
+    },
+    "ステップ1後": {
+        "総合力": (314.24, 330.36, 346.93, 12.77),
+        "投手力": (330.22, 346.92, 365.41, 13.9),
+        "野手力": (282.93, 302.47, 320.67, 14.96),
+        "全員平均": (259.8, 273.34, 286.25, 10.35),
+        "投手の査定の平均": (276.91, 291.83, 312.54, 13.69),
+        "野手の査定の平均": (237.95, 251.57, 265.61, 10.62),
+        "先発の球速": (149.64, 151.17, 152.44, 1.05),
+        "先発のコントロール": (50.74, 55.18, 60.13, 3.63),
+        "先発のスタミナ": (55.52, 58.7, 62.84, 2.91),
+        "救援の球速": (151.12, 152.67, 154.07, 1.19),
+        "救援のコントロール": (44.56, 48.08, 52.3, 3.0),
+        "救援のスタミナ": (44.86, 47.91, 51.01, 2.26),
+        "野手の弾道": (2.53, 2.69, 2.86, 0.13),
+        "野手のミート": (37.39, 39.79, 42.4, 1.99),
+        "野手のパワー": (51.12, 53.93, 57.33, 2.39),
+        "野手の走力": (60.22, 63.69, 67.65, 2.9),
+        "野手の肩力": (64.08, 66.64, 68.97, 1.9),
+        "野手の守備力": (48.02, 50.97, 54.22, 2.52),
+        "野手の捕球": (44.87, 47.54, 50.94, 2.36),
+    },
+    "ステップ2後": {
+        "総合力": (315.28, 330.2, 345.59, 11.87),
+        "投手力": (330.53, 346.73, 366.42, 13.95),
+        "野手力": (284.57, 302.03, 320.14, 13.55),
+        "全員平均": (260.7, 273.27, 284.91, 9.8),
+        "投手の査定の平均": (277.64, 292.16, 311.67, 13.31),
+        "野手の査定の平均": (238.57, 252.1, 263.84, 10.11),
+        "先発の球速": (149.81, 151.13, 152.53, 1.06),
+        "先発のコントロール": (51.0, 54.94, 59.02, 3.17),
+        "先発のスタミナ": (55.41, 58.56, 62.49, 2.77),
+        "救援の球速": (151.52, 152.71, 154.0, 1.06),
+        "救援のコントロール": (44.2, 48.06, 51.8, 3.03),
+        "救援のスタミナ": (45.31, 48.0, 50.71, 2.1),
+        "野手の弾道": (2.56, 2.69, 2.85, 0.12),
+        "野手のミート": (37.71, 39.92, 42.18, 1.82),
+        "野手のパワー": (51.38, 53.89, 56.66, 2.15),
+        "野手の走力": (61.03, 63.66, 67.22, 2.58),
+        "野手の肩力": (64.33, 66.67, 68.73, 1.74),
+        "野手の守備力": (48.38, 50.93, 53.72, 2.11),
+        "野手の捕球": (45.39, 47.59, 49.88, 1.94),
+    },
+}
+# 改修前の選手格の人数（国内選手、1球団あたり）。(平均, SD, 最小, 最大)
+SPREAD_CLASS_HISTORY: dict[tuple[str, str], tuple[float, float, int, int]] = {
+    ("投手", "スター級"): (2.35, 2.28, 0, 14),
+    ("投手", "一軍主力級"): (10.73, 4.8, 2, 25),
+    ("投手", "一軍控え級"): (6.21, 2.76, 0, 16),
+    ("投手", "二軍級"): (6.32, 3.41, 0, 18),
+    ("投手", "若手素材型"): (2.72, 2.09, 0, 9),
+    ("投手", "ベテラン型"): (3.13, 2.24, 0, 14),
+    ("野手", "スター級"): (1.29, 1.24, 0, 5),
+    ("野手", "一軍主力級"): (7.77, 3.31, 1, 16),
+    ("野手", "一軍控え級"): (7.01, 2.5, 1, 16),
+    ("野手", "二軍級"): (8.5, 2.82, 3, 17),
+    ("野手", "若手素材型"): (2.77, 1.78, 0, 10),
+    ("野手", "ベテラン型"): (3.61, 2.18, 0, 11),
+}
+
+
+def _spread_record(team: dict[str, Any]) -> dict[str, Any]:
+    import app
+    from generator import real_data
+    from generator import team_analysis as ta
+
+    players = team["players"]
+    key = f"gen:{team['team_seed']}"
+    frame = ta.players_frame(players, key, key, app.team_pitcher_role)
+    frame = ta.assign_categories(frame, ta.rating_cuts_from_stats(real_data.load_global_stats()))
+    long = pd.concat([ta.team_headline(frame), ta.group_stats(frame, ta.AXIS_ROLE), ta.group_stats(frame, ta.AXIS_PITCHER_ROLE)], ignore_index=True)
+    lookup = {(row.axis, row.group, row.metric): float(row.value) for row in long.itertuples()}
+    domestic = [p for p in players if p.get("roster_origin") != "foreign_import"]
+    counts = Counter((("投手" if p.get("role") == "投手" else "野手"), str(p.get("player_class", ""))) for p in domestic)
+    archetypes = Counter((("投手" if p.get("role") == "投手" else "野手"), str(p.get("archetype", ""))) for p in domestic)
+    styles = Counter((("投手" if p.get("role") == "投手" else "野手"), str(p.get("position_style", ""))) for p in domestic)
+    return {
+        "team_seed": team["team_seed"],
+        "strength": team["profile"].strength,
+        "color": team["profile"].color,
+        "sub_color": team["profile"].sub_color,
+        "elapsed": team["elapsed_seconds"],
+        "relaxed": dict(team["relaxed"]),
+        "values": {label: lookup.get((axis, group, metric), math.nan) for label, axis, group, metric in SPREAD_ITEMS},
+        "class_counts": {f"{role}|{label}": counts.get((role, label), 0) for role, label in SPREAD_CLASS_ROWS},
+        "archetype_counts": {f"{role}|{label}": count for (role, label), count in archetypes.items()},
+        "style_counts": {f"{role}|{label}": count for (role, label), count in styles.items()},
+    }
+
+
+def _generate_spread(seed: int) -> dict[str, Any]:
+    import app
+
+    return _spread_record(app.generate_team(seed, master=_MASTER))
+
+
+def run_spread_jobs(teams: int, workers: int) -> list[dict[str, Any]]:
+    seeds = [SPREAD_BASE_SEED + i for i in range(teams)]
+    print(f"[散らばり] {len(seeds)}球団を生成します（{workers}並列）", flush=True)
+    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker) as pool:
+        records = list(pool.map(_generate_spread, seeds, chunksize=4))
+    print("[散らばり] 完了", flush=True)
+    return records
+
+
+def real_spread_values() -> dict[str, list[float]]:
+    """実在（2024〜2026年版の36チーム、外国人を含む）の、項目ごとの球団の値。"""
+    from generator import real_data
+
+    stats = real_data.load_real_team_stats(SPREAD_SEASONS)
+    values = {}
+    for label, axis, group, metric in SPREAD_ITEMS:
+        rows = stats[(stats["axis"] == axis) & (stats["group"] == group) & (stats["metric"] == metric)]
+        values[label] = rows["value"].astype(float).tolist()
+    return values
+
+
+def spread_summary(values: list[float]) -> tuple[float, float, float, float]:
+    series = pd.Series(values, dtype=float).dropna()
+    return (float(series.quantile(0.1)), float(series.median()), float(series.quantile(0.9)), float(series.std()))
+
+
+def _fmt_spread(item: tuple[float, float, float, float]) -> str:
+    return f"{item[0]:.1f}／{item[1]:.1f}／{item[2]:.1f}（SD {item[3]:.2f}）"
+
+
+def spread_tables(records: list[dict[str, Any]]) -> tuple[pd.DataFrame, pd.DataFrame, list[tuple[str, bool]]]:
+    real_values = real_spread_values()
+    rating_labels = {label for label, *_rest in SPREAD_RATING_ITEMS}
+    rows, passes = [], []
+    for label, *_rest in SPREAD_ITEMS:
+        real = spread_summary(real_values[label])
+        gen = spread_summary([record["values"][label] for record in records])
+        ratio = gen[3] / real[3] if real[3] else math.nan
+        # 能力の SD比は、その能力を動かすチームカラーの球団（メイン・サブどちらでも）を除いて判定する
+        judged = [record for record in records if not ({record["color"], record.get("sub_color", "")} & spread_excluded_colors(label))]
+        gen_judged = spread_summary([record["values"][label] for record in judged]) if len(judged) < len(records) else gen
+        ratio_judged = gen_judged[3] / real[3] if real[3] else math.nan
+        checks = []
+        if label in rating_labels:
+            low, high = SPREAD_RATING_SD_RATIO
+            checks.append((f"SD比 {low}〜{high}", low <= ratio <= high))
+            margin = real[3] * SPREAD_RATING_TAIL_SD
+            checks.append((f"10%が実在±{margin:.2f}", abs(gen[0] - real[0]) <= margin))
+            checks.append((f"90%が実在±{margin:.2f}", abs(gen[2] - real[2]) <= margin))
+        else:
+            excluded = "・".join(sorted(spread_excluded_colors(label)))
+            note = f"（{excluded}の球団を除く{len(judged)}球団で {ratio_judged:.2f}、除く前 {ratio:.2f}）" if excluded else ""
+            checks.append((f"SD比 {SPREAD_ABILITY_SD_RATIO_MAX}以下{note}", ratio_judged <= SPREAD_ABILITY_SD_RATIO_MAX))
+        if label == "総合力":
+            rate = gen[1] / real[1] - 1
+            checks.append((f"中央が実在±{SPREAD_TOP28_MEDIAN_RATE * 100:.0f}%（{rate * 100:+.1f}%）", abs(rate) <= SPREAD_TOP28_MEDIAN_RATE))
+        if label == "救援のコントロール":
+            checks.append((f"90%が実在＋{SPREAD_RELIEVER_CONTROL_P90_MARGIN}以内", gen[2] <= real[2] + SPREAD_RELIEVER_CONTROL_P90_MARGIN))
+        for text, ok in checks:
+            passes.append((f"散らばり: {label} の{text}（生成 {_fmt_spread(gen)}、実在 {_fmt_spread(real)}）", ok))
+        row = {"項目": label, "実在 10%／中央／90%": f"{real[0]:.1f}／{real[1]:.1f}／{real[2]:.1f}", "実在SD": round(real[3], 2)}
+        for stage, history in SPREAD_HISTORY.items():
+            past = history.get(label)
+            row[f"{stage} SD比"] = round(past[3] / real[3], 2) if past else math.nan
+        row.update({"今回 10%／中央／90%": f"{gen[0]:.1f}／{gen[1]:.1f}／{gen[2]:.1f}", "今回SD": round(gen[3], 2), "今回SD比": round(ratio, 2),
+                    "カラーを除いたSD比": round(ratio_judged, 2) if len(judged) < len(records) else math.nan,
+                    "除いた球団数": len(records) - len(judged),
+                    "合否": "OK" if all(ok for _text, ok in checks) else "NG", "判定": "、".join(text for text, _ok in checks)})
+        rows.append(row)
+    table = pd.DataFrame(rows)
+
+    class_rows = []
+    for role, label in SPREAD_CLASS_ROWS:
+        values = pd.Series([record["class_counts"][f"{role}|{label}"] for record in records], dtype=float)
+        row = {"役割": role, "選手格": label}
+        past = SPREAD_CLASS_HISTORY.get((role, label))
+        if past:
+            row.update({"改修前 平均": past[0], "改修前 SD": past[1], "改修前 最小〜最大": f"{past[2]}〜{past[3]}"})
+        row.update({"今回 平均": round(values.mean(), 2), "今回 SD": round(values.std(), 2), "今回 最小〜最大": f"{int(values.min())}〜{int(values.max())}"})
+        class_rows.append(row)
+    return table, pd.DataFrame(class_rows), passes
+
+
+def spread_history_entry(records: list[dict[str, Any]]) -> tuple[dict[str, tuple[float, ...]], dict[tuple[str, str], tuple[float, ...]]]:
+    """SPREAD_HISTORY・SPREAD_CLASS_HISTORY に貼る値（段階ごとの記録用）。"""
+    values = {label: tuple(round(v, 2) for v in spread_summary([r["values"][label] for r in records])) for label, *_rest in SPREAD_ITEMS}
+    classes = {}
+    for role, label in SPREAD_CLASS_ROWS:
+        series = pd.Series([r["class_counts"][f"{role}|{label}"] for r in records], dtype=float)
+        classes[(role, label)] = (round(series.mean(), 2), round(series.std(), 2), int(series.min()), int(series.max()))
+    return values, classes
+
+
+# ---------------------------------------------------------------------------
 # 実在データ
 # ---------------------------------------------------------------------------
 def load_real_players() -> pd.DataFrame:
@@ -238,6 +496,7 @@ def strength_tables(records: list[dict[str, Any]], real: pd.DataFrame) -> tuple[
         strong, mid, weak = by_level["強豪"], by_level["中位"], by_level["弱小"]
         real_mean, real_min, real_max = real[column].mean(), real[column].min(), real[column].max()
         gap = strong.mean() - mid.mean()
+        e_q = STRENGTH_E_MID_QUANTILE.get(column, 0.75)
         overall = frame[column]
         p10, p90 = overall.quantile(0.1), overall.quantile(0.9)
         checks += [
@@ -245,7 +504,7 @@ def strength_tables(records: list[dict[str, Any]], real: pd.DataFrame) -> tuple[
             {"指標": label, "確認": "(b) 中位の平均が実在平均±3%", "値": f"中位 {mid.mean():.1f} / 実在 {real_mean:.1f}（{(mid.mean() / real_mean - 1) * 100:+.1f}%）", "合否": abs(mid.mean() / real_mean - 1) <= 0.03},
             {"指標": label, "確認": "(c) 全体の10〜90%が実在の最小〜最大から大きく外れない（±3%）", "値": f"生成 {p10:.1f}〜{p90:.1f} / 実在 {real_min:.1f}〜{real_max:.1f}", "合否": p10 >= real_min * 0.97 and p90 <= real_max * 1.03},
             {"指標": label, "確認": "(d) レベル内の標準偏差 ≥ 強豪と中位の差の30%", "値": f"強豪 {strong.std():.1f} / 中位 {mid.std():.1f} / 弱小 {weak.std():.1f}（差 {gap:.1f} の30% = {gap * 0.3:.1f}）", "合否": min(strong.std(), mid.std(), weak.std()) >= gap * 0.3},
-            {"指標": label, "確認": "(e) 強豪の下位10% < 中位の上位10%、強豪の中央値 > 中位の上位25%", "値": f"強豪10% {strong.quantile(0.1):.1f} < 中位90% {mid.quantile(0.9):.1f}、強豪中央 {strong.median():.1f} > 中位75% {mid.quantile(0.75):.1f}", "合否": strong.quantile(0.1) < mid.quantile(0.9) and strong.median() > mid.quantile(0.75)},
+            {"指標": label, "確認": f"(e) 強豪の下位10% < 中位の上位10%、強豪の中央値 > 中位の{e_q * 100:.0f}%点", "値": f"強豪10% {strong.quantile(0.1):.1f} < 中位90% {mid.quantile(0.9):.1f}、強豪中央 {strong.median():.1f} > 中位{e_q * 100:.0f}% {mid.quantile(e_q):.1f}", "合否": strong.quantile(0.1) < mid.quantile(0.9) and strong.median() > mid.quantile(e_q)},
         ]
     corr = frame["metric_pitcher_top"].corr(frame["metric_fielder_top"])
     z_p = (frame["metric_pitcher_top"] - frame["metric_pitcher_top"].mean()) / frame["metric_pitcher_top"].std()
@@ -471,6 +730,29 @@ def uniform_detail_tables(records: list[dict[str, Any]]) -> tuple[dict[str, pd.D
     return {"foreign_rate": foreign_rate, "foreign_range": foreign_range, "age": age_table, "high": high}, passes
 
 
+def spread_section(records: list[dict[str, Any]], output: Path) -> tuple[list[str], list[tuple[str, bool]]]:
+    table, class_table, passes = spread_tables(records)
+    table.to_csv(output / "spread_metrics.csv", index=False, encoding="utf-8-sig")
+    class_table.to_csv(output / "spread_class_counts.csv", index=False, encoding="utf-8-sig")
+    history, class_history = spread_history_entry(records)
+    (output / "spread_history.txt").write_text(f"{history!r}\n\n{class_history!r}\n", encoding="utf-8")
+    frame = pd.DataFrame(records)
+    relaxed: Counter = Counter()
+    for record in records:
+        relaxed.update(record["relaxed"])
+    lines = [
+        f"## 球団ごとの散らばり（球団生成 seed {SPREAD_BASE_SEED}〜{SPREAD_BASE_SEED + len(records) - 1}、実在は{SPREAD_SEASONS[0]}〜{SPREAD_SEASONS[-1]}年版の36チーム・外国人を含む）", "",
+        f"- 1球団あたりの生成時間: 平均 {frame['elapsed'].mean():.2f}秒 / 中央 {frame['elapsed'].median():.2f}秒 / 最大 {frame['elapsed'].max():.2f}秒（並列実行中の計測）",
+        *[f"- {label}をゆるめた人数: 合計 {count}人" for label, count in relaxed.items()],
+        "",
+        "SD比 = 生成の球団ごとの値の標準偏差 ÷ 実在の標準偏差。査定の6指標は SD比 0.85〜1.20 と 10%・90% が実在±(実在SD×0.5)、能力は SD比 1.25 以下（その能力を動かすチームカラーの球団を除いて判定。機動力→走力、守備重視→守備力・肩力、強力打線→ミート・パワー、投手王国→投手の球速・コントロール・スタミナ）。", "",
+        to_markdown(table), "",
+        "### 選手格の人数（国内選手、1球団あたり）", "",
+        to_markdown(class_table), "",
+    ]
+    return lines, passes
+
+
 def svg_scatter(frame: pd.DataFrame, x: str, y: str, title: str, width: int = 520, height: int = 360) -> str:
     colors = {"強豪": "#d9480f", "中位": "#1971c2", "弱小": "#5c940d"}
     pad = 46
@@ -509,9 +791,20 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--skip-color", action="store_true")
     parser.add_argument("--skip-strength", action="store_true")
+    parser.add_argument("--spread-teams", type=int, default=300, help="球団ごとの散らばりの確認に使う球団数（seed 1〜）")
+    parser.add_argument("--skip-spread", action="store_true")
+    parser.add_argument("--spread-only", action="store_true", help="球団ごとの散らばりの節だけを作る（spread_summary.md）")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     logging.disable(logging.WARNING)
+
+    if args.spread_only:
+        spread_lines, spread_passes = spread_section(run_spread_jobs(args.spread_teams, args.workers), args.output)
+        lines = ["# 球団生成モード 検証レポート（球団ごとの散らばりのみ）", "", "## 合否", ""]
+        lines += [f"- {'✅' if ok else '❌'} {label}" for label, ok in spread_passes] + [""] + spread_lines
+        (args.output / "spread_summary.md").write_text("\n".join(lines), encoding="utf-8")
+        print("\n".join(lines))
+        return
 
     main_records = run_jobs([(BASE_SEED + i, None) for i in range(args.teams)], args.workers, "構成・背番号")
     strength_records = []
@@ -552,6 +845,10 @@ def main() -> None:
     age_lines, age_failures = check_age_profile.report(pd.DataFrame([row for record in main_records for row in record["age_rows"]]))
     passes.append((f"年齢帯別の特能・ランク（check_age_profile.py、日本人）の不合格が0（不合格 {age_failures}）", age_failures == 0))
     passes.append((f"2・27番の捕手率30%以上（生成 2番 {uni['catcher_rate']['2'] * 100:.1f}%・27番 {uni['catcher_rate']['27'] * 100:.1f}%）", min(uni["catcher_rate"].values()) >= 0.30))
+    spread_lines: list[str] = []
+    if not args.skip_spread:
+        spread_lines, spread_passes = spread_section(run_spread_jobs(args.spread_teams, args.workers), args.output)
+        passes += spread_passes
 
     elapsed = frame["elapsed"]
     relaxed_cols = [c for c in frame.columns if c.startswith("relaxed_") and c != "relaxed_total"]
@@ -618,6 +915,7 @@ def main() -> None:
         "### 70〜98番（§1-3）", "", to_markdown(uniform_detail["high"]), "",
         "全番号の表: uniform_number_usage.csv", "",
     ]
+    lines += spread_lines
     (args.output / "summary.md").write_text("\n".join(lines), encoding="utf-8")
     print("\n".join(lines[:40]))
     print(f"レポート: {args.output / 'summary.md'}")
