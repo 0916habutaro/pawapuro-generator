@@ -9,6 +9,7 @@
 - 流すスクリプトと正式な規模（既定値）:
     validate_team_mode      構成・背番号500球団、戦力600球団、カラー7×200球団、散らばり300球団
     check_pitcher_control   球団生成300球団
+    check_fielder_speed     球団生成300球団（個別生成の架空球団用・野手のサンプルは参考表示に使う）
     check_age_profile       個別生成 投手・野手 各30000人 ＋ 球団生成500球団
     check_fictional_balance 架空球団用 投手・野手 各5000人（サンプルCSVを scripts/generate_fictional_balance_sample.py で作り、1つにまとめて渡す）
     check_foreign_balance   助っ人外国人用 投手・野手 各5000人
@@ -37,24 +38,25 @@ import pandas as pd  # noqa: E402
 import checklib  # noqa: E402
 
 SCRIPTS_DIR = APP_DIR / "scripts"
-SCRIPT_NAMES = ("validate_team_mode", "check_pitcher_control", "check_age_profile", "check_fictional_balance", "check_foreign_balance", "check_draft_balance")
+SCRIPT_NAMES = ("validate_team_mode", "check_pitcher_control", "check_fielder_speed", "check_age_profile", "check_fictional_balance", "check_foreign_balance", "check_draft_balance")
 SAMPLE_COUNT = {"official": 5000, "quick": 500}
 # 簡易版の規模
 QUICK_ARGS = {
     "validate_team_mode": ["--teams", "40", "--strength-teams", "60", "--color-teams", "15", "--spread-teams", "40"],
     "check_pitcher_control": ["--teams", "40"],
+    "check_fielder_speed": ["--teams", "40"],
     "check_age_profile": ["--players", "1500", "--teams", "40"],
 }
 SCALE_TEXT = {
     "official": {
         "validate_team_mode": "構成・背番号500球団／戦力600球団／カラー7×200球団／散らばり300球団",
-        "check_pitcher_control": "球団生成300球団",
+        "check_pitcher_control": "球団生成300球団", "check_fielder_speed": "球団生成300球団",
         "check_age_profile": "個別生成 投手・野手 各30000人＋球団生成500球団",
         "check_fictional_balance": "投手・野手 各5000人", "check_foreign_balance": "投手・野手 各5000人", "check_draft_balance": "投手・野手 各5000人",
     },
     "quick": {
         "validate_team_mode": "構成・背番号40球団／戦力60球団／カラー7×15球団／散らばり40球団",
-        "check_pitcher_control": "球団生成40球団", "check_age_profile": "個別生成 各1500人＋球団生成40球団",
+        "check_pitcher_control": "球団生成40球団", "check_fielder_speed": "球団生成40球団", "check_age_profile": "個別生成 各1500人＋球団生成40球団",
         "check_fictional_balance": "投手・野手 各500人", "check_foreign_balance": "投手・野手 各500人", "check_draft_balance": "投手・野手 各500人",
     },
 }
@@ -72,7 +74,7 @@ def run(command: list[str], env: dict[str, str], log: Path) -> tuple[int, float]
 def make_samples(out_dir: Path, count: int, env: dict[str, str], only: set[str]) -> float:
     """個別生成のサンプルCSVを並列に作る。"""
     jobs = []
-    wanted = {"check_fictional_balance": ("fictional",), "check_foreign_balance": ("foreign",), "check_draft_balance": ("draft",)}
+    wanted = {"check_fictional_balance": ("fictional",), "check_fielder_speed": ("fictional",), "check_foreign_balance": ("foreign",), "check_draft_balance": ("draft",)}
     kinds = [kind for name, kinds_ in wanted.items() if name in only for kind in kinds_]
     out_dir.mkdir(parents=True, exist_ok=True)
     started = time.time()
@@ -87,7 +89,7 @@ def make_samples(out_dir: Path, count: int, env: dict[str, str], only: set[str])
         if process.returncode:
             raise SystemExit(f"サンプルの生成に失敗しました（{log.name}）")
     for kind, name in (("fictional", "check_fictional_balance"), ("draft", "check_draft_balance")):
-        if name in only:  # 架空球団用・ドラフト候補用は、投手・野手を1つのCSVにまとめて判定する（共通の項目が投手・野手の両方にかかる）
+        if name in only or (kind == "fictional" and "check_fielder_speed" in only):  # 架空球団用・ドラフト候補用は、投手・野手を1つのCSVにまとめて判定する（共通の項目が投手・野手の両方にかかる）
             frames = [pd.read_csv(out_dir / f"{kind}_{tag}.csv", encoding="utf-8-sig") for tag in ("pitchers", "fielders")]
             pd.concat(frames, ignore_index=True).to_csv(out_dir / f"{kind}_all.csv", index=False, encoding="utf-8-sig")
     return time.time() - started
@@ -199,7 +201,7 @@ def main() -> None:
 
     only_set = set(only)
     sample_seconds = 0.0
-    if only_set & {"check_fictional_balance", "check_foreign_balance", "check_draft_balance"}:
+    if only_set & {"check_fictional_balance", "check_fielder_speed", "check_foreign_balance", "check_draft_balance"}:
         print(f"[サンプル生成] 個別生成 各{SAMPLE_COUNT[mode]}人", flush=True)
         sample_seconds = make_samples(samples, SAMPLE_COUNT[mode], env, only_set)
 
@@ -211,6 +213,8 @@ def main() -> None:
                                *sized.get("validate_team_mode", []), *(["--output", str(out_dir / "team_mode")] if args.quick else [])],
         "check_pitcher_control": [py, "scripts/check_pitcher_control.py", *common, "--workers", str(args.workers), "--checks-csv", str(csv_path("check_pitcher_control")),
                                   *sized.get("check_pitcher_control", [])],
+        "check_fielder_speed": [py, "scripts/check_fielder_speed.py", *common, "--workers", str(args.workers), "--checks-csv", str(csv_path("check_fielder_speed")),
+                                "--single-csv", str(samples / "fictional_fielders.csv"), *sized.get("check_fielder_speed", [])],
         "check_age_profile": [py, "scripts/check_age_profile.py", "--boot", str(age_boot), *(["--quick"] if args.quick else []), "--workers", str(args.workers),
                               "--checks-csv", str(csv_path("check_age_profile")), *sized.get("check_age_profile", [])],
         "check_fictional_balance": [py, "scripts/check_fictional_balance.py", str(samples / "fictional_all.csv"), *common,
