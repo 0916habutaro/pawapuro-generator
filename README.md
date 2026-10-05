@@ -400,7 +400,7 @@ players_backup_2026-07-10.db
 
 ### まとめて流す（`scripts/run_checks.py`）
 
-下の検証スクリプトのうち、生成バランスの判定をするもの（`validate_team_mode.py`、`check_pitcher_control.py`、`check_age_profile.py`、`check_fictional_balance.py`、`check_foreign_balance.py`、`check_draft_balance.py`）を、同じ条件で1回で流して、結果を1枚にまとめます。個別生成のCSVは、このスクリプトが `scripts/generate_*_balance_sample.py` で作ります。
+下の検証スクリプトのうち、生成バランスの判定をするもの（`validate_team_mode.py`、`check_pitcher_control.py`、`check_fielder_speed.py`、`check_age_profile.py`、`check_fictional_balance.py`、`check_foreign_balance.py`、`check_draft_balance.py`）を、同じ条件で1回で流して、結果を1枚にまとめます。個別生成のCSVは、このスクリプトが `scripts/generate_*_balance_sample.py` で作ります。
 
 ```powershell
 python scripts/run_checks.py                       # 正式な規模。結果は reports/checks/summary.md
@@ -502,6 +502,21 @@ python scripts/check_pitcher_control.py --teams 60     # 途中確認用
 - 役割の区分は、`position` が「先発」なら先発、「中継ぎ」「抑え」は救援です。
 - 参考として、球団ごとの平均（救援・先発、外国人を含む。球団分析と同じ集計）の分布と、年齢帯×役割のコントロール（実在は2026年版のみ）を表示します。球団ごとの散らばりは戦力レベルによる選手格の構成で決まるため、ここでは判定に含めず、`scripts/validate_team_mode.py` の「球団ごとの散らばり」で判定します。
 - コントロール20未満・球速×コントロールの相関・コントロール×スタミナの相関（+0.38〜+0.58）は、今までどおり `check_fictional_balance.py`（個別生成5000人）で判定します（コントロール×スタミナの相関は、ここでも球団生成で実在0.491±0.05を判定します）。
+- 不合格が1件でもあれば終了コード1です（要注意・受け入れ済みは0）。
+
+### `scripts/check_fielder_speed.py`
+
+架空球団用（日本人）野手の走力（年齢・ポジション・打席）を、球団生成で作った球団の日本人野手で判定します（球団を生成するのでCSVは不要です）。
+
+```powershell
+python scripts/check_fielder_speed.py                  # 正式: 300球団（seed 1〜300）
+python scripts/check_fielder_speed.py --teams 60       # 途中確認用
+python scripts/check_fielder_speed.py --single-csv reports/checks/samples/fictional_fielders.csv   # 個別生成の参考表も出す
+```
+
+- 実在（2024〜2026年版の日本人野手1,103人）と比べる項目: 全体の平均、5%・25%・中央・75%・95%、ポジションごとの平均・標準偏差、打席ごとの平均（右打・左打）、同じポジションの中の左右差（一塁手・二塁手・外野手・捕手）、年齢帯ごとの差（22〜23歳から36歳〜まで。「走力 − そのポジションの平均」の平均）。
+- 年齢帯の目標は、実在の2つのデータ（年齢がわかる2026年版と、2026年版の名簿から逆算した2022〜2025年版）の平均です。実在側の誤差には、2つの差の半分を足します。21歳以下は今回変えていない（若手の補正の範囲）ので参考表示です。
+- 個別生成の架空球団用・野手は、同じ表を参考として出します（合否には使いません）。`run_checks.py` は個別生成のサンプルCSVを渡します。
 - 不合格が1件でもあれば終了コード1です（要注意・受け入れ済みは0）。
 
 ### `scripts/validate_ability_balance.py`

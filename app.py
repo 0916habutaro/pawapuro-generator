@@ -6947,6 +6947,30 @@ FICTIONAL_FIELDER_POSITION_SHIFTS = {
     "三塁手": (0.0, 0.0, 0.0, 0.0, 3.0, 0.0),
     "遊撃手": (-4.5, 0.0, 0.0, 0.0, 0.0, 0.0),
 }
+# 走力（22歳以上だけ。21歳以下は若手の補正に任せる。`野手の走力_改修指示.md`）。
+# 70より上を伸ばす倍率と、そのうえで（ポジション・年齢・打席のずらしのあとに）上の端を縮める境目と倍率。
+# 実在は80以上が17%台と厚いのに95%点が87なので、肩を厚く（倍率を大きく）して端だけ縮める。
+FICTIONAL_SPEED_UPPER_FACTOR = 1.3
+FICTIONAL_SPEED_UPPER_CAP = (87.0, 0.4)
+# ポジションごとの幅と平均: 走力 = c + k × (走力 − c) + d。ないポジション（外野手）は変えない。
+FICTIONAL_SPEED_POSITION_TRANSFORM = {
+    "一塁手": (55.0, 0.80, -5.5),
+    "捕手": (52.5, 0.82, -0.5),
+    "遊撃手": (70.0, 0.72, 0.0),
+    "三塁手": (58.0, 0.88, 0.0),
+    "二塁手": (74.0, 1.0, -3.0),
+}
+# 年齢のずらし（折れ線の点。(年齢, ずらし)。両端の外側は端の値）。実在は26〜31歳が速く、32歳から遅くなる。
+FICTIONAL_SPEED_AGE_SHIFTS = [(22, -2.6), (25, -2.3), (27, 1.5), (29, 3.0), (31, 6.3), (33, 1.7), (35, 1.9), (38, 1.6)]
+# 打席のずらし（左打・両打は足し、右打は引く）。ポジションの指定がなければ「既定」を使う。
+FICTIONAL_SPEED_BATS_SHIFTS = {
+    "既定": {"左": 2.4, "両": 2.4, "右": -2.4},
+    "一塁手": {"左": 4.0, "両": 4.0, "右": -4.0},
+    "二塁手": {"左": 3.0, "両": 3.0, "右": -3.0},
+    "捕手": {"左": 2.7, "両": 2.7, "右": -2.7},
+    "遊撃手": {"左": 2.0, "両": 2.0, "右": -2.0},
+    "三塁手": {"左": 2.0, "両": 2.0, "右": -2.0},
+}
 # 弾道はパワーに揺らぎを足したスコアで決める（実在の弾道×パワー相関0.72、弾道1は2%強、弾道4は9%強）。
 FICTIONAL_TRAJECTORY_NOISE_SD = 8.0
 FICTIONAL_TRAJECTORY_THRESHOLDS = (26.0, 49.8, 71.2)
@@ -7580,7 +7604,20 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     return player
 
 
-def fictional_fielder_abilities(rng: random.Random, abilities: dict[str, Any], position: str, age: int = 0) -> dict[str, Any]:
+def fictional_speed_adjust(speed: float, position: str, age: int, batting_throwing: str) -> float:
+    """22歳以上の走力に、上側の伸ばし・ポジションごとの幅と平均・年齢・打席のずらしをかける。乱数は使わない。"""
+    speed = compress_tail(speed, 70.0, FICTIONAL_SPEED_UPPER_FACTOR, upper=True)
+    if position in FICTIONAL_SPEED_POSITION_TRANSFORM:
+        center, scale, shift = FICTIONAL_SPEED_POSITION_TRANSFORM[position]
+        speed = center + scale * (speed - center) + shift
+    speed += interpolate_age_chance(age, FICTIONAL_SPEED_AGE_SHIFTS)
+    bats = batting_throwing[-2:-1]  # 「右投左打」の「左」
+    shifts = FICTIONAL_SPEED_BATS_SHIFTS.get(position, FICTIONAL_SPEED_BATS_SHIFTS["既定"])
+    speed += shifts.get(bats, 0.0)
+    return compress_tail(speed, FICTIONAL_SPEED_UPPER_CAP[0], FICTIONAL_SPEED_UPPER_CAP[1], upper=True)
+
+
+def fictional_fielder_abilities(rng: random.Random, abilities: dict[str, Any], position: str, age: int = 0, batting_throwing: str = "") -> dict[str, Any]:
     """能力の平均・幅・相関を実在に写し、弾道をパワーから確率的に決め直す。21歳以下は若手の幅・水準に縮める。"""
     z = [
         ((ability_numeric_value(abilities, key) or mean) - mean) / sd
@@ -7591,7 +7628,10 @@ def fictional_fielder_abilities(rng: random.Random, abilities: dict[str, Any], p
     for key, row, mean, sd, shift in zip(FICTIONAL_FIELDER_ABILITY_KEYS, FICTIONAL_FIELDER_CORRELATION_TRANSFORM, FICTIONAL_FIELDER_TARGET_MEANS, FICTIONAL_FIELDER_TARGET_SDS, shifts):
         values[key] = mean + sd * sum(weight * item for weight, item in zip(row, z)) + shift
     # 実在は走力・守備力の上側が厚く、守備力の下側が薄い。
-    values["走力"] = compress_tail(values["走力"], 70.0, 1.25, upper=True)
+    if age > FICTIONAL_YOUNG_MAX_AGE:
+        values["走力"] = fictional_speed_adjust(values["走力"], position, age, batting_throwing)
+    else:
+        values["走力"] = compress_tail(values["走力"], 70.0, 1.25, upper=True)
     values["守備力"] = compress_tail(compress_tail(values["守備力"], 55.0, 1.15, upper=True), 34.0, 0.5, upper=False)
     fictional_young_transform(
         values, age, FICTIONAL_YOUNG_FIELDER_MEANS,
@@ -7634,7 +7674,7 @@ def apply_fictional_fielder_balance(player: dict[str, Any], seed: int, master: M
     position = str(player.get("position", ""))
     batting_throwing = str(player.get("batting_throwing", ""))
     old_abilities = dict(player.get("abilities", {}))
-    abilities = fictional_fielder_abilities(rng, old_abilities, position, int(player.get("age") or 0))
+    abilities = fictional_fielder_abilities(rng, old_abilities, position, int(player.get("age") or 0), batting_throwing)
     sub_positions = fictional_fielder_sub_positions(rng, position, batting_throwing)
     player["sub_positions"] = sub_positions
     values = {key: float(abilities[key]["value"]) for key in FICTIONAL_FIELDER_ABILITY_KEYS}
