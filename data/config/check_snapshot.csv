@@ -433,54 +433,54 @@ check_foreign_balance.pitcher.球速.最頻値1つへの集中,実在,0.1052,0.0
 check_foreign_balance.pitcher.相関.コントロール×スタミナ,実在,0.3095648848,0.01196959837
 check_foreign_balance.pitcher.相関.球速×コントロール,実在,-0.3581768209,0.01190460208
 check_foreign_balance.pitcher.相関.球速×スタミナ,実在,-0.3585196626,0.01133270635
-check_pitcher_control.control_hand.先発・右 平均,実在,54.53107175,0.2147180383
-check_pitcher_control.control_hand.先発・左 平均,実在,56.01666667,0.3319163707
-check_pitcher_control.control_hand.左右差（左−右） 先発,実在,1.485594916,0.4141304044
-check_pitcher_control.control_hand.左右差（左−右） 救援,実在,-1.021898094,0.3669290269
-check_pitcher_control.control_hand.救援−先発 右,実在,-6.140903735,0.2878814341
-check_pitcher_control.control_hand.救援−先発 左,実在,-8.648396746,0.4107088767
-check_pitcher_control.control_hand.救援で60以上,実在,0.1569350988,0.005321175298
-check_pitcher_control.control_hand.救援で70以上,実在,0.01996961146,0.002502600159
-check_pitcher_control.control_hand.救援・右 10%,実在,35,0.4706928497
-check_pitcher_control.control_hand.救援・右 90%,実在,63,0.4603295193
-check_pitcher_control.control_hand.救援・右 中央,実在,48,0.1888706186
-check_pitcher_control.control_hand.救援・右 平均,実在,48.39016801,0.1857830817
-check_pitcher_control.control_hand.救援・右 標準偏差,実在,10.30189684,0.1149252375
-check_pitcher_control.control_hand.救援・左 10%,実在,33,0.3301739301
-check_pitcher_control.control_hand.救援・左 90%,実在,62,0.5559796009
-check_pitcher_control.control_hand.救援・左 中央,実在,46,0.5159211404
-check_pitcher_control.control_hand.救援・左 平均,実在,47.36826992,0.2898975234
-check_pitcher_control.control_hand.救援・左 標準偏差,実在,10.97875684,0.1798701106
-check_pitcher_control.control_hand.日本人全体の平均,実在,51.61877516,0.1260182066
-check_pitcher_control.movement.先発 平均,実在,6.535085904,0.02254679404
-check_pitcher_control.movement.先発 標準偏差,実在,1.725092066,0.0155970512
-check_pitcher_control.movement.先発 総変化量×コントロール相関,実在,0.501297835,0.009500129276
-check_pitcher_control.movement.先発 総変化量×スタミナ相関,実在,0.4782392826,0.01048789508
-check_pitcher_control.movement.救援 平均,実在,6.265899718,0.0222686891
-check_pitcher_control.movement.救援 標準偏差,実在,1.551495073,0.01474675837
-check_pitcher_control.movement.救援 総変化量×コントロール相関,実在,0.2676416128,0.01277061156
-check_pitcher_control.movement.査定上位⅓の総変化量の平均,実在,7.423088732,0.02601492432
-check_pitcher_control.movement.査定下位⅓の総変化量の平均,実在,5.319211823,0.02569830227
-check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 全体,実在,0.4911818288,0.007959144926
-check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 救援,実在,0.2162892807,0.01340963847
-check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 救援・右,実在,0.2219802186,0.01652734454
-check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 救援・左,実在,0.2094450488,0.02608045904
-check_pitcher_control.reliever_stamina.スタミナ×査定の相関 救援,実在,0.4481448062,0.01086602346
-check_pitcher_control.reliever_stamina.救援 10%,実在,40,0.2248036553
-check_pitcher_control.reliever_stamina.救援 90%,実在,55,0.4972221832
-check_pitcher_control.reliever_stamina.救援 中央,実在,47,0.5011544461
-check_pitcher_control.reliever_stamina.救援 平均,実在,46.74712394,0.08305826699
-check_pitcher_control.reliever_stamina.救援 標準偏差,実在,5.87997624,0.06226923376
-check_pitcher_control.reliever_stamina.救援・右 平均,実在,46.63347853,0.09655700817
-check_pitcher_control.reliever_stamina.救援・左 平均,実在,47.00933238,0.1521039878
-check_pitcher_control.starter_stamina.先発 10%,実在,42,0.3609643004
-check_pitcher_control.starter_stamina.先発 90%,実在,70,0.4992896965
-check_pitcher_control.starter_stamina.先発 中央,実在,56,0.3936605047
-check_pitcher_control.starter_stamina.先発・右 平均,実在,57.38516962,0.1846855577
-check_pitcher_control.starter_stamina.先発・右 標準偏差,実在,10.84702292,0.1228762748
-check_pitcher_control.starter_stamina.先発・左 平均,実在,55.25266667,0.2671985042
-check_pitcher_control.starter_stamina.先発・左 標準偏差,実在,10.47966484,0.1573169874
-check_pitcher_control.starter_stamina.左右差（左−右） 先発,実在,-2.132502952,0.3206295183
+check_pitcher_control.control_hand.先発・右 平均,実在,54.57325409,0.2158710758
+check_pitcher_control.control_hand.先発・左 平均,実在,56.10368349,0.3270305276
+check_pitcher_control.control_hand.左右差（左−右） 先発,実在,1.530429406,0.4055914773
+check_pitcher_control.control_hand.左右差（左−右） 救援,実在,-1.388760341,0.3902087933
+check_pitcher_control.control_hand.救援−先発 右,実在,-6.013505659,0.2961057212
+check_pitcher_control.control_hand.救援−先発 左,実在,-8.932695406,0.4265379837
+check_pitcher_control.control_hand.救援で60以上,実在,0.1597568917,0.005427125316
+check_pitcher_control.control_hand.救援で70以上,実在,0.02192316041,0.002799314291
+check_pitcher_control.control_hand.救援・右 10%,実在,35,0.4837822094
+check_pitcher_control.control_hand.救援・右 90%,実在,63,0.4669410237
+check_pitcher_control.control_hand.救援・右 中央,実在,48,0.1899484193
+check_pitcher_control.control_hand.救援・右 平均,実在,48.55974843,0.2007276015
+check_pitcher_control.control_hand.救援・右 標準偏差,実在,10.42638702,0.1190192535
+check_pitcher_control.control_hand.救援・左 10%,実在,33,0.4871370573
+check_pitcher_control.control_hand.救援・左 90%,実在,62,0.5260335603
+check_pitcher_control.control_hand.救援・左 中央,実在,46,0.5006528401
+check_pitcher_control.control_hand.救援・左 平均,実在,47.17098809,0.3073180283
+check_pitcher_control.control_hand.救援・左 標準偏差,実在,11.0828285,0.1673249749
+check_pitcher_control.control_hand.日本人全体の平均,実在,51.66560712,0.1321170389
+check_pitcher_control.movement.先発 平均,実在,6.53881184,0.02203694133
+check_pitcher_control.movement.先発 標準偏差,実在,1.732796109,0.01617190068
+check_pitcher_control.movement.先発 総変化量×コントロール相関,実在,0.4964235544,0.009948853003
+check_pitcher_control.movement.先発 総変化量×スタミナ相関,実在,0.4758318841,0.01011172422
+check_pitcher_control.movement.救援 平均,実在,6.271109182,0.02229471509
+check_pitcher_control.movement.救援 標準偏差,実在,1.562171173,0.01498823409
+check_pitcher_control.movement.救援 総変化量×コントロール相関,実在,0.2671763942,0.01350633531
+check_pitcher_control.movement.査定上位⅓の総変化量の平均,実在,7.426425506,0.02537203707
+check_pitcher_control.movement.査定下位⅓の総変化量の平均,実在,5.327750411,0.02483183446
+check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 全体,実在,0.4942445388,0.008042772863
+check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 救援,実在,0.2244676462,0.01404076057
+check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 救援・右,実在,0.2224265548,0.0165020787
+check_pitcher_control.reliever_stamina.コントロール×スタミナ相関 救援・左,実在,0.2330059889,0.02678476561
+check_pitcher_control.reliever_stamina.スタミナ×査定の相関 救援,実在,0.4526078105,0.01136972997
+check_pitcher_control.reliever_stamina.救援 10%,実在,40,0.2608913981
+check_pitcher_control.reliever_stamina.救援 90%,実在,55,0.4985163919
+check_pitcher_control.reliever_stamina.救援 中央,実在,47,0.4973232369
+check_pitcher_control.reliever_stamina.救援 平均,実在,46.7195572,0.08558780815
+check_pitcher_control.reliever_stamina.救援 標準偏差,実在,5.924508219,0.06773659722
+check_pitcher_control.reliever_stamina.救援・右 平均,実在,46.66477987,0.0952687804
+check_pitcher_control.reliever_stamina.救援・左 平均,実在,46.84162579,0.1559232174
+check_pitcher_control.starter_stamina.先発 10%,実在,42,0.3929926413
+check_pitcher_control.starter_stamina.先発 90%,実在,70,0.4871512411
+check_pitcher_control.starter_stamina.先発 中央,実在,56,0.4748975028
+check_pitcher_control.starter_stamina.先発・右 平均,実在,57.34442793,0.1803527433
+check_pitcher_control.starter_stamina.先発・右 標準偏差,実在,10.74733891,0.1264447196
+check_pitcher_control.starter_stamina.先発・左 平均,実在,55.44065484,0.2568075493
+check_pitcher_control.starter_stamina.先発・左 標準偏差,実在,10.49392273,0.1585538178
+check_pitcher_control.starter_stamina.左右差（左−右） 先発,実在,-1.903773092,0.3132003135
 validate_team_mode.color.ベテラン重視.age,設計,1.276573015,0.02178743812
 validate_team_mode.color.守備重視.arm,設計,1.60675926,0.176410995
 validate_team_mode.color.守備重視.fielding,設計,2.355422726,0.1727809185
