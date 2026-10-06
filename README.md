@@ -400,7 +400,7 @@ players_backup_2026-07-10.db
 
 ### まとめて流す（`scripts/run_checks.py`）
 
-下の検証スクリプトのうち、生成バランスの判定をするもの（`validate_team_mode.py`、`check_pitcher_control.py`、`check_fielder_speed.py`、`check_age_profile.py`、`check_fictional_balance.py`、`check_foreign_balance.py`、`check_draft_balance.py`）を、同じ条件で1回で流して、結果を1枚にまとめます。個別生成のCSVは、このスクリプトが `scripts/generate_*_balance_sample.py` で作ります。
+下の検証スクリプトのうち、生成バランスの判定をするもの（`validate_team_mode.py`、`check_pitcher_control.py`、`check_fielder_speed.py`、`check_fielder_batting.py`、`check_age_profile.py`、`check_fictional_balance.py`、`check_foreign_balance.py`、`check_draft_balance.py`）を、同じ条件で1回で流して、結果を1枚にまとめます。個別生成のCSVは、このスクリプトが `scripts/generate_*_balance_sample.py` で作ります。
 
 ```powershell
 python scripts/run_checks.py                       # 正式な規模。結果は reports/checks/summary.md
@@ -516,6 +516,20 @@ python scripts/check_fielder_speed.py --single-csv reports/checks/samples/fictio
 
 - 実在（2024〜2026年版の日本人野手1,103人）と比べる項目: 全体の平均、5%・25%・中央・75%・95%、ポジションごとの平均・標準偏差、打席ごとの平均（右打・左打）、同じポジションの中の左右差（一塁手・二塁手・外野手・捕手）、年齢帯ごとの差（22〜23歳から36歳〜まで。「走力 − そのポジションの平均」の平均）。
 - 年齢帯の目標は、実在の2つのデータ（年齢がわかる2026年版と、2026年版の名簿から逆算した2022〜2025年版）の平均です。実在側の誤差には、2つの差の半分を足します。21歳以下は今回変えていない（若手の補正の範囲）ので参考表示です。
+- 個別生成の架空球団用・野手は、同じ表を参考として出します（合否には使いません）。`run_checks.py` は個別生成のサンプルCSVを渡します。
+- 不合格が1件でもあれば終了コード1です（要注意・受け入れ済みは0）。
+
+### `scripts/check_fielder_batting.py`
+
+架空球団用（日本人）野手の打席ごとの能力（ミートの左右差ほか）を、球団生成で作った球団の日本人野手で判定します（球団を生成するのでCSVは不要です）。
+
+```powershell
+python scripts/check_fielder_batting.py                  # 正式: 300球団（seed 1〜300）
+python scripts/check_fielder_batting.py --teams 60       # 途中確認用
+python scripts/check_fielder_batting.py --single-csv reports/checks/samples/fictional_fielders.csv   # 個別生成の参考表も出す
+```
+
+- 実在（2024〜2026年版の日本人野手1,103人）と比べる項目: ミート・パワー・守備力・肩力・捕球の右打・左打それぞれの平均（実在±1.0）と左−右（実在±1.0）、ミートの日本人全体の平均（42.11±0.8）、ミートの左打の10%・中央・90%（実在±3）、弾道の左−右（−0.18±0.12）、21歳以下のミートの左−右（+2.5〜+5.5）。両打は人数が少ない（実在14人）ので判定しません。走力の打席差は `check_fielder_speed.py` です。
 - 個別生成の架空球団用・野手は、同じ表を参考として出します（合否には使いません）。`run_checks.py` は個別生成のサンプルCSVを渡します。
 - 不合格が1件でもあれば終了コード1です（要注意・受け入れ済みは0）。
 
