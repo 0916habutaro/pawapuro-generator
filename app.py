@@ -6971,6 +6971,20 @@ FICTIONAL_SPEED_BATS_SHIFTS = {
     "遊撃手": {"左": 2.0, "両": 2.0, "右": -2.0},
     "三塁手": {"左": 2.0, "両": 2.0, "右": -2.0},
 }
+# 打席ごとの能力のずらし（`野手の打席の型_改修指示.md`。走力は上の FICTIONAL_SPEED_BATS_SHIFTS が受け持つ）。
+# 実在は左打者のほうがミート・守備力・捕球が高く、パワー・肩力がやや低い。若手の補正のあとに足す。
+# 22歳以上は右打のミートが合っているので左打だけ上げる。21歳以下は若手の平均（check_age_profile.py）を崩さないよう、
+# 左打を上げた分だけ右打を下げる。両打は人数が少ないので、ずらさない。
+FICTIONAL_FIELDER_BATS_SHIFTS = {
+    "一般": {
+        "左": {"ミート": 5.4, "パワー": -1.3, "守備力": 1.2, "肩力": -1.2, "捕球": 1.1},
+        "右": {"パワー": 0.9, "守備力": -1.1},
+    },
+    "若手": {
+        "左": {"ミート": 2.3, "パワー": -1.2, "守備力": 1.1},
+        "右": {"ミート": -2.1, "パワー": 1.1, "守備力": -1.0},
+    },
+}
 # 弾道はパワーに揺らぎを足したスコアで決める（実在の弾道×パワー相関0.72、弾道1は2%強、弾道4は9%強）。
 FICTIONAL_TRAJECTORY_NOISE_SD = 8.0
 FICTIONAL_TRAJECTORY_THRESHOLDS = (26.0, 49.8, 71.2)
@@ -7637,6 +7651,9 @@ def fictional_fielder_abilities(rng: random.Random, abilities: dict[str, Any], p
         values, age, FICTIONAL_YOUNG_FIELDER_MEANS,
         FICTIONAL_YOUNG_FIELDER_POSITION_DEVS.get(position, (0.0,) * 6), FICTIONAL_YOUNG_FIELDER_TRANSFORM,
     )
+    bats = batting_throwing[-2:-1]  # 「右投左打」の「左」
+    for key, shift in FICTIONAL_FIELDER_BATS_SHIFTS["若手" if age and age <= FICTIONAL_YOUNG_MAX_AGE else "一般"].get(bats, {}).items():
+        values[key] += shift
     result = dict(abilities)
     for key in FICTIONAL_FIELDER_ABILITY_KEYS:
         result[key] = ability(clamp(round(values[key]), 1, 100))
