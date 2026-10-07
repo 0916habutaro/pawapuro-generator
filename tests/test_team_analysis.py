@@ -335,15 +335,18 @@ class RealDataFileTest(unittest.TestCase):
 class ValidateTeamModeCompatibilityTest(unittest.TestCase):
     @unittest.skipUnless((APP_DIR / "reports" / "real_powerpro_players_12teams" / "players.csv").exists(), "2026年版の取り込み結果が無い")
     def test_real_team_metrics_unchanged(self):
-        """validate_team_mode.py の実在12球団の査定指標（generator/real_data.py へ移す前の値）。"""
+        """validate_team_mode.py の実在12球団の査定指標（generator/real_data.py へ移す前の値）。
+
+        実在の「対ランナー」を赤特（対ランナー×）として読み直したため、投手の査定が下がった値（対ランナーの取り違えの修正）。
+        """
         sys.path.insert(0, str(APP_DIR / "scripts"))
         import validate_team_mode
 
         metrics = validate_team_mode.real_team_metrics().set_index("team")
         self.assertEqual(len(metrics), 12)
-        self.assertAlmostEqual(metrics.loc["オリックスバファローズ", "metric_top28"], 337.25)
-        self.assertAlmostEqual(metrics.loc["中日ドラゴンズ", "metric_top28"], 328.928571, places=5)
-        self.assertAlmostEqual(metrics.loc["北海道日本ハムファイターズ", "metric_pitcher_top"], 369.153846, places=5)
+        self.assertAlmostEqual(metrics.loc["オリックスバファローズ", "metric_top28"], 336.857143, places=5)
+        self.assertAlmostEqual(metrics.loc["中日ドラゴンズ", "metric_top28"], 328.535714, places=5)
+        self.assertAlmostEqual(metrics.loc["北海道日本ハムファイターズ", "metric_pitcher_top"], 368.384615, places=5)
         # 集計ファイルの2026年版の総合力・投手力・野手力も同じ値（同じ変換・同じ査定）
         stats = real_data.load_real_team_stats((2026,))
         headline = stats[stats["axis"] == ta.AXIS_HEADLINE].pivot_table(index="team", columns="metric", values="value")
