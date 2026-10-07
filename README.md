@@ -400,7 +400,7 @@ players_backup_2026-07-10.db
 
 ### まとめて流す（`scripts/run_checks.py`）
 
-下の検証スクリプトのうち、生成バランスの判定をするもの（`validate_team_mode.py`、`check_pitcher_control.py`、`check_fielder_speed.py`、`check_fielder_batting.py`、`check_age_profile.py`、`check_fictional_balance.py`、`check_foreign_balance.py`、`check_draft_balance.py`）を、同じ条件で1回で流して、結果を1枚にまとめます。個別生成のCSVは、このスクリプトが `scripts/generate_*_balance_sample.py` で作ります。
+下の検証スクリプトのうち、生成バランスの判定をするもの（`validate_team_mode.py`、`check_pitcher_control.py`、`check_fielder_speed.py`、`check_fielder_batting.py`、`check_fielder_position.py`、`check_age_profile.py`、`check_fictional_balance.py`、`check_foreign_balance.py`、`check_draft_balance.py`）を、同じ条件で1回で流して、結果を1枚にまとめます。個別生成のCSVは、このスクリプトが `scripts/generate_*_balance_sample.py` で作ります。
 
 ```powershell
 python scripts/run_checks.py                       # 正式な規模。結果は reports/checks/summary.md
@@ -531,6 +531,21 @@ python scripts/check_fielder_batting.py --single-csv reports/checks/samples/fict
 
 - 実在（2024〜2026年版の日本人野手1,103人）と比べる項目: ミート・パワー・守備力・肩力・捕球の右打・左打それぞれの平均（実在±1.0）と左−右（実在±1.0）、ミートの日本人全体の平均（42.11±0.8）、ミートの左打の10%・中央・90%（実在±3）、弾道の左−右（−0.18±0.12）、21歳以下のミートの左−右（+2.5〜+5.5）。両打は人数が少ない（実在14人）ので判定しません。走力の打席差は `check_fielder_speed.py` です。
 - 個別生成の架空球団用・野手は、同じ表を参考として出します（合否には使いません）。`run_checks.py` は個別生成のサンプルCSVを渡します。
+- 不合格が1件でもあれば終了コード1です（要注意・受け入れ済みは0）。
+
+### `scripts/check_fielder_position.py`
+
+架空球団用（日本人）野手の22歳以上の、ポジションごとの能力の型・弾道を、球団生成で作った球団の日本人野手で判定します（球団を生成するのでCSVは不要です）。
+
+```powershell
+python scripts/check_fielder_position.py                  # 正式: 300球団（seed 1〜300）
+python scripts/check_fielder_position.py --teams 60       # 途中確認用
+python scripts/check_fielder_position.py --single-csv reports/checks/samples/fictional_fielders.csv   # 個別生成の参考表も出す
+```
+
+- 実在（2024〜2026年版の日本人野手のうち21歳以下を除く1,000人。年齢は2026年版は age、2022〜2025年版は逆算年齢で、わからない選手は21歳以下に数えない）と比べる項目: ポジション（6）×能力（ミート・パワー・肩力・守備力・捕球）の平均（実在±1.5。`野手のポジション別の型_改修指示.md` 1-4の表で直した能力は±1.0）と標準偏差の比（生成÷実在が0.85〜1.20）、ポジションごとの弾道の平均（実在±0.15）と弾道1〜4の割合（実在±6ポイント）、査定の平均（実在±8）。
+- 21歳以下・走力・打席の左右差は `check_age_profile.py`・`check_fielder_speed.py`・`check_fielder_batting.py` が受け持ちます。
+- 個別生成の架空球団用・野手は、同じ表を参考として出します（合否には使いません。査定は求めません）。`run_checks.py` は個別生成のサンプルCSVを渡します。
 - 不合格が1件でもあれば終了コード1です（要注意・受け入れ済みは0）。
 
 ### `scripts/validate_ability_balance.py`

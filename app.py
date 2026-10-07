@@ -6985,6 +6985,21 @@ FICTIONAL_FIELDER_BATS_SHIFTS = {
         "右": {"ミート": -2.1, "パワー": 1.1, "守備力": -1.0},
     },
 }
+# ポジションごとの能力の型（`野手のポジション別の型_改修指示.md`。22歳以上だけ。21歳以下は若手の補正に任せる）。
+# 打席のずらしのあと、整数に丸める前に、能力ごとに 値 = c + k × (値 − c) + d をかける（c: 中心、k: 幅の倍率、d: 平均のずらし）。
+# FICTIONAL_FIELDER_POSITION_SHIFTS は21歳以下にも効くので変えず、22歳以上の実在とのずれだけをここで直す。
+FICTIONAL_FIELDER_POSITION_TYPE_TRANSFORM = {
+    "捕手": {"ミート": (40.0, 1.0, -1.5), "パワー": (53.4, 1.0, -2.6), "肩力": (71.1, 1.0, 1.5), "守備力": (50.0, 1.0, -1.6), "捕球": (52.2, 1.0, -5.0)},
+    "一塁手": {"ミート": (43.7, 0.8, 3.4), "パワー": (57.8, 1.0, 4.1), "肩力": (66.0, 1.0, -0.5), "守備力": (47.3, 0.75, 0.0), "捕球": (48.0, 1.0, 2.8)},
+    "二塁手": {"ミート": (40.0, 1.0, -1.0), "パワー": (51.8, 1.0, -1.9), "肩力": (58.1, 1.0, 1.65), "守備力": (50.0, 1.0, -2.2), "捕球": (54.2, 1.1, -0.85)},
+    "三塁手": {"ミート": (40.0, 1.0, 1.4), "パワー": (57.6, 1.0, 0.85), "守備力": (48.1, 0.8, 1.6), "捕球": (43.9, 0.74, 4.8)},
+    "遊撃手": {"ミート": (40.3, 0.8, 0.85), "パワー": (49.3, 1.0, -3.4), "肩力": (60.0, 1.0, -0.65), "守備力": (50.0, 1.0, 1.4), "捕球": (50.0, 1.1, 1.0)},
+    "外野手": {"ミート": (40.0, 1.0, -1.0), "パワー": (54.3, 1.0, 1.4), "肩力": (67.0, 1.0, -0.95), "守備力": (53.0, 1.0, -0.15), "捕球": (49.2, 0.82, -0.3)},
+}
+# 弾道のポジションごとの足し引き（22歳以上だけ）。パワーが同じでも、実在は一塁手・三塁手の弾道が高く、二遊間・外野手が低い。
+FICTIONAL_TRAJECTORY_POSITION_BONUS = {
+    "一塁手": 3.0, "三塁手": 2.3, "捕手": -0.6, "遊撃手": -3.0, "二塁手": -2.3, "外野手": -3.0,
+}
 # 弾道はパワーに揺らぎを足したスコアで決める（実在の弾道×パワー相関0.72、弾道1は2%強、弾道4は9%強）。
 FICTIONAL_TRAJECTORY_NOISE_SD = 8.0
 FICTIONAL_TRAJECTORY_THRESHOLDS = (26.0, 49.8, 71.2)
@@ -7654,12 +7669,16 @@ def fictional_fielder_abilities(rng: random.Random, abilities: dict[str, Any], p
     bats = batting_throwing[-2:-1]  # 「右投左打」の「左」
     for key, shift in FICTIONAL_FIELDER_BATS_SHIFTS["若手" if age and age <= FICTIONAL_YOUNG_MAX_AGE else "一般"].get(bats, {}).items():
         values[key] += shift
+    if age > FICTIONAL_YOUNG_MAX_AGE:
+        for key, (center, scale, shift) in FICTIONAL_FIELDER_POSITION_TYPE_TRANSFORM.get(position, {}).items():
+            values[key] = center + scale * (values[key] - center) + shift
     result = dict(abilities)
     for key in FICTIONAL_FIELDER_ABILITY_KEYS:
         result[key] = ability(clamp(round(values[key]), 1, 100))
     power = result["パワー"]["value"]
     young_bonus = fictional_young_anchor(age, *FICTIONAL_YOUNG_TRAJECTORY_BONUS, 0.0) if age and age <= FICTIONAL_YOUNG_MAX_AGE else 0.0
-    score = power + young_bonus + rng.gauss(0.0, FICTIONAL_TRAJECTORY_NOISE_SD)
+    position_bonus = FICTIONAL_TRAJECTORY_POSITION_BONUS.get(position, 0.0) if age > FICTIONAL_YOUNG_MAX_AGE else 0.0
+    score = power + young_bonus + position_bonus + rng.gauss(0.0, FICTIONAL_TRAJECTORY_NOISE_SD)
     trajectory = 1 + sum(score >= threshold for threshold in FICTIONAL_TRAJECTORY_THRESHOLDS)
     if trajectory == 1 and power > FICTIONAL_TRAJECTORY_ONE_MAX_POWER:
         trajectory = 2
