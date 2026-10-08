@@ -1,0 +1,344 @@
+#!/usr/bin/env python3
+"""架空球団用の日本人の青特の型の目標の表を作る（`青特の型_改修指示.md` 1-6）。
+
+使い方:
+    python scripts/build_fictional_special_profile.py                 # 球団生成300球団（seed 1〜300）で作って data/config/ に書く
+    python scripts/build_fictional_special_profile.py --teams 60      # 途中確認用（書き込まない。--write を付ければ書く）
+    python scripts/build_fictional_special_profile.py --no-correct     # 最後の1回の直しをしない
+
+出力: data/config/fictional_special_profile.json
+    "表"   {役割: {特能: {区分: [c, t]}}}  アプリ（app.py の fictional_special_profile_adjust）が読む。
+           c = 青特の型の補正の前の保有率、t = 目標の保有率。区分は、投手は 左・右、野手は 「ポジション|左・右」（両打は右打）。
+    "実在" 判定（scripts/check_special_profile.py）が使う、実在（2024〜2026年版の日本人）の青特の数・帯ごとの保有率。
+    "作り方" 作ったときの条件（球団の範囲、実在の年版、縮め方の定数）。
+
+作り方（指示書 1-6）:
+ 1. 実在（2024〜2026年版の日本人）から、特能ごとに全体の保有率 r_all と区分ごとの保有率を出す。
+ 2. 区分ごとの倍率を人数で縮める: m = 1 + w × (r_区分 / r_all − 1)、w = n / (n + 60)。野手は ポジションの倍率 × 打席の倍率。
+ 3. 目標 = 水準 × 倍率。生成の区分の人数の割合で平均したとき水準と同じになるようにそろえる。
+    水準は、ふつうは生成の今の全体の保有率。投手の対ランナー（青）、野手のお祭り男・春男・夏男・秋男・プレッシャーランは実在の保有率。
+    赤の対ランナー×は、実在の投げ手ごとの保有率をそのまま目標にする。
+ 4. 対象は青特（マスターの kind が red・green・gold 以外）で、ランク特能・起用法でないもの。実在で10人以上が持つもの。
+    FICTIONAL_LINKED_SPECIALS の特能と「実在にない特能」、○○キラーは除く。
+ 5. c は、青特の型の補正の前の生成（球団生成）で測る（補正を空にして流す）。
+ 6. 一度表を入れて流し、区分ごとの結果が目標からずれた分を目標に足し戻して1回だけ直す（t' = t + (t − 結果)、0〜1に収める）。
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import sys
+import tempfile
+from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+APP_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP_DIR))
+sys.path.insert(0, str(APP_DIR / "scripts"))
+
+PROFILE_PATH = APP_DIR / "data" / "config" / "fictional_special_profile.json"
+REAL_SEASONS = (2024, 2025, 2026)
+SHRINK_N = 60  # w = n / (n + SHRINK_N)
+MIN_REAL_HOLDERS = 10
+# 水準を実在の保有率にする特能
+REAL_LEVEL = {"投手": ("対ランナー",), "野手": ("お祭り男", "春男", "夏男", "秋男", "プレッシャーラン")}
+# 実在の投げ手ごとの保有率をそのまま目標にする特能（赤特）
+REAL_DIRECT = {"投手": ("対ランナー×",), "野手": ()}
+# 帯ごとの保有率を判定する、能力と連動させる特能: (役割, 特能, 能力の列, 帯の上限)
+LINKED_BANDS = (("投手", "奪三振", "球速", (147, 151, 155)), ("野手", "内野安打○", "走力", (70, 80)), ("野手", "広角打法", "ミート", (40, 50)))
+POSITIONS = ("捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手")
+
+
+def band_index(value: float, limits: tuple[int, ...]) -> int:
+    for index, limit in enumerate(limits):
+        if value <= limit:
+            return index
+    return len(limits)
+
+
+# ---------------------------------------------------------------------------
+# 実在
+# ---------------------------------------------------------------------------
+def load_real_players() -> list[dict[str, Any]]:
+    """実在（2024〜2026年版）の日本人の、区分・特能（青特と赤特。ランク特能・起用法・緑特・○○キラーを除く）・能力。"""
+    import pandas as pd
+
+    import build_real_team_reference as ref
+    from generator import real_data
+    from generator import team_analysis as ta
+
+    kinds = ta.special_kind_map()
+    foreign_keys = ref.foreign_list_keys(ref.DEFAULT_FOREIGN_LIST)
+    entry = ref.load_entry_route(ref.DEFAULT_ENTRY_ROUTE)
+    rows = []
+    with tempfile.TemporaryDirectory() as temp:
+        folders = ref.extract_seasons(ref.DEFAULT_ZIP, Path(temp))
+        folders[real_data.AGE_SEASON] = ref.DEFAULT_RAW_2026
+        for season, folder in sorted(folders.items()):
+            if season not in REAL_SEASONS:
+                continue
+            tables, _ = ref.parse_directory(folder)
+            players = ref.decorate_season(tables["players"], season, foreign_keys, entry)
+            for row in real_data.attach_real_details(players, tables["specials"], tables["breaking"]):
+                if row.get("is_foreign"):
+                    continue
+                role = "投手" if row["role"] == "投手" else "野手"
+                throws, bats = ta._hand_parts(row.get("throws_bats"))
+                specials = []
+                for name, special_kind in row.get("specials") or []:
+                    if special_kind in ("rank", "usage", "green"):
+                        continue
+                    if name not in kinds and name.endswith("キラー"):
+                        continue
+                    specials.append(name)
+                number = lambda key: None if pd.isna(row.get(key)) else float(row[key])  # noqa: E731
+                hand = throws if role == "投手" else bats
+                rows.append({
+                    "role": role,
+                    "hand": "左" if hand == "左" else "右",
+                    "position": "投手" if role == "投手" else str(row.get("main_position") or ""),
+                    "specials": specials, "球速": number("top_speed"), "走力": number("run_speed"), "ミート": number("contact"),
+                })
+    return rows
+
+
+def eligible_specials(role: str) -> list[str]:
+    """表の対象にする特能（指示書 1-6 の 4）の候補。実在の人数の条件は別に見る。"""
+    import app
+
+    master = app.load_master_data()
+    linked = {name for name, *_ in app.FICTIONAL_LINKED_SPECIALS[role]}
+    banned = set(app.FICTIONAL_NOT_REAL_SPECIALS[role]) | set(app.USAGE_SPECIAL_NAMES) | linked
+    names = []
+    for row in master.abilities:
+        name = str(row["name"])
+        if row["kind"] in ("red", "green", "gold") or name in banned or app.is_ranked_special(row):
+            continue
+        if app.special_target_role(row) in (role, "共通"):
+            names.append(name)
+    return names
+
+
+def real_statistics(real: list[dict[str, Any]]) -> dict[str, Any]:
+    """判定に使う実在の値（青特の数、赤特の数、帯ごとの保有率）。"""
+    from generator import team_analysis as ta
+
+    def counts(row: dict[str, Any]) -> tuple[int, int]:
+        c = ta.special_counts(row["specials"])
+        return c["n_blue"], c["n_red"]
+
+    def mean_n(rows: list[dict[str, Any]], index: int = 0) -> dict[str, float]:
+        values = [counts(r)[index] for r in rows]
+        mean = sum(values) / len(values)
+        sd = (sum((v - mean) ** 2 for v in values) / (len(values) - 1)) ** 0.5
+        return {"平均": round(mean, 4), "標準偏差": round(sd, 4), "人数": len(values)}
+
+    pitchers = [r for r in real if r["role"] == "投手"]
+    fielders = [r for r in real if r["role"] == "野手"]
+    stats: dict[str, Any] = {
+        "投手": {hand: mean_n([r for r in pitchers if r["hand"] == hand]) for hand in ("左", "右")},
+        "投手_赤": mean_n(pitchers, 1),
+        "野手": {"全体": mean_n(fielders), **{hand: mean_n([r for r in fielders if r["hand"] == hand]) for hand in ("左", "右")}},
+        "ポジション": {pos: mean_n([r for r in fielders if r["position"] == pos]) for pos in POSITIONS},
+        "帯": {},
+    }
+    for role, name, key, limits in LINKED_BANDS:
+        rows = pitchers if role == "投手" else fielders
+        out = {}
+        for hand in ("右", "左"):
+            for band in range(len(limits) + 1):
+                group = [r for r in rows if r["hand"] == hand and r[key] is not None and band_index(r[key], limits) == band]
+                out[f"{hand}|{band}"] = {"保有率": round(sum(name in r["specials"] for r in group) / len(group), 4) if group else None, "人数": len(group)}
+        stats["帯"][name] = out
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# 生成（球団生成）
+# ---------------------------------------------------------------------------
+_MASTER = None
+
+
+def _init_worker(override: dict[str, Any] | None) -> None:
+    logging.disable(logging.WARNING)
+    global _MASTER
+    import app
+
+    _MASTER = app.load_master_data()
+    app.FICTIONAL_SPECIAL_PROFILE_OVERRIDE = override
+
+
+def _team_players(team_seed: int) -> list[dict[str, Any]]:
+    import app
+    from generator import team_analysis as ta
+
+    rows = []
+    for p in app.generate_team(team_seed, master=_MASTER)["players"]:
+        if p.get("roster_origin") == "foreign_import":
+            continue
+        role = "投手" if p.get("role") == "投手" else "野手"
+        throws, bats = ta._hand_parts(p.get("batting_throwing"))
+        hand = throws if role == "投手" else bats
+        abilities = p.get("abilities") or {}
+        rows.append({
+            "team": team_seed, "role": role, "hand": "左" if hand == "左" else "右", "age": p.get("age"),
+            "position": "投手" if role == "投手" else str(p.get("position", "")), "player_class": p.get("player_class"),
+            "specials": [str(n) for n in p.get("special_abilities") or []],
+            "球速": ta._number(abilities.get("球速")), "走力": ta._number(abilities.get("走力")), "ミート": ta._number(abilities.get("ミート")),
+        })
+    return rows
+
+
+def collect_players(teams: int, start: int = 1, workers: int | None = None, override: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """球団生成の日本人の選手。override が None なら data/config の表、{} なら青特の型の補正なし、辞書ならその表を使う。"""
+    workers = workers or max(1, (os.cpu_count() or 2) - 2)
+    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker, initargs=(override,)) as pool:
+        chunks = list(pool.map(_team_players, range(start, start + teams), chunksize=4))
+    return [row for chunk in chunks for row in chunk]
+
+
+def segment_of(row: dict[str, Any]) -> str:
+    return row["hand"] if row["role"] == "投手" else f"{row['position']}|{row['hand']}"
+
+
+def holding_rates(players: list[dict[str, Any]], names: list[str]) -> dict[str, dict[str, dict[str, float]]]:
+    """{役割: {特能: {区分: 保有率}}} と区分の人数 {役割: {"": {区分: 割合}}}。"""
+    count: dict[str, Counter] = {"投手": Counter(), "野手": Counter()}
+    held: dict[str, dict[str, Counter]] = {"投手": defaultdict(Counter), "野手": defaultdict(Counter)}
+    for p in players:
+        seg = segment_of(p)
+        count[p["role"]][seg] += 1
+        for name in p["specials"]:
+            held[p["role"]][name][seg] += 1
+    result: dict[str, dict[str, dict[str, float]]] = {}
+    for role in count:
+        result[role] = {name: {seg: held[role][name][seg] / n for seg, n in count[role].items()} for name in names}
+        result[role][""] = {seg: n / sum(count[role].values()) for seg, n in count[role].items()}
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 表を作る
+# ---------------------------------------------------------------------------
+def shrunk_multiplier(rate: float, overall: float, n: int) -> float:
+    if overall <= 0:
+        return 1.0
+    w = n / (n + SHRINK_N)
+    return 1.0 + w * (rate / overall - 1.0)
+
+
+def build_table(real: list[dict[str, Any]], baseline: list[dict[str, Any]]) -> dict[str, Any]:
+    """実在と、補正なしの生成（baseline）から、{役割: {特能: {区分: [c, t]}}} を作る。"""
+    table: dict[str, Any] = {}
+    for role in ("投手", "野手"):
+        real_role = [r for r in real if r["role"] == role]
+        names = sorted(set(eligible_specials(role)) | set(REAL_LEVEL[role]) | set(REAL_DIRECT[role]))
+        rates = holding_rates(baseline, names)[role]
+        fractions = rates[""]
+        generated_overall = {name: sum(fractions[seg] * rates[name].get(seg, 0.0) for seg in fractions) for name in names}
+        n_real = len(real_role)
+        by_hand = Counter(r["hand"] for r in real_role)
+        by_position = Counter(r["position"] for r in real_role)
+        table[role] = {}
+        for name in names:
+            holders = [r for r in real_role if name in r["specials"]]
+            if len(holders) < MIN_REAL_HOLDERS and name not in REAL_LEVEL[role] and name not in REAL_DIRECT[role]:
+                continue
+            r_all = len(holders) / n_real
+            hand_rate = {h: sum(name in r["specials"] for r in real_role if r["hand"] == h) / by_hand[h] for h in by_hand}
+            entry: dict[str, list[float]] = {}
+            if name in REAL_DIRECT[role]:
+                for seg in fractions:
+                    entry[seg] = [round(rates[name].get(seg, 0.0), 4), round(hand_rate[seg], 4)]
+                table[role][name] = entry
+                continue
+            level = r_all if name in REAL_LEVEL[role] else generated_overall[name]
+            raw: dict[str, float] = {}
+            for seg in fractions:
+                if role == "投手":
+                    raw[seg] = shrunk_multiplier(hand_rate[seg], r_all, by_hand[seg])
+                else:
+                    position, hand = seg.split("|")
+                    pos_rate = sum(name in r["specials"] for r in real_role if r["position"] == position) / by_position[position]
+                    m_pos = shrunk_multiplier(pos_rate, r_all, by_position[position])
+                    m_hand = shrunk_multiplier(hand_rate[hand], r_all, by_hand[hand])
+                    raw[seg] = m_pos * m_hand
+            scale = 1.0 / sum(fractions[seg] * raw[seg] for seg in fractions)
+            for seg in fractions:
+                entry[seg] = [round(rates[name].get(seg, 0.0), 4), round(min(1.0, level * raw[seg] * scale), 4)]
+            table[role][name] = entry
+    return table
+
+
+def correct_table(table: dict[str, Any], result: list[dict[str, Any]]) -> dict[str, Any]:
+    """表を入れて流した結果が目標からずれた分を、目標に足し戻す（t' = t + (t − 結果)、0〜1に収める）。"""
+    corrected: dict[str, Any] = {}
+    for role, specials in table.items():
+        rates = holding_rates(result, sorted(specials))[role]
+        corrected[role] = {}
+        for name, segments in specials.items():
+            corrected[role][name] = {
+                seg: [c, round(min(1.0, max(0.0, t + (t - rates[name].get(seg, 0.0)))), 4)] for seg, (c, t) in segments.items()
+            }
+    return corrected
+
+
+def forced_zero(table: dict[str, Any]) -> dict[str, Any]:
+    """右投手のクロスファイヤーの目標は 0 のまま（直しても動かさない）。"""
+    if "クロスファイヤー" in table["投手"] and "右" in table["投手"]["クロスファイヤー"]:
+        table["投手"]["クロスファイヤー"]["右"][1] = 0.0
+    return table
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="架空球団用の日本人の青特の型の目標の表を作ります。")
+    parser.add_argument("--teams", type=int, default=300, help="球団数（正式は300）")
+    parser.add_argument("--start", type=int, default=1)
+    parser.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    parser.add_argument("--no-correct", action="store_true", help="最後の1回の直しをしない")
+    parser.add_argument("--write", action="store_true", help="球団数が300でなくても書き込む")
+    parser.add_argument("--cache-dir", type=Path, default=None, help="途中の結果（補正なしの生成・表を入れた生成）を置く場所。調整の確認用")
+    args = parser.parse_args()
+
+    real = load_real_players()
+    print(f"実在（{REAL_SEASONS[0]}〜{REAL_SEASONS[-1]}年版の日本人）: 投手 {sum(r['role'] == '投手' for r in real)}人／野手 {sum(r['role'] == '野手' for r in real)}人", flush=True)
+    cache = args.cache_dir
+    baseline_path = cache / "baseline.json" if cache else None
+    if baseline_path and baseline_path.exists():
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    else:
+        baseline = collect_players(args.teams, args.start, args.workers, override={})
+        if baseline_path:
+            cache.mkdir(parents=True, exist_ok=True)
+            baseline_path.write_text(json.dumps(baseline, ensure_ascii=False), encoding="utf-8")
+    print(f"補正なしの生成: {len(baseline)}人（{args.teams}球団）", flush=True)
+    table = build_table(real, baseline)
+    if cache:
+        (cache / "table_before_correction.json").write_text(json.dumps(table, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
+    if not args.no_correct:
+        result = collect_players(args.teams, args.start, args.workers, override=table)
+        if cache:
+            (cache / "result.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        table = forced_zero(correct_table(table, result))
+    meta = {
+        "作った日": date.today().isoformat(), "球団生成": f"seed {args.start}〜{args.start + args.teams - 1}（{args.teams}球団）",
+        "実在の年版": list(REAL_SEASONS), "縮め方 n/(n+k) の k": SHRINK_N, "対象の実在の最低人数": MIN_REAL_HOLDERS,
+        "最後の直し": not args.no_correct, "作り方": "scripts/build_fictional_special_profile.py",
+    }
+    output = {"作り方": meta, "実在": real_statistics(real), "表": table}
+    for role in table:
+        print(f"{role}: 特能 {len(table[role])}種")
+    if args.teams == 300 or args.write:
+        PROFILE_PATH.write_text(json.dumps(output, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        print(f"書き込みました: {PROFILE_PATH.relative_to(APP_DIR)}")
+    else:
+        print("球団数が300でないので書き込みません（--write で書く）。")
+
+
+if __name__ == "__main__":
+    main()

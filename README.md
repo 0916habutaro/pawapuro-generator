@@ -402,7 +402,7 @@ players_backup_2026-07-10.db
 
 ### まとめて流す（`scripts/run_checks.py`）
 
-下の検証スクリプトのうち、生成バランスの判定をするもの（`validate_team_mode.py`、`check_pitcher_control.py`、`check_fielder_speed.py`、`check_fielder_batting.py`、`check_fielder_position.py`、`check_age_profile.py`、`check_fictional_balance.py`、`check_foreign_balance.py`、`check_draft_balance.py`）を、同じ条件で1回で流して、結果を1枚にまとめます。個別生成のCSVは、このスクリプトが `scripts/generate_*_balance_sample.py` で作ります。
+下の検証スクリプトのうち、生成バランスの判定をするもの（`validate_team_mode.py`、`check_pitcher_control.py`、`check_fielder_speed.py`、`check_fielder_batting.py`、`check_fielder_position.py`、`check_special_profile.py`、`check_age_profile.py`、`check_fictional_balance.py`、`check_foreign_balance.py`、`check_draft_balance.py`）を、同じ条件で1回で流して、結果を1枚にまとめます。個別生成のCSVは、このスクリプトが `scripts/generate_*_balance_sample.py` で作ります。
 
 ```powershell
 python scripts/run_checks.py                       # 正式な規模。結果は reports/checks/summary.md
@@ -549,6 +549,35 @@ python scripts/check_fielder_position.py --single-csv reports/checks/samples/fic
 - 21歳以下・走力・打席の左右差は `check_age_profile.py`・`check_fielder_speed.py`・`check_fielder_batting.py` が受け持ちます。
 - 個別生成の架空球団用・野手は、同じ表を参考として出します（合否には使いません。査定は求めません）。`run_checks.py` は個別生成のサンプルCSVを渡します。
 - 不合格が1件でもあれば終了コード1です（要注意・受け入れ済みは0）。
+
+### `scripts/check_special_profile.py`
+
+架空球団用（日本人）の青特の型（投手の左右・野手の打席とポジション）を、球団生成で作った球団の日本人で判定します（`青特の型_改修指示.md` 2-1。球団を生成するのでCSVは不要です）。
+
+```powershell
+python scripts/check_special_profile.py                  # 正式: 300球団（seed 1〜300）
+python scripts/check_special_profile.py --teams 60       # 途中確認用
+python scripts/check_special_profile.py --single-csv reports/checks/samples/fictional_all.csv   # 個別生成の参考表も出す
+```
+
+- 実在（2024〜2026年版の日本人。投手1,126人／野手1,103人）と比べる項目: 投手の青特の数（左・右、実在±0.25）と左右差（左−右、実在 +0.76±0.30）、野手の青特の数（全体・左打・右打、実在±0.20）と左右差（左打−右打、実在 +0.63±0.25）、ポジションごとの青特の数（実在±0.30）、投手の赤特の数（実在±0.10）、右投手のクロスファイヤー（0人。設計の判定）、奪三振（球速の帯）・内野安打○（走力の帯）・広角打法（ミートの帯）の、帯 × 投打ごとの保有率（実在±0.08。人数の少ない帯は誤差が大きく、要注意の幅が広がる）。
+- 青特の数は球団分析と同じ数え方（マスターの kind が red・green・gold 以外。ランク特能・起用法は数えない）で、実在の○○キラー（球団名の付く特能）は数えません。実在の値は `data/config/fictional_special_profile.json` の「実在」にあります。
+- 個別生成の架空球団用（投手と野手）は、同じ表を参考として出します（合否には使いません）。`run_checks.py` は個別生成のサンプルCSVを渡します。
+- 不合格が1件でもあれば終了コード1です（要注意・受け入れ済みは0）。
+
+### `scripts/build_fictional_special_profile.py`
+
+青特の型の補正（`app.py` の `fictional_special_profile_adjust`）が使う、特能ごと・区分ごとの目標の保有率の表 `data/config/fictional_special_profile.json` を作ります。表は手で書かず、このスクリプトで作り直します（実在データ `local_data/` と `data/raw/` が必要です）。
+
+```powershell
+python scripts/build_fictional_special_profile.py                 # 球団生成300球団（seed 1〜300）で作って書き込む（数分）
+python scripts/build_fictional_special_profile.py --teams 60      # 途中確認用（--write を付けなければ書き込まない）
+python scripts/build_fictional_special_profile.py --cache-dir 作業用フォルダ   # 補正なしの生成を使い回す（調整の確認用）
+```
+
+- 作り方: (1) 実在から特能ごとの保有率と区分ごと（投手は左・右、野手は ポジション × 打席）の保有率を出す。(2) 区分ごとの倍率を人数で縮める（`m = 1 + w × (r_区分 / r_all − 1)`、`w = n / (n + 60)`）。(3) 目標 = 水準 × 倍率（生成の区分の人数の割合で平均して水準と同じになるようにそろえる。水準は生成の今の全体の保有率。投手の対ランナー（青）と野手のお祭り男・春男・夏男・秋男・プレッシャーランは実在、対ランナー×は実在の投げ手ごとの保有率）。(4) 補正なしの生成で「今の保有率 c」を測る。(5) 表を入れて一度流し、結果が目標からずれた分を目標に足し戻す（1回だけ）。
+- 出力の「表」は `{役割: {特能: {区分: [c, t]}}}`、「実在」は判定（`check_special_profile.py`）が使う実在の値、「作り方」は作ったときの条件です。
+- `app.py` の補正の段階の定数（年齢の重みなど）や補正より前の段階を変えたときは、表を作り直してください（c と、補正後のずれが変わります）。
 
 ### `scripts/validate_ability_balance.py`
 
