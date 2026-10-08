@@ -118,7 +118,9 @@ http://localhost:8501
 - 日本人投手の球速は、実在（2024〜2026年版）と同じく左投手のほうが約3km/h遅く、救援のほうが先発より速くなります（平均の目安: 先発 右151・左149、救援 右153・左150）。
 - 日本人投手のコントロールは、実在（2024〜2026年版）と同じく先発は左投手、救援は右投手のほうが少し高く、救援は先発より約6〜10低くなります。救援は幅も実在に合わせて縮めています（球団生成での平均の目安: 先発 右54・左57、救援 右49・左47。個別生成は二軍級が多いので、どれも1〜2低めです）。先発のスタミナは実在に合わせて、左が約2低く、幅が広くなります（先発のスタミナの目安: 右 平均57・左 55、標準偏差 約11。21歳以下は若手の補正で合わせているので対象外）。
 - 日本人の救援投手のスタミナは、実在（2024〜2026年版）と同じく先発より散らばりが小さく、コントロールの良し悪しとの結びつきも弱くなります（救援のコントロール×スタミナの相関の目安 0.2、先発は 0.5。救援のスタミナの平均の目安 47、標準偏差 6。21歳以下は若手の補正で合わせているので対象外）。
-- 日本人投手の変化球の総変化量（ストレート系第二球種を除く）は、実在と同じく、コントロール・スタミナの良い投手ほど多くなります（先発の総変化量×コントロールの相関の目安 0.5、救援 0.3。球団内で査定が下位の投手は平均5.3、上位は7.4）。変化球の種類・数・方向は変えません。19歳以下は変化量の上限で決まるので対象外です。
+- 日本人投手のランク特能のうち、ノビ・回復は先発・救援で別の重みを使います（実在は先発のノビ・回復が低く、救援が高い）。対左打者は投げ手ごとの重みです。
+- 日本人の救援（中継ぎ・抑え）は、実在と同じく球速の速い投手ほど変化球の数が少なくなります（球速の帯ごとの確率で、3球種を2球種に、2球種を1球種に減らす。外すのは変化量がいちばん小さい球で、決め球は残す）。先発の変化球は変えません。
+- 日本人投手の変化球の総変化量（ストレート系第二球種を除く）は、実在と同じく、コントロール・スタミナの良い投手ほど多くなります（先発の総変化量×コントロールの相関の目安 0.5、救援 0.3。球団内で査定が下位の投手は平均5.3、上位は7.4）。この増減では変化球の種類・数・方向は変えません。19歳以下は変化量の上限で決まるので対象外です。
 
 ### ドラフト候補用
 
@@ -402,7 +404,7 @@ players_backup_2026-07-10.db
 
 ### まとめて流す（`scripts/run_checks.py`）
 
-下の検証スクリプトのうち、生成バランスの判定をするもの（`validate_team_mode.py`、`check_pitcher_control.py`、`check_fielder_speed.py`、`check_fielder_batting.py`、`check_fielder_position.py`、`check_special_profile.py`、`check_age_profile.py`、`check_fictional_balance.py`、`check_foreign_balance.py`、`check_draft_balance.py`）を、同じ条件で1回で流して、結果を1枚にまとめます。個別生成のCSVは、このスクリプトが `scripts/generate_*_balance_sample.py` で作ります。
+下の検証スクリプトのうち、生成バランスの判定をするもの（`validate_team_mode.py`、`check_pitcher_control.py`、`check_fielder_speed.py`、`check_fielder_batting.py`、`check_fielder_position.py`、`check_special_profile.py`、`check_pitcher_rank_pitches.py`、`check_age_profile.py`、`check_fictional_balance.py`、`check_foreign_balance.py`、`check_draft_balance.py`）を、同じ条件で1回で流して、結果を1枚にまとめます。個別生成のCSVは、このスクリプトが `scripts/generate_*_balance_sample.py` で作ります。
 
 ```powershell
 python scripts/run_checks.py                       # 正式な規模。結果は reports/checks/summary.md
@@ -564,6 +566,23 @@ python scripts/check_special_profile.py --single-csv reports/checks/samples/fict
 - 青特の数は球団分析と同じ数え方（マスターの kind が red・green・gold 以外。ランク特能・起用法は数えない）で、実在の○○キラー（球団名の付く特能）は数えません。実在の値は `data/config/fictional_special_profile.json` の「実在」にあります。
 - 緑特の型の項目: 緑特の数（球団分析と同じ数え方。調子・投球位置・慎重盗塁・フル出場は数えない。投手は実在±0.05、野手は実在±0.10）、緑特の型の対象の特能（投手: 変化球中心・速球中心・テンポ○、野手: 積極打法・慎重打法・強振多用・ミート多用・チームプレイ○・積極走塁・積極守備）の、投手は役割（先発・救援）、野手はポジションごとの保有率（実在±0.06。人数の少ない区分は誤差が大きく、要注意の幅が広がる）、速球中心の救援−先発とテンポ○の先発−救援（実在±0.05）。実在の値は `data/config/fictional_green_profile.json` の「実在」にあります。
 - 個別生成の架空球団用（投手と野手）は、同じ表を参考として出します（合否には使いません）。`run_checks.py` は個別生成のサンプルCSVを渡します。
+- 不合格が1件でもあれば終了コード1です（要注意・受け入れ済みは0）。
+
+### `scripts/check_pitcher_rank_pitches.py`
+
+架空球団用（日本人）投手のランク特能の役割の差（ノビ・回復・対左打者）と、救援の変化球の数を、球団生成で作った球団の日本人投手で判定します（`投手のランク特能と救援の球種数_改修指示.md` 2-1。球団を生成するのでCSVは不要です）。
+
+```powershell
+python scripts/check_pitcher_rank_pitches.py                  # 正式: 300球団（seed 1〜300）
+python scripts/check_pitcher_rank_pitches.py --teams 60       # 途中確認用
+python scripts/check_pitcher_rank_pitches.py --single-csv reports/checks/samples/fictional_pitchers.csv   # 個別生成の参考表も出す
+python scripts/check_pitcher_rank_pitches.py --build-real     # 実在の集計 data/config/pitcher_rank_pitches_real.json を作り直す
+```
+
+- 実在（2024〜2026年版の日本人投手1,126人）と比べる項目: ランク点の合計（先発・救援。実在（2024〜2026）と実在（2026年版）の間±0.4）、ノビ・回復・対左打者のランク点（先発・救援。実在±0.3）、救援の変化球数の平均（実在±0.05）、救援の1球種の割合（2〜6%）、救援の球速の帯（〜147／148〜151／152〜155／156〜）ごとの変化球数（実在±0.10。人数の少ない帯は誤差が大きく、要注意の幅が広がる）、救援の総変化量の平均（実在±0.15）。
+- 役割は position が「先発」なら先発、「中継ぎ」「抑え」は救援（実在は起用の最初の文字が「先」なら先発）。ランク点は査定のランク点（D=0。持たない項目はD）。変化球数・総変化量は第一球種の変化球だけを数えます（ストレート系第二球種・第二球種は数えない。球団分析と同じ）。
+- 実在の値は `data/config/pitcher_rank_pitches_real.json`（`--build-real` で実在の元データ `data/raw/` と `local_data/` から作る）。実在側の誤差は、平均は 標準偏差/√人数 で見積もります。
+- 参考として、ランクの割合（A〜G）、救援の2・3球種の割合、先発の変化球数・総変化量を出します。個別生成の架空球団用・投手は、同じ表を参考として出します（合否には使いません）。`run_checks.py` は個別生成のサンプルCSVを渡します。
 - 不合格が1件でもあれば終了コード1です（要注意・受け入れ済みは0）。
 
 ### `scripts/build_fictional_special_profile.py`

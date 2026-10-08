@@ -61,6 +61,9 @@ def test_young_pitchers_keep_hand_gap(pitchers):
 
 def test_hand_shift_does_not_move_control_or_stamina(monkeypatch):
     # 左右のずらし・裾はコントロール・スタミナの連動に入れない。ずらしを0にしても制球・スタミナ・変化球は同じ。
+    # 救援の球種を減らす段階は球速の帯で確率が変わるので止めて比べる（その段階は test_pitcher_rank_reliever_pitches.py）。
+    monkeypatch.setattr(app, "FICTIONAL_RELIEVER_DROP_THIRD", (0.0,) * 4)
+    monkeypatch.setattr(app, "FICTIONAL_RELIEVER_DROP_SECOND", (0.0,) * 4)
     seeds = range(1, 201)
     current = [app.generate_player("投手", "架空球団用", MASTER, seed=seed) for seed in seeds]
     monkeypatch.setattr(app, "FICTIONAL_PITCHER_HAND_SPEED_SHIFTS", {key: 0.0 for key in app.FICTIONAL_PITCHER_HAND_SPEED_SHIFTS})

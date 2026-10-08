@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from unittest.mock import patch
 
 import app
 
@@ -54,12 +55,14 @@ def test_phase3_left_direction_four_never_uses_right_only_pitch():
 def test_phase3_direction_mode_does_not_change_final_pitch_count_for_same_seed():
     master = app.load_master_data()
     try:
-        for seed in range(330100, 330300):
-            app.PHASE3_DIRECTION_SETS_ENABLED = False
-            before = app.generate_player("投手", "架空球団用", master, seed)
-            app.PHASE3_DIRECTION_SETS_ENABLED = True
-            after = app.generate_player("投手", "架空球団用", master, seed)
-            assert len({ball["name"] for ball in before["breaking_balls"]}) == len({ball["name"] for ball in after["breaking_balls"]})
+        # 救援の球種を減らす段階（架空球団バランス）は、外す球を変化量で選ぶので方向の構成に左右される。Phase 3 と別の処理なので止めて比べる。
+        with patch.object(app, "FICTIONAL_RELIEVER_DROP_THIRD", (0.0,) * 4), patch.object(app, "FICTIONAL_RELIEVER_DROP_SECOND", (0.0,) * 4):
+            for seed in range(330100, 330300):
+                app.PHASE3_DIRECTION_SETS_ENABLED = False
+                before = app.generate_player("投手", "架空球団用", master, seed)
+                app.PHASE3_DIRECTION_SETS_ENABLED = True
+                after = app.generate_player("投手", "架空球団用", master, seed)
+                assert len({ball["name"] for ball in before["breaking_balls"]}) == len({ball["name"] for ball in after["breaking_balls"]})
     finally:
         app.PHASE3_DIRECTION_SETS_ENABLED = True
 
