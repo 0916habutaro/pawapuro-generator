@@ -70,7 +70,8 @@ class AgeProfileGenerationTest(unittest.TestCase):
                     continue
                 names = player["special_abilities"]
                 self.assertEqual(len(names), len(set(names)))
-                self.assertFalse(set(names) & app.FICTIONAL_NOT_REAL_SPECIALS[role])
+                # 対ランナー×（赤）は、青特の型の補正（実在の投げ手ごとの保有率）で付ける
+                self.assertFalse(set(names) & (app.FICTIONAL_NOT_REAL_SPECIALS[role] - {"対ランナー×"}))
                 low, high = app.special_count_bounds("架空球団用", player["player_class"])
                 self.assertLessEqual(sum(app.is_countable_special(name) for name in names), high)
 

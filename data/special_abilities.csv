@@ -215,3 +215,7 @@ name,kind,group,power,weight,target_role
 キャッチャーE,neutral,g210_216,neutral,10,野手
 キャッチャーF,red,g210_216,red,5,野手
 キャッチャーG,red,g210_216,red,2,野手
+お祭り男,blue,u217,normal,0,野手
+春男,blue,u218,normal,0,野手
+夏男,blue,u219,normal,0,野手
+秋男,blue,u220,normal,0,野手

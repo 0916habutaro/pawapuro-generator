@@ -40,8 +40,9 @@ def test_fictional_pitcher_aptitudes_include_starter_reliever_swingmen():
 
 
 def test_fictional_players_have_no_specials_missing_from_real_japanese_players():
+    # 対ランナー×（赤）は、最初の抽選では出さないが、青特の型の補正（実在の投げ手ごとの保有率）で付ける。
     for player in PITCHERS:
-        assert not set(player["special_abilities"]) & app.FICTIONAL_NOT_REAL_SPECIALS["投手"]
+        assert not set(player["special_abilities"]) & (app.FICTIONAL_NOT_REAL_SPECIALS["投手"] - {"対ランナー×"})
     for player in FIELDERS:
         assert not set(player["special_abilities"]) & app.FICTIONAL_NOT_REAL_SPECIALS["野手"]
 

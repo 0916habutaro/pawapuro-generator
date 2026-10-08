@@ -83,6 +83,6 @@ def test_check_ids_are_stable_and_unique():
 
 
 def test_fixed_and_accepted_ids_use_known_script_prefixes():
-    known = ("check_age_profile.", "check_pitcher_control.", "check_fielder_speed.", "check_fielder_batting.", "check_fielder_position.", "check_fictional_balance.", "check_foreign_balance.", "check_draft_balance.", "validate_team_mode.")
+    known = ("check_age_profile.", "check_pitcher_control.", "check_fielder_speed.", "check_fielder_batting.", "check_fielder_position.", "check_special_profile.", "check_fictional_balance.", "check_foreign_balance.", "check_draft_balance.", "validate_team_mode.")
     for key in list(checklib.baselines()) + list(checklib.accepted_deviations()):
         assert key.startswith(known), key
