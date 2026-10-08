@@ -1,5 +1,5 @@
 {
   "date": "2026-10-08",
   "reason": "実在の対ランナーの読み直し（PR #116）: 実在の投手の青特・赤特・査定と、check_age_profile の判定用の特能の一覧・実在の査定の目標値が変わった。あわせて、check_age_profile の野手の値は PR #115 のあと更新されていなかったので今のコードの値にそろえた（生成は同じ）",
-  "commit": "f3c3973（ブランチ claude/tairunner-fix） + 未コミットの変更あり"
+  "commit": "bc91dfd（ブランチ claude/tairunner-fix）"
 }
