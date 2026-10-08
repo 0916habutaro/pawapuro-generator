@@ -7115,6 +7115,16 @@ def fictional_adjust_specials(rng: random.Random, master: MasterData, role: str,
     乱数を引く回数が変わり、そのあとの共有の乱数（ランク特能・体重）の並びがずれてしまう。そこで、結果は共有の乱数のコピーで求め、
     共有の乱数は改修前の抽選（投打の差なし・実在にない特能も改修前の一覧）を空回しして改修前と同じだけ進める。
     """
+    # 【空回し（くうまわし）の作りと、直すときの注意】
+    # 目的: この関数のあとに共有の乱数（rng）を使う抽選（ランク特能・体重）の並びを、改修前と同じに保つこと。
+    # 作り: 結果（返す特能）は、rng のコピー（fork）で新しい計算（投打の保有率・新しい「実在にない特能」）を回して求める。
+    #       rng 本体は、改修前の計算（hand=None＝投打の差なし、改修前の一覧）を、結果を捨てて回すだけにし、改修前と同じ回数だけ進める。
+    #       つまり「改修前の計算」は、乱数を進めるためだけに残してある（返す値には使わない）。
+    # 注意: ①下の2回目の呼び出しの引数（hand=None、_ADDED を引いた一覧）と、_fictional_adjust_specials の乱数の引き方（引く順番・回数）を
+    #       変えてはいけない。変えるとランク特能・体重が改修前とずれる（tests/test_special_profile.py の
+    #       test_profile_stage_changes_only_special_abilities などで確認できる）。
+    #       ②新しい計算（1回目）のほうは、乱数の引き方を自由に変えてよい。ほかの抽選には響かない。
+    #       ③ランク特能・体重の並びをずらしてよいときは、この空回しごと外して、テストの指紋（tests/fixtures）を更新する。
     fork = random.Random()
     fork.setstate(rng.getstate())
     result = _fictional_adjust_specials(fork, master, role, player_class, specials, values, is_allowed, hand, FICTIONAL_NOT_REAL_SPECIALS[role])
