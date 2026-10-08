@@ -33,6 +33,8 @@ PAGES = {
 }
 RANKS = ["A", "B", "C", "E", "F", "G"]
 ABILITY_NORMALIZATION = {"対ランナー○": "対ランナー"}
+# 実在のページでは赤特（マイナスのページ）の「対ランナー」が、アプリでは「対ランナー×」（青の「対ランナー」と区別する）
+POLARITY_ABILITY_NORMALIZATION = {("対ランナー", "マイナス"): "対ランナー×"}
 ROLE_ABILITY_NORMALIZATION = {"存在感": {"投手": "投手存在感", "野手": "野手存在感"}}
 
 
@@ -95,13 +97,15 @@ def parse_player_names(cell: str) -> list[str]:
     return names
 
 
-def normalize_ability_name(name: str, role: str) -> str:
+def normalize_ability_name(name: str, role: str, polarity: str = "") -> str:
+    if (name, polarity) in POLARITY_ABILITY_NORMALIZATION:
+        return POLARITY_ABILITY_NORMALIZATION[(name, polarity)]
     if name in ROLE_ABILITY_NORMALIZATION:
         return ROLE_ABILITY_NORMALIZATION[name].get(role, name)
     return ABILITY_NORMALIZATION.get(name, name)
 
 
-def extract_page(body: str, role: str, known_names: set[str]) -> tuple[dict[tuple[str, str], set[str]], Counter[str], int, int]:
+def extract_page(body: str, role: str, known_names: set[str], polarity: str = "") -> tuple[dict[tuple[str, str], set[str]], Counter[str], int, int]:
     player_specials: dict[tuple[str, str], set[str]] = defaultdict(set)
     excluded: Counter[str] = Counter()
     ability_count = 0
@@ -111,7 +115,7 @@ def extract_page(body: str, role: str, known_names: set[str]) -> tuple[dict[tupl
         cells = re.findall(r"<td\b[^>]*>(.*?)</td>", row, flags=re.I | re.S)
         if len(cells) < 2:
             continue
-        ability = normalize_ability_name(parse_ability_name(cells[0]), role)
+        ability = normalize_ability_name(parse_ability_name(cells[0]), role, polarity)
         if not ability or ability == "特殊能力":
             continue
         players = parse_player_names(cells[1])
@@ -137,7 +141,7 @@ def collect_real_data(master) -> RealData:
         if body is None:
             statuses.append(PageStatus(page, source, status, 0, 0, detail))
             continue
-        players, excluded, ability_count, pair_count = extract_page(body, info["role"], known_names)
+        players, excluded, ability_count, pair_count = extract_page(body, info["role"], known_names, info["polarity"])
         for key, values in players.items():
             all_players[key].update(values)
         all_excluded.update(excluded)

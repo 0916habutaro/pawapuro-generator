@@ -307,6 +307,28 @@ def row_to_record(cells: list[tuple[str, str]], current_team: str) -> tuple[dict
 
 
 
+# 特能の名前の読み替え（実在のHTML → アプリの特能マスター）。
+# HTMLの「対ランナー」は class="M"（赤）で、アプリでは「対ランナー×」。青のほうはHTMLでは「対ランナー○」と書かれ、
+# アプリでは「対ランナー」。色（class）を捨てると赤の「対ランナー」が青として数えられるため、ここで読み替える。
+SPECIAL_NAME_BY_CLASS = {("対ランナー", "M"): "対ランナー×"}
+SPECIAL_NAME_ALIASES = {"対ランナー○": "対ランナー"}
+
+
+def normalize_special_name(name: str, css_class: str = "") -> str:
+    """特能名をアプリの名前にそろえる。css_class は <b> の class 属性（例 "M"・"PM st9"）。"""
+    classes = css_class.split()
+    for (base, cls), renamed in SPECIAL_NAME_BY_CLASS.items():
+        if name == base and cls in classes:
+            return renamed
+    return SPECIAL_NAME_ALIASES.get(name, name)
+
+
+def parse_normal_specials(specials_block: str) -> list[str]:
+    """特殊能力欄から、ランクのない特能（青・赤・青赤どちらにもなる特能）の名前をアプリの名前で返す。"""
+    found = re.findall(r'<b\b[^>]*class="([^"]*[PNM][^"]*)"[^>]*>([^<][^<>]*?)</b>', specials_block, re.I | re.S)
+    return [normalize_special_name(clean_text(text), css_class) for css_class, text in found]
+
+
 def extract_class_text(block: str, class_name: str) -> str:
     m = re.search(rf'<b\b[^>]*class="[^"]*\b{re.escape(class_name)}\b[^"]*"[^>]*>(.*?)</b>', block, re.I | re.S)
     return clean_text(m.group(1)) if m else ""
@@ -475,7 +497,7 @@ def parse_real_blocks(doc: SourceDoc) -> ParseResult:
             result.breaking.append(sf)
         specials_block = (inner_by_id(block, f"pa{num_id}") if role == "投手" else inner_by_id(block, f"ba{num_id}"))
         ranked = [clean_text(a + b) for a, b in re.findall(r'<b\b[^>]*class="[^"]*[PNM][^"]*"[^>]*>\s*<b>(.*?)</b>\s*<b>(.*?)</b>', specials_block, re.I | re.S)]
-        normals = [clean_text(x) for x in re.findall(r'<b\b[^>]*class="[^"]*[PNM][^"]*"[^>]*>([^<][^<>]*?)</b>', specials_block, re.I | re.S)]
+        normals = parse_normal_specials(specials_block)
         green_specials, usage_values = parse_usage_block_specials(specials_block)
         current["ranked_specials"] = "、".join(ranked)
         current["specials"] = "、".join([n for n in normals if n not in {"起用法"}])
