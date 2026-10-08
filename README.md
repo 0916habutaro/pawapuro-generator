@@ -274,6 +274,7 @@ python scripts/build_real_team_reference.py --zip-2022-2025 data/raw/powerpro_20
 - HTML の取り込みは `scripts/import_real_powerpro_players.py` の関数をそのまま使います（zip は年版ごとに一時フォルダへ展開。年版は zip 内のフォルダ名で決めます）。
 - 集計は `generator/team_analysis.py` の関数で作ります（生成球団の集計と同じコード）。
 - 実在のHTMLでは「対ランナー」は赤特（class=M）で、青のほうは「対ランナー○」と書かれています。取り込みでは、赤を「対ランナー×」、青を「対ランナー」（アプリの特能マスターの名前）にそろえます（読み替えの表は `import_real_powerpro_players.py` の `SPECIAL_NAME_BY_CLASS`・`SPECIAL_NAME_ALIASES`）。この読み替えの導入で、実在の投手の青特・赤特の数と査定が変わりました（対ランナー×の投手169人が、青特−1・赤特+1・査定−11）。
+- 実在の年齢別データ `data/reference/real_age_profile_2022_2026.csv` を作った元のスクリプトはありません。読み方を直したときは、変わる分だけを `python scripts/update_real_age_profile.py` で足します（旧い読み方と新しい読み方の差。特能の数は名前の一覧で数えるので変わらないことを確かめ、投手の査定の平均・SDと `check_age_profile.py` の実在の査定の目標値だけを直す。二重に足さない印つき）。
 - `reports/real_team_reference/summary.md` に、件数、人数構成CSVとの整合チェック、外国人数の差、実在60チームの主要指標の分布が出ます。
 
 ## 選手履歴
