@@ -163,8 +163,19 @@ def special_kind_map(path: str = str(SPECIAL_MASTER_PATH)) -> dict[str, str]:
         return {str(row["name"]): str(row.get("kind") or "blue") for row in csv.DictReader(f)}
 
 
-def special_color(name: str, kind: str | None = None) -> str:
-    """青・赤・金・緑のどれか。種類はマスターの kind（アプリの special_kind と同じ）。マスターに無い名前は青。"""
+# どの色にも数えない特能（緑特の型_改修指示.md 1-1）。マスターでは kind=green だが、実在では特殊能力の欄ではなく
+# 起用法の欄にある（実在の取り込みでは special_kind=usage になり、数えていない）。生成の側も同じ扱いにして、実在と同じ数え方にする。
+# マスターに無い名前は青に数えるので、ここで先に外す（青に回さない）。
+USAGE_LIKE_SPECIALS = frozenset({
+    "投手調子極端", "投手調子安定", "野手調子極端", "野手調子安定", "投球位置左", "投球位置右", "慎重盗塁", "フル出場",
+})
+
+
+def special_color(name: str, kind: str | None = None) -> str | None:
+    """青・赤・金・緑のどれか。種類はマスターの kind（アプリの special_kind と同じ）。マスターに無い名前は青。
+    起用法扱いの特能（USAGE_LIKE_SPECIALS）は None（どの色にも数えない）。"""
+    if str(name) in USAGE_LIKE_SPECIALS:
+        return None
     kind = kind or special_kind_map().get(str(name), "blue")
     return {"red": "n_red", "gold": "n_gold", "green": "n_green"}.get(kind, "n_blue")
 
@@ -174,7 +185,9 @@ def special_counts(names: Iterable[str], kinds: Iterable[str | None] | None = No
     names = list(names)
     kinds = list(kinds) if kinds is not None else [None] * len(names)
     for name, kind in zip(names, kinds):
-        counts[special_color(name, kind)] += 1
+        color = special_color(name, kind)
+        if color is not None:
+            counts[color] += 1
     return counts
 
 

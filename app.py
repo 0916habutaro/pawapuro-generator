@@ -7455,7 +7455,25 @@ def fictional_special_profile_adjust(seed: int, master: MasterData, player: dict
     segment = fictional_special_segment(role, str(player.get("batting_throwing", "")), str(player.get("position", "")))
     age_weight = interpolate_age_chance(int(player.get("age") or 0), FICTIONAL_SPECIAL_PROFILE_AGE_RATIOS[role]) / FICTIONAL_SPECIAL_PROFILE_AGE_NORM[role]
     remove_weight = interpolate_age_chance(int(player.get("age") or 0), FICTIONAL_SPECIAL_PROFILE_REMOVE_RATIOS[role])
-    rng = make_sub_rng(seed, FICTIONAL_SPECIAL_PROFILE_NAMESPACE)
+    selected = fictional_profile_apply(
+        make_sub_rng(seed, FICTIONAL_SPECIAL_PROFILE_NAMESPACE), master, player, specials, is_allowed, table, segment, age_weight, remove_weight,
+    )
+    group_of = {str(row["name"]): str(row.get("group", "")) for row in master.abilities}
+    allowed_names = role_allowed_specials(master, role)
+    check = lambda name: name in allowed_names and is_allowed(name)  # noqa: E731
+    for name in FICTIONAL_SPECIAL_PROFILE_FORBIDDEN.get((role, segment), ()):
+        fictional_set_special(selected, name, False, group_of, False, check)
+    return selected
+
+
+def fictional_profile_apply(
+    rng: random.Random, master: MasterData, player: dict[str, Any], specials: list[str], is_allowed: Any,
+    table: dict[str, dict[str, list[float]]], segment: str, age_weight: float, remove_weight: float,
+) -> list[str]:
+    """表（{特能: {区分: [c, t]}}）の特能ごとに乱数を1回ずつ引き、区分の保有率を c から t へ寄せる（青特の型・緑特の型で共通）。
+    持っていて t < c なら確率 (1 − t/c) × remove_weight で外し、持っていなくて t > c なら確率 (t − c)/(1 − c) × age_weight で足す。
+    特能数（is_countable_special）の上限・下限は守る。足すときは同じグループの特能を外さない（force=False）。"""
+    role = str(player.get("role", ""))
     low, high = special_count_bounds("架空球団用", str(player.get("player_class", "")))
     allowed_names = role_allowed_specials(master, role)
     group_of = {str(row["name"]): str(row.get("group", "")) for row in master.abilities}
@@ -7473,9 +7491,68 @@ def fictional_special_profile_adjust(seed: int, master: MasterData, player: dict
                 selected.remove(name)
         elif target > current and roll < (target - current) / (1.0 - current) * age_weight and not (is_countable_special(name) and countable() >= high):
             fictional_set_special(selected, name, True, group_of, False, check)
-    for name in FICTIONAL_SPECIAL_PROFILE_FORBIDDEN.get((role, segment), ()):
-        fictional_set_special(selected, name, False, group_of, False, check)
     return selected
+
+
+# ---------------------------------------------------------------------------
+# 緑特の型の補正（緑特の型_改修指示.md 1-2）
+# 実在は、救援に速球中心が多く先発にテンポ○が多い。一塁手に強振多用、二遊間にミート多用・積極守備が多い、など。
+# 青特の型の補正（fictional_special_profile_adjust）の後に、同じ仕組みで緑特の保有率を区分ごとに実在に寄せる。
+# 区分は、投手は「投げ手|役割」（役割は 先発・救援。中継ぎ・抑えは救援）、野手は青特と同じ「ポジション|打席」（両打は右打）。
+# 目標の水準は実在の全体の保有率（青特と違い、全体の水準も実在に寄せる）。
+# 表 data/config/fictional_green_profile.json は scripts/build_fictional_special_profile.py --green で作る（{役割: {特能: {区分: [c, t]}}}）。
+# 対象は 投手: 変化球中心・速球中心・テンポ○、野手: 積極打法・慎重打法・強振多用・ミート多用・チームプレイ○・積極走塁・積極守備。
+# 選球眼・積極盗塁（能力と連動）、慎重盗塁・調子・投球位置（実在では起用法）は対象にしない。
+# 乱数は新しい名前空間のサブRNGから、表の特能ごとに1回ずつ引く（青特の段階の乱数の並びを変えない）。
+# ---------------------------------------------------------------------------
+FICTIONAL_GREEN_PROFILE_NAMESPACE = "fictional_green_profile_v1"
+FICTIONAL_GREEN_PROFILE_PATH = DATA_DIR / "config" / "fictional_green_profile.json"
+# 足すときの年齢の重み。実在の緑特の数の年齢による比（年齢, 比）を、生成の年齢の分布で平均1にする（÷ 規格化の値）。
+# 緑特は年齢でよく増える（実在の緑特の数 〜21歳 → 34歳以上: 野手 0.6 → 1.7、投手 0.2 → 0.75）。check_age_profile.py の緑特の判定を崩さないため。
+FICTIONAL_GREEN_PROFILE_AGE_RATIOS = {
+    "野手": [(20, 0.50), (23.5, 0.74), (27.5, 1.16), (31.5, 1.49), (36, 1.40)],
+    "投手": [(20, 0.58), (23.5, 0.70), (27.5, 1.00), (31.5, 1.36), (36, 2.27)],
+}
+FICTIONAL_GREEN_PROFILE_AGE_NORM = {"野手": 1.03, "投手": 1.039}
+# 外すときの年齢の重み（外す確率にかける）。(1 / 足すときの比) の 0.7乗（上限 1.8）。年長ほど外しにくくする。
+FICTIONAL_GREEN_PROFILE_REMOVE_RATIOS = {
+    "野手": [(20, 1.62), (23.5, 1.23), (27.5, 0.90), (31.5, 0.76), (36, 0.79)],
+    "投手": [(20, 1.46), (23.5, 1.28), (27.5, 1.00), (31.5, 0.81), (36, 0.25)],
+}
+# 作り方のスクリプトが表を差し替えるための変数（None なら data/config の表を使う。{} なら補正しない）。
+FICTIONAL_GREEN_PROFILE_OVERRIDE: dict[str, Any] | None = None
+
+
+@lru_cache(maxsize=1)
+def load_fictional_green_profile() -> dict[str, Any]:
+    """緑特の型の表（{役割: {特能: {区分: [c, t]}}}）。ファイルがなければ空（補正しない）。"""
+    if not FICTIONAL_GREEN_PROFILE_PATH.exists():
+        return {}
+    return json.loads(FICTIONAL_GREEN_PROFILE_PATH.read_text(encoding="utf-8")).get("表", {})
+
+
+def fictional_green_segment(role: str, batting_throwing: str, position: str) -> str:
+    """緑特の型の区分。投手は「左・右|先発・救援」、野手は「ポジション|左・右」（青特の型と同じ）。"""
+    hand = fictional_special_hand(role, batting_throwing)
+    if role == "投手":
+        return f"{hand}|{'先発' if position == '先発' else '救援'}"
+    return f"{position}|{hand}"
+
+
+def fictional_green_profile_adjust(seed: int, master: MasterData, player: dict[str, Any], specials: list[str], is_allowed: Any) -> list[str]:
+    """緑特の保有率を、区分（投手は投げ手×役割、野手はポジション×打席）ごとに表の目標に寄せる（緑特の型）。"""
+    role = str(player.get("role", ""))
+    profile = FICTIONAL_GREEN_PROFILE_OVERRIDE if FICTIONAL_GREEN_PROFILE_OVERRIDE is not None else load_fictional_green_profile()
+    table = profile.get(role)
+    if not table:
+        return specials
+    segment = fictional_green_segment(role, str(player.get("batting_throwing", "")), str(player.get("position", "")))
+    age = int(player.get("age") or 0)
+    age_weight = interpolate_age_chance(age, FICTIONAL_GREEN_PROFILE_AGE_RATIOS[role]) / FICTIONAL_GREEN_PROFILE_AGE_NORM[role]
+    remove_weight = interpolate_age_chance(age, FICTIONAL_GREEN_PROFILE_REMOVE_RATIOS[role])
+    return fictional_profile_apply(
+        make_sub_rng(seed, FICTIONAL_GREEN_PROFILE_NAMESPACE), master, player, specials, is_allowed, table, segment, age_weight, remove_weight,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -7757,6 +7834,7 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
         seed, master, player, player["special_abilities"], abilities, {"球速": speed, "コントロール": control}, is_allowed,
     )
     player["special_abilities"] = fictional_special_profile_adjust(seed, master, player, player["special_abilities"], is_allowed)
+    player["special_abilities"] = fictional_green_profile_adjust(seed, master, player, player["special_abilities"], is_allowed)
 
     def link_shift(group: str) -> int:
         if group == "ノビ":
@@ -7862,6 +7940,7 @@ def apply_fictional_fielder_balance(player: dict[str, Any], seed: int, master: M
     )
     player["special_abilities"] = fictional_age_adjust_specials(seed, master, player, player["special_abilities"], abilities, values, is_allowed)
     player["special_abilities"] = fictional_special_profile_adjust(seed, master, player, player["special_abilities"], is_allowed)
+    player["special_abilities"] = fictional_green_profile_adjust(seed, master, player, player["special_abilities"], is_allowed)
     speed, arm = values["走力"], values["肩力"]
 
     def link_shift(group: str) -> int:

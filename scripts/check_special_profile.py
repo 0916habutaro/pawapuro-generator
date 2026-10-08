@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-架空球団用（日本人）の青特の型（投手の左右・野手の打席とポジション）を、球団生成で判定する（`青特の型_改修指示.md` 2-1）。
+架空球団用（日本人）の青特の型（投手の左右・野手の打席とポジション）と緑特の型（投手の役割・野手のポジション）を、
+球団生成で判定する（`青特の型_改修指示.md` 2-1、`緑特の型_改修指示.md` 2-1）。
 
 使い方:
     python scripts/check_special_profile.py                 # 正式: 球団生成300球団（seed 1〜300）
@@ -15,6 +16,9 @@
 - 判定する項目（指示書2-1）: 投手の青特の数（左・右）と左右差、野手の青特の数（全体・左打・右打）と左右差、
   ポジションごとの青特の数、投手の赤特の数、右投手のクロスファイヤー（0人）、
   奪三振・内野安打○・広角打法の、能力の帯 × 投打ごとの保有率。
+- 緑特の型の項目（緑特の型_改修指示.md 2-1）: 緑特の数（球団分析と同じ数え方。調子・投球位置・慎重盗塁・フル出場は数えない）、
+  緑特の型の対象の特能の、役割（投手は先発・救援）・ポジション（野手）ごとの保有率、速球中心の救援−先発、テンポ○の先発−救援。
+  実在の値は data/config/fictional_green_profile.json の「実在」。
 - 個別生成（架空球団用・投手と野手 各5000人）は同じ表を参考として出す（合否には使わない）。
 - 判定の種類・誤差・合否の付け方は checklib.py。誤差は、生成側は球団、実在側は実在の人数から見積もる（平均の標準誤差、保有率は二項分布）。
 - 終了コード: 不合格が1件でもあれば 1（要注意・受け入れ済みは 0）。
@@ -36,12 +40,19 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import checklib  # noqa: E402
-from build_fictional_special_profile import LINKED_BANDS, POSITIONS, PROFILE_PATH, band_index, collect_players  # noqa: E402
+from build_fictional_special_profile import (  # noqa: E402
+    GREEN_PROFILE_PATH, GREEN_SPECIALS, LINKED_BANDS, PITCHER_ROLES, POSITIONS, PROFILE_PATH, band_index, collect_players,
+)
 from checklib import Checks  # noqa: E402
 
 SCRIPT = "check_special_profile"
 # 合格の範囲（指示書2-1）
 TOL_PITCHER, TOL_PITCHER_DIFF, TOL_FIELDER, TOL_FIELDER_DIFF, TOL_POSITION, TOL_RED, TOL_BAND = 0.25, 0.30, 0.20, 0.25, 0.30, 0.10, 0.08
+# 緑特の型（緑特の型_改修指示.md 2-1）: 緑特の数 投手・野手、区分ごとの保有率、速球中心・テンポ○の役割の差
+TOL_GREEN = {"投手": 0.05, "野手": 0.10}
+TOL_GREEN_RATE, TOL_GREEN_DIFF = 0.06, 0.05
+# 役割の差を判定する特能: (特能, 引かれる側, 引く側)
+GREEN_ROLE_DIFFS = (("速球中心", "救援", "先発"), ("テンポ○", "先発", "救援"))
 SECTIONS = {
     "pitcher_blue": "投手の青特の数（実在は2024〜2026年版の日本人。○○キラーを数えない）",
     "pitcher_diff": "投手の青特の左右差（左−右）",
@@ -51,12 +62,24 @@ SECTIONS = {
     "fielder_diff": "野手の青特の左右差（左打−右打）",
     "position_blue": "ポジションごとの青特の数",
     "linked": "能力と連動する特能の、帯 × 投打ごとの保有率（奪三振＝球速、内野安打○＝走力、広角打法＝ミート）",
+    "green_count": "緑特の数（球団分析と同じ数え方。調子・投球位置・慎重盗塁・フル出場は起用法として数えない）",
+    "green_rate": "緑特の型の対象の特能の保有率（投手は役割、野手はポジションごと）",
+    "green_diff": "緑特の役割の差（速球中心は救援−先発、テンポ○は先発−救援）",
 }
 # 改修前（球団生成 seed 1〜300、PR #116 の main 06bb1c7）の値は、そのコミットで同じスクリプトを流して表示用に出す（コードには持たない）。
 
 
 def real_reference() -> dict:
     return json.loads(PROFILE_PATH.read_text(encoding="utf-8"))["実在"]
+
+
+def real_green_reference() -> dict:
+    return json.loads(GREEN_PROFILE_PATH.read_text(encoding="utf-8"))["実在"]
+
+
+def green_group_column(role: str) -> str:
+    """緑特の型の判定の区分の列（投手は役割、野手はポジション）。"""
+    return "prole" if role == "投手" else "position"
 
 
 def players_frame(rows: list[dict]) -> pd.DataFrame:
@@ -67,6 +90,9 @@ def players_frame(rows: list[dict]) -> pd.DataFrame:
     counts = frame["specials"].map(ta.special_counts)
     frame["n_blue"] = counts.map(lambda c: c["n_blue"]).astype(float)
     frame["n_red"] = counts.map(lambda c: c["n_red"]).astype(float)
+    frame["n_green"] = counts.map(lambda c: c["n_green"]).astype(float)
+    for name in sorted({name for names in GREEN_SPECIALS.values() for name in names}):
+        frame[name] = frame["specials"].map(lambda names, name=name: name in names)
     frame["クロスファイヤー"] = frame["specials"].map(lambda names: "クロスファイヤー" in names)
     for _role, name, _key, _limits in LINKED_BANDS:
         frame[name] = frame["specials"].map(lambda names, name=name: name in names)
@@ -87,6 +113,7 @@ def single_frame(path: Path) -> pd.DataFrame:
         rows.append({
             "team": "single", "role": role, "hand": "左" if (text.startswith("左投") if role == "投手" else text[2:3] == "左") else "右",
             "position": "投手" if role == "投手" else str(record["position"]),
+            "prole": ("先発" if record["position"] == "先発" else "救援") if role == "投手" else None,
             "specials": json.loads(record["special_abilities_json"]), "球速": value("球速"), "走力": value("走力"), "ミート": value("ミート"),
         })
     return players_frame(rows)
@@ -151,6 +178,20 @@ def evaluate(frame: pd.DataFrame, prefix: str = SCRIPT, info: bool = False) -> C
                     continue
                 label = f"{name} {hand}{'投' if role == '投手' else '打'} {key}{band_text(limits, band)}"
                 add("linked", f"{name}_{hand}_{band}", label, float(d[name].mean()), max(0.0, reference - TOL_BAND), min(1.0, reference + TOL_BAND), f"{reference:.3f}", "{:.3f}")
+    green = real_green_reference()
+    for role, rows in (("投手", pitchers), ("野手", fielders)):
+        around("green_count", role, f"{role} 緑特の数", float(rows["n_green"].mean()), green["緑特の数"][role]["平均"], TOL_GREEN[role])
+    for role, rows in (("投手", pitchers), ("野手", fielders)):
+        column, groups = green_group_column(role), (PITCHER_ROLES if role == "投手" else POSITIONS)
+        for name in GREEN_SPECIALS[role]:
+            for group in groups:
+                reference = green["保有率"][role][name][group]["保有率"]
+                value = float(rows[rows[column] == group][name].mean())
+                add("green_rate", f"{name}_{group}", f"{name} {group}", value, max(0.0, reference - TOL_GREEN_RATE), min(1.0, reference + TOL_GREEN_RATE), f"{reference:.3f}", "{:.3f}")
+    for name, plus, minus in GREEN_ROLE_DIFFS:
+        rate = lambda group, name=name: float(pitchers[pitchers["prole"] == group][name].mean())  # noqa: E731
+        reference = green["保有率"]["投手"][name][plus]["保有率"] - green["保有率"]["投手"][name][minus]["保有率"]
+        add("green_diff", name, f"{name} {plus}−{minus}", rate(plus) - rate(minus), reference - TOL_GREEN_DIFF, reference + TOL_GREEN_DIFF, f"{reference:.3f}", "{:.3f}")
     return checks
 
 
@@ -184,6 +225,16 @@ def real_errors(prefix: str = SCRIPT) -> dict[str, float]:
             if entry["保有率"] is not None:
                 hand, band = key.split("|")
                 se[f"{prefix}.linked.{name}_{hand}_{band}"] = rate_se(entry["保有率"], entry["人数"])
+    green = real_green_reference()
+    for role, entry in green["緑特の数"].items():
+        se[f"{prefix}.green_count.{role}"] = mean_se(entry)
+    for role, specials in green["保有率"].items():
+        for name, groups in specials.items():
+            for group, entry in groups.items():
+                if group != "全体":
+                    se[f"{prefix}.green_rate.{name}_{group}"] = rate_se(entry["保有率"], entry["人数"])
+    for name, plus, minus in GREEN_ROLE_DIFFS:
+        se[f"{prefix}.green_diff.{name}"] = math.hypot(se[f"{prefix}.green_rate.{name}_{plus}"], se[f"{prefix}.green_rate.{name}_{minus}"])
     return se
 
 
@@ -210,6 +261,8 @@ def print_reference(frame: pd.DataFrame) -> None:
         bands = pd.cut(ages["age"], [0, 21, 25, 29, 33, 99], labels=["〜21", "22〜25", "26〜29", "30〜33", "34〜"])
         print("\n[年齢帯ごとの青特の数（参考。実在 投手 1.83／2.39／3.33／3.71／4.11（22〜25は2.39）、野手 1.09／1.85／2.94／3.28／4.36）]")
         print(ages.groupby(["role", bands], observed=True)["n_blue"].mean().round(2).unstack().to_string())
+        print("\n[年齢帯ごとの緑特の数（参考。実在 投手 0.17／0.16／0.32／0.36／0.74、野手 0.57／0.95／1.29／1.80／1.69）]")
+        print(ages.groupby(["role", bands], observed=True)["n_green"].mean().round(2).unstack().to_string())
 
 
 def main() -> None:

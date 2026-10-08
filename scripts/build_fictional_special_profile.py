@@ -5,12 +5,17 @@
     python scripts/build_fictional_special_profile.py                 # 球団生成300球団（seed 1〜300）で作って data/config/ に書く
     python scripts/build_fictional_special_profile.py --teams 60      # 途中確認用（書き込まない。--write を付ければ書く）
     python scripts/build_fictional_special_profile.py --no-correct     # 最後の1回の直しをしない
+    python scripts/build_fictional_special_profile.py --green          # 緑特の型の表を作る（data/config/fictional_green_profile.json）
 
 出力: data/config/fictional_special_profile.json
     "表"   {役割: {特能: {区分: [c, t]}}}  アプリ（app.py の fictional_special_profile_adjust）が読む。
            c = 青特の型の補正の前の保有率、t = 目標の保有率。区分は、投手は 左・右、野手は 「ポジション|左・右」（両打は右打）。
     "実在" 判定（scripts/check_special_profile.py）が使う、実在（2024〜2026年版の日本人）の青特の数・帯ごとの保有率。
     "作り方" 作ったときの条件（球団の範囲、実在の年版、縮め方の定数）。
+出力（--green）: data/config/fictional_green_profile.json（緑特の型。`緑特の型_改修指示.md` 1-2）
+    "表"   {役割: {特能: {区分: [c, t]}}}  アプリ（app.py の fictional_green_profile_adjust）が読む。
+           区分は、投手は「左・右|先発・救援」、野手は「ポジション|左・右」。c は緑特の型の補正の前（青特の型の補正の後）の保有率。
+    "実在" 判定（scripts/check_special_profile.py）が使う、実在の緑特の数と、対象の特能の役割・ポジションごとの保有率。
 
 作り方（指示書 1-6）:
  1. 実在（2024〜2026年版の日本人）から、特能ごとに全体の保有率 r_all と区分ごとの保有率を出す。
@@ -22,6 +27,12 @@
     FICTIONAL_LINKED_SPECIALS の特能と「実在にない特能」、○○キラーは除く。
  5. c は、青特の型の補正の前の生成（球団生成）で測る（補正を空にして流す）。
  6. 一度表を入れて流し、区分ごとの結果が目標からずれた分を目標に足し戻して1回だけ直す（t' = t + (t − 結果)、0〜1に収める）。
+
+緑特の型の作り方（--green。`緑特の型_改修指示.md` 1-2）: 上の 1〜6 と同じ。違うのは次の点。
+ - 対象は GREEN_SPECIALS の特能（投手: 変化球中心・速球中心・テンポ○、野手: 積極打法など7種）。
+ - 区分の倍率は、投手は 投げ手の倍率 × 役割（先発・救援）の倍率、野手は ポジションの倍率 × 打席の倍率。
+ - 水準は実在の全体の保有率（全体の水準も実在に寄せる）。
+ - c は、緑特の型の補正を空にして（青特の型の補正は入れて）流した生成で測る。
 """
 from __future__ import annotations
 
@@ -42,6 +53,13 @@ sys.path.insert(0, str(APP_DIR))
 sys.path.insert(0, str(APP_DIR / "scripts"))
 
 PROFILE_PATH = APP_DIR / "data" / "config" / "fictional_special_profile.json"
+GREEN_PROFILE_PATH = APP_DIR / "data" / "config" / "fictional_green_profile.json"
+# 緑特の型の表の対象（指示書 1-2）。選球眼・積極盗塁（能力と連動）、慎重盗塁・調子・投球位置（実在では起用法）は対象にしない。
+GREEN_SPECIALS = {
+    "投手": ("変化球中心", "速球中心", "テンポ○"),
+    "野手": ("積極打法", "慎重打法", "強振多用", "ミート多用", "チームプレイ○", "積極走塁", "積極守備"),
+}
+PITCHER_ROLES = ("先発", "救援")
 REAL_SEASONS = (2024, 2025, 2026)
 SHRINK_N = 60  # w = n / (n + SHRINK_N)
 MIN_REAL_HOLDERS = 10
@@ -89,8 +107,10 @@ def load_real_players() -> list[dict[str, Any]]:
                     continue
                 role = "投手" if row["role"] == "投手" else "野手"
                 throws, bats = ta._hand_parts(row.get("throws_bats"))
-                specials = []
+                specials, greens = [], []
                 for name, special_kind in row.get("specials") or []:
+                    if special_kind == "green":
+                        greens.append(name)
                     if special_kind in ("rank", "usage", "green"):
                         continue
                     if name not in kinds and name.endswith("キラー"):
@@ -103,6 +123,8 @@ def load_real_players() -> list[dict[str, Any]]:
                     "hand": "左" if hand == "左" else "右",
                     "position": "投手" if role == "投手" else str(row.get("main_position") or ""),
                     "specials": specials, "球速": number("top_speed"), "走力": number("run_speed"), "ミート": number("contact"),
+                    # 緑特（実在の special_kind が green の12種）と、投手の役割（球団分析と同じ。起用の最初の文字が「先」なら先発）
+                    "greens": greens, "prole": ("先発" if str(row.get("pitcher_roles") or "")[:1] == "先" else "救援") if role == "投手" else None,
                 })
     return rows
 
@@ -164,13 +186,14 @@ def real_statistics(real: list[dict[str, Any]]) -> dict[str, Any]:
 _MASTER = None
 
 
-def _init_worker(override: dict[str, Any] | None) -> None:
+def _init_worker(override: dict[str, Any] | None, green_override: dict[str, Any] | None = None) -> None:
     logging.disable(logging.WARNING)
     global _MASTER
     import app
 
     _MASTER = app.load_master_data()
     app.FICTIONAL_SPECIAL_PROFILE_OVERRIDE = override
+    app.FICTIONAL_GREEN_PROFILE_OVERRIDE = green_override
 
 
 def _team_players(team_seed: int) -> list[dict[str, Any]]:
@@ -188,16 +211,20 @@ def _team_players(team_seed: int) -> list[dict[str, Any]]:
         rows.append({
             "team": team_seed, "role": role, "hand": "左" if hand == "左" else "右", "age": p.get("age"),
             "position": "投手" if role == "投手" else str(p.get("position", "")), "player_class": p.get("player_class"),
+            "prole": ("先発" if p.get("position") == "先発" else "救援") if role == "投手" else None,
             "specials": [str(n) for n in p.get("special_abilities") or []],
             "球速": ta._number(abilities.get("球速")), "走力": ta._number(abilities.get("走力")), "ミート": ta._number(abilities.get("ミート")),
         })
     return rows
 
 
-def collect_players(teams: int, start: int = 1, workers: int | None = None, override: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """球団生成の日本人の選手。override が None なら data/config の表、{} なら青特の型の補正なし、辞書ならその表を使う。"""
+def collect_players(
+    teams: int, start: int = 1, workers: int | None = None, override: dict[str, Any] | None = None, green_override: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """球団生成の日本人の選手。override が None なら data/config の表、{} なら青特の型の補正なし、辞書ならその表を使う。
+    green_override は緑特の型の表で、使い方は同じ。"""
     workers = workers or max(1, (os.cpu_count() or 2) - 2)
-    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker, initargs=(override,)) as pool:
+    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker, initargs=(override, green_override)) as pool:
         chunks = list(pool.map(_team_players, range(start, start + teams), chunksize=4))
     return [row for chunk in chunks for row in chunk]
 
@@ -206,12 +233,17 @@ def segment_of(row: dict[str, Any]) -> str:
     return row["hand"] if row["role"] == "投手" else f"{row['position']}|{row['hand']}"
 
 
-def holding_rates(players: list[dict[str, Any]], names: list[str]) -> dict[str, dict[str, dict[str, float]]]:
+def green_segment_of(row: dict[str, Any]) -> str:
+    """緑特の型の区分。投手は「左・右|先発・救援」、野手は青特と同じ。"""
+    return f"{row['hand']}|{row['prole']}" if row["role"] == "投手" else segment_of(row)
+
+
+def holding_rates(players: list[dict[str, Any]], names: list[str], segment: Any = segment_of) -> dict[str, dict[str, dict[str, float]]]:
     """{役割: {特能: {区分: 保有率}}} と区分の人数 {役割: {"": {区分: 割合}}}。"""
     count: dict[str, Counter] = {"投手": Counter(), "野手": Counter()}
     held: dict[str, dict[str, Counter]] = {"投手": defaultdict(Counter), "野手": defaultdict(Counter)}
     for p in players:
-        seg = segment_of(p)
+        seg = segment(p)
         count[p["role"]][seg] += 1
         for name in p["specials"]:
             held[p["role"]][name][seg] += 1
@@ -275,17 +307,95 @@ def build_table(real: list[dict[str, Any]], baseline: list[dict[str, Any]]) -> d
     return table
 
 
-def correct_table(table: dict[str, Any], result: list[dict[str, Any]]) -> dict[str, Any]:
+def correct_table(table: dict[str, Any], result: list[dict[str, Any]], segment: Any = segment_of) -> dict[str, Any]:
     """表を入れて流した結果が目標からずれた分を、目標に足し戻す（t' = t + (t − 結果)、0〜1に収める）。"""
     corrected: dict[str, Any] = {}
     for role, specials in table.items():
-        rates = holding_rates(result, sorted(specials))[role]
+        rates = holding_rates(result, sorted(specials), segment)[role]
         corrected[role] = {}
         for name, segments in specials.items():
             corrected[role][name] = {
                 seg: [c, round(min(1.0, max(0.0, t + (t - rates[name].get(seg, 0.0)))), 4)] for seg, (c, t) in segments.items()
             }
     return corrected
+
+
+def build_green_table(real: list[dict[str, Any]], baseline: list[dict[str, Any]]) -> dict[str, Any]:
+    """緑特の型の表 {役割: {特能: {区分: [c, t]}}}。水準は実在の全体の保有率。倍率は 投げ手×役割（投手）、ポジション×打席（野手）。"""
+    table: dict[str, Any] = {}
+    for role in ("投手", "野手"):
+        real_role = [r for r in real if r["role"] == role]
+        names = list(GREEN_SPECIALS[role])
+        rates = holding_rates(baseline, names, green_segment_of)[role]
+        fractions = rates[""]
+        table[role] = {}
+        for name in names:
+            r_all = sum(name in r["greens"] for r in real_role) / len(real_role)
+
+            def multiplier(key: str, value: str, name: str = name, r_all: float = r_all) -> float:
+                group = [r for r in real_role if r[key] == value]
+                return shrunk_multiplier(sum(name in r["greens"] for r in group) / len(group), r_all, len(group))
+
+            raw: dict[str, float] = {}
+            for seg in fractions:
+                first, second = seg.split("|")
+                raw[seg] = multiplier("hand", first) * multiplier("prole", second) if role == "投手" else multiplier("position", first) * multiplier("hand", second)
+            scale = 1.0 / sum(fractions[seg] * raw[seg] for seg in fractions)
+            table[role][name] = {seg: [round(rates[name].get(seg, 0.0), 4), round(min(1.0, r_all * raw[seg] * scale), 4)] for seg in fractions}
+    return table
+
+
+def real_green_statistics(real: list[dict[str, Any]]) -> dict[str, Any]:
+    """判定に使う実在の値（緑特の数、緑特の型の対象の特能の、役割・ポジションごとの保有率）。"""
+    stats: dict[str, Any] = {"緑特の数": {}, "保有率": {}}
+    for role in ("投手", "野手"):
+        rows = [r for r in real if r["role"] == role]
+        values = [len(r["greens"]) for r in rows]
+        mean = sum(values) / len(values)
+        sd = (sum((v - mean) ** 2 for v in values) / (len(values) - 1)) ** 0.5
+        stats["緑特の数"][role] = {"平均": round(mean, 4), "標準偏差": round(sd, 4), "人数": len(values)}
+        key, groups = ("prole", PITCHER_ROLES) if role == "投手" else ("position", POSITIONS)
+        stats["保有率"][role] = {}
+        for name in GREEN_SPECIALS[role]:
+            out = {"全体": {"保有率": round(sum(name in r["greens"] for r in rows) / len(rows), 4), "人数": len(rows)}}
+            for group in groups:
+                members = [r for r in rows if r[key] == group]
+                out[group] = {"保有率": round(sum(name in r["greens"] for r in members) / len(members), 4), "人数": len(members)}
+            stats["保有率"][role][name] = out
+    return stats
+
+
+def build_green(args: argparse.Namespace, real: list[dict[str, Any]]) -> None:
+    """緑特の型の表を作る（--green）。c は緑特の型の補正を空にして流した生成（青特の型の補正は data/config の表）で測る。"""
+    cache = args.cache_dir
+    baseline_path = cache / "green_baseline.json" if cache else None
+    if baseline_path and baseline_path.exists():
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    else:
+        baseline = collect_players(args.teams, args.start, args.workers, green_override={})
+        if baseline_path:
+            cache.mkdir(parents=True, exist_ok=True)
+            baseline_path.write_text(json.dumps(baseline, ensure_ascii=False), encoding="utf-8")
+    print(f"緑特の型の補正なしの生成: {len(baseline)}人（{args.teams}球団）", flush=True)
+    table = build_green_table(real, baseline)
+    if cache:
+        (cache / "green_table_before_correction.json").write_text(json.dumps(table, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
+    if not args.no_correct:
+        result = collect_players(args.teams, args.start, args.workers, green_override=table)
+        if cache:
+            (cache / "green_result.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        table = correct_table(table, result, green_segment_of)
+    meta = {
+        "作った日": date.today().isoformat(), "球団生成": f"seed {args.start}〜{args.start + args.teams - 1}（{args.teams}球団）",
+        "実在の年版": list(REAL_SEASONS), "縮め方 n/(n+k) の k": SHRINK_N, "水準": "実在の全体の保有率",
+        "最後の直し": not args.no_correct, "作り方": "scripts/build_fictional_special_profile.py --green",
+    }
+    output = {"作り方": meta, "実在": real_green_statistics(real), "表": table}
+    if args.teams == 300 or args.write:
+        GREEN_PROFILE_PATH.write_text(json.dumps(output, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        print(f"書き込みました: {GREEN_PROFILE_PATH.relative_to(APP_DIR)}")
+    else:
+        print("球団数が300でないので書き込みません（--write で書く）。")
 
 
 def forced_zero(table: dict[str, Any]) -> dict[str, Any]:
@@ -303,10 +413,14 @@ def main() -> None:
     parser.add_argument("--no-correct", action="store_true", help="最後の1回の直しをしない")
     parser.add_argument("--write", action="store_true", help="球団数が300でなくても書き込む")
     parser.add_argument("--cache-dir", type=Path, default=None, help="途中の結果（補正なしの生成・表を入れた生成）を置く場所。調整の確認用")
+    parser.add_argument("--green", action="store_true", help="緑特の型の表（data/config/fictional_green_profile.json）を作る")
     args = parser.parse_args()
 
     real = load_real_players()
     print(f"実在（{REAL_SEASONS[0]}〜{REAL_SEASONS[-1]}年版の日本人）: 投手 {sum(r['role'] == '投手' for r in real)}人／野手 {sum(r['role'] == '野手' for r in real)}人", flush=True)
+    if args.green:
+        build_green(args, real)
+        return
     cache = args.cache_dir
     baseline_path = cache / "baseline.json" if cache else None
     if baseline_path and baseline_path.exists():
