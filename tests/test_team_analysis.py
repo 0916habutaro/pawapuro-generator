@@ -99,6 +99,23 @@ class FrameTest(TeamAnalysisTestBase):
         self.assertEqual(pitcher["pitcher_role"], "救援")
         self.assertGreater(pitcher["rank_points"], 0)
 
+    def test_usage_like_specials_are_not_counted_in_any_color(self):
+        # 調子・投球位置・慎重盗塁・フル出場は実在では起用法の欄にあるので、緑にも青にも数えない（緑特の型_改修指示.md 1-1）
+        usage_like = ["投手調子極端", "投手調子安定", "野手調子極端", "野手調子安定", "投球位置左", "投球位置右", "慎重盗塁", "フル出場"]
+        self.assertEqual(set(usage_like), set(ta.USAGE_LIKE_SPECIALS))
+        for name in usage_like:
+            self.assertIsNone(ta.special_color(name))
+        counts = ta.special_counts([*usage_like, "テンポ○", "クロスファイヤー", "四球"])
+        self.assertEqual(counts, {"n_blue": 1, "n_red": 1, "n_gold": 0, "n_green": 1})
+        # マスターに無い名前は、これまでどおり青
+        self.assertEqual(ta.special_color("マスターに無い特能"), "n_blue")
+
+    def test_generated_frame_skips_usage_like_specials(self):
+        player = dict(next(p for p in self.players if p["role"] == "投手"))
+        player["special_abilities"] = ["投手調子極端", "投球位置右", "テンポ○", "クロスファイヤー"]
+        row = ta.players_frame([player], ta.UNSAVED_TEAM_KEY, "テスト球団", app.team_pitcher_role).iloc[0]
+        self.assertEqual((row["n_green"], row["n_blue"]), (1.0, 1.0))
+
     def test_pitcher_role_uses_primary_pitcher_role(self):
         generated = ta.players_frame(self.players, ta.UNSAVED_TEAM_KEY, "テスト球団", app.team_pitcher_role)
         pitchers = [p for p in self.players if p["role"] == "投手"]
