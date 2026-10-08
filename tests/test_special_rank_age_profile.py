@@ -26,7 +26,7 @@ class AgeRankWeightTest(unittest.TestCase):
         for role, table in (("野手", app.FICTIONAL_FIELDER_RANKED_WEIGHTS), ("投手", app.FICTIONAL_PITCHER_RANKED_WEIGHTS)):
             for group, weights in table.items():
                 for age in range(18, 43):
-                    tilted = app.fictional_age_rank_weights(weights, group.removesuffix("_左投"), role, age)
+                    tilted = app.fictional_age_rank_weights(weights, group.split("_")[0], role, age)
                     self.assertLessEqual(tilted["A"], weights["A"] + 1e-12)
                     self.assertLessEqual(tilted["G"], weights["G"] + 1e-12)
 

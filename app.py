@@ -6817,7 +6817,7 @@ FICTIONAL_STARTER_STAMINA_TRANSFORM = {"S0": 57.0, "A": 1.15, "D": {"右": -2.0,
 FICTIONAL_MOVEMENT_QUALITY_NAMESPACE = "fictional_pitcher_movement_v1"
 FICTIONAL_MOVEMENT_QUALITY = {
     "先発": {"B": 0.8, "O": -0.1, "control": (55.0, 13.0), "stamina": (57.0, 11.0)},
-    "救援": {"B": 0.2, "O": -0.4, "control": (48.0, 10.0)},
+    "救援": {"B": 0.2, "O": -0.2, "control": (48.0, 10.0)},
 }
 FICTIONAL_MOVEMENT_QUALITY_MAX_STEPS = 3
 # 抑え（守護神格）の決め球の変化量
@@ -6843,6 +6843,13 @@ FICTIONAL_CHANGEUP_NAMES = {"サークルチェンジ", "チェンジアップ"}
 FICTIONAL_SECOND_FASTBALL_DROP_RATE = 0.28
 FICTIONAL_THIRD_PITCH_ADD_RATE = 0.19
 FICTIONAL_ADDED_PITCH_MOVEMENT_WEIGHTS = [(1, 30), (2, 40), (3, 30)]
+# 救援（中継ぎ・抑え）の球種を球速に合わせて減らす（実在は球速の速い救援ほど球種が少なく、1球種の救援もいる）。
+# 球速の帯（〜147／148〜151／152〜155／156〜）ごとに、3球種を2球種にする確率 D3 と、そのあと2球種を1球種にする確率 D2。
+# 専用の副乱数から1人2回引く（`投手のランク特能と救援の球種数_改修指示.md` 1-2）。
+FICTIONAL_RELIEVER_PITCH_COUNT_NAMESPACE = "fictional_reliever_pitch_count_v1"
+FICTIONAL_RELIEVER_SPEED_BANDS = (147, 151, 155)
+FICTIONAL_RELIEVER_DROP_THIRD = (0.0, 0.10, 0.06, 0.50)
+FICTIONAL_RELIEVER_DROP_SECOND = (0.0, 0.083, 0.13, 0.013)
 # 3球種目を足すときの球種の重み補正（左右でチェンジアップ系の出やすさが違う）
 FICTIONAL_ADDED_PITCH_HAND_FACTORS = {
     "右投": {"サークルチェンジ": 0.4, "チェンジアップ": 0.4, "ファストチェンジ": 0.2, "シンキングスプリット": 0.6, "ナックル": 0.0},
@@ -6918,15 +6925,19 @@ FICTIONAL_SPECIAL_RATE_TARGETS = {
 # 実在データで同時に持たない組み合わせ（同じグループの特能は別途除外される）
 FICTIONAL_SPECIAL_CONFLICTS = [("荒れ球", "ストライク先行"), ("キレ○", "抜け球"), ("球持ち○", "抜け球")]
 # ランク特能の重み（A〜G）。実在（5年）の良い側・悪い側の割合に合わせ、A と G はごく少なくする。
+# ノビ・回復は役割（先発・救援）ごと、対左打者は投げ手ごとの重みを使う（fictional_pitcher_ranked_weights_key）。
+# 役割の差は実在（2024〜2026年版の日本人）に合わせた（`投手のランク特能と救援の球種数_改修指示.md` 1-1）。
 FICTIONAL_PITCHER_RANKED_WEIGHTS = {
-    "回復": {"A": 0.3, "B": 6, "C": 20.7, "D": 35, "E": 31, "F": 6.5, "G": 0.5},
+    "回復_先発": {"A": 0.3, "B": 5.5, "C": 13.7, "D": 33.3, "E": 35, "F": 11.8, "G": 0.5},
+    "回復_救援": {"A": 0.3, "B": 9, "C": 23.8, "D": 39.5, "E": 24.5, "F": 3.2, "G": 0.5},
     "打たれ強さ": {"A": 0.4, "B": 7, "C": 22.6, "D": 55, "E": 12, "F": 2.8, "G": 0.2},
-    "対左打者": {"A": 0.2, "B": 3, "C": 11.8, "D": 45, "E": 32, "F": 7.7, "G": 0.3},
-    "対左打者_左投": {"A": 0.5, "B": 6, "C": 21.5, "D": 51, "E": 17, "F": 3.8, "G": 0.2},
+    "対左打者": {"A": 0.2, "B": 1.2, "C": 11.8, "D": 47, "E": 32, "F": 9.8, "G": 0.3},
+    "対左打者_左投": {"A": 0.5, "B": 4, "C": 21.5, "D": 56, "E": 17, "F": 3.8, "G": 0.2},
     "ケガしにくさ": {"A": 0.1, "B": 1.4, "C": 5.5, "D": 56, "E": 30, "F": 6.7, "G": 0.3},
     "対ピンチ": {"A": 0.3, "B": 3.2, "C": 11.5, "D": 67, "E": 14.5, "F": 3.3, "G": 0.2},
     "クイック": {"A": 0.3, "B": 3.2, "C": 12.5, "D": 68, "E": 13, "F": 2.8, "G": 0.2},
-    "ノビ": {"A": 0.5, "B": 8, "C": 26.5, "D": 44, "E": 17, "F": 3.8, "G": 0.2},
+    "ノビ_先発": {"A": 0.5, "B": 2.5, "C": 25.7, "D": 47.5, "E": 18.5, "F": 5.5, "G": 0.2},
+    "ノビ_救援": {"A": 1.5, "B": 10.5, "C": 28.5, "D": 40, "E": 13, "F": 5.0, "G": 0.2},
     "送球": {"A": 0.1, "B": 1.5, "C": 6.4, "D": 48, "E": 39, "F": 4.8, "G": 0.2},
 }
 FICTIONAL_FIELDER_RANKED_WEIGHTS = {
@@ -7711,6 +7722,23 @@ def fictional_pitcher_breaking_balls(rng: random.Random, breaking_balls: list[di
     return balls
 
 
+def fictional_reliever_pitch_count(rng: random.Random, breaking_balls: list[dict[str, Any]], speed: float) -> list[dict[str, Any]]:
+    """救援の球種を球速の帯ごとの確率で減らす（3球種→2球種、そのあと2球種→1球種）。乱数は必ず2回引く。
+
+    外すのは変化量がいちばん小さい球（同じ方向の第二球種も一緒に外す）。変化量がいちばん大きい球（決め球）は残す。"""
+    band = next((index for index, limit in enumerate(FICTIONAL_RELIEVER_SPEED_BANDS) if speed <= limit), len(FICTIONAL_RELIEVER_SPEED_BANDS))
+    drop_third = rng.random() < FICTIONAL_RELIEVER_DROP_THIRD[band]
+    drop_second = rng.random() < FICTIONAL_RELIEVER_DROP_SECOND[band]
+    balls = [dict(ball) for ball in breaking_balls]
+    count = len(primary_breaking_balls(balls))
+    if count == 3 and drop_third:
+        remove_extra_primary_pitches(balls, 2)
+        count = 2
+    if count == 2 and drop_second:
+        remove_extra_primary_pitches(balls, 1)
+    return balls
+
+
 def fictional_movement_by_quality(rng: random.Random, breaking_balls: list[dict[str, Any]], role: str, control: float, stamina: float, protect_finisher: bool = False) -> list[dict[str, Any]]:
     """投手の良し悪し（コントロール・スタミナ）に合わせて、変化球の総変化量を最大3段階増減する。種類・数・方向は変えない。
 
@@ -7743,6 +7771,15 @@ def fictional_movement_by_quality(rng: random.Random, breaking_balls: list[dict[
         pick["movement"] = pick["level"] = pitch_movement(pick) + (1 if up else -1)
     enforce_second_pitch_movement_order(balls)
     return balls
+
+
+def fictional_pitcher_ranked_weights_key(group: str, position: str, batting_throwing: str) -> str:
+    """ランク特能の重みの鍵。ノビ・回復は役割（先発・救援）、対左打者は投げ手（左投）で分ける。"""
+    if group in ("ノビ", "回復"):
+        return f"{group}_{'先発' if position == '先発' else '救援'}"
+    if group == "対左打者" and batting_throwing.startswith("左投"):
+        return f"{group}_左投"
+    return group
 
 
 def fictional_adjust_physique(rng: random.Random, player: dict[str, Any], role: str) -> None:
@@ -7818,6 +7855,10 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     abilities["肩力"] = ability(clamp(speed - 81 + weighted_choice(rng, [(-1, 15), (0, 35), (1, 35), (2, 15)]), 49, 82))
 
     player["breaking_balls"] = fictional_pitcher_breaking_balls(rng, list(player.get("breaking_balls", [])), batting_throwing, position)
+    if position != "先発":
+        player["breaking_balls"] = fictional_reliever_pitch_count(
+            make_sub_rng(seed, FICTIONAL_RELIEVER_PITCH_COUNT_NAMESPACE), player["breaking_balls"], speed,
+        )
     # 19歳以下は変化量の上限（fictional_young_breaking_balls）で決まるので、良し悪しの増減はかけない。
     if not age or age > FICTIONAL_YOUNG_BREAKING_MAX_AGE:
         player["breaking_balls"] = fictional_movement_by_quality(
@@ -7844,7 +7885,7 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     current = dict(abilities.get("ranked_specials", {}) or {})
     abilities["ranked_specials"] = fictional_ranked_specials(
         rng, master, list(current), FICTIONAL_PITCHER_RANKED_WEIGHTS, str(player.get("player_class", "")), current, link_shift,
-        weights_key=lambda group: f"{group}_左投" if group == "対左打者" and batting_throwing.startswith("左投") else group,
+        weights_key=lambda group: fictional_pitcher_ranked_weights_key(group, position, batting_throwing),
         role="投手", age=int(player.get("age") or 0),
     )
     player["abilities"] = abilities
