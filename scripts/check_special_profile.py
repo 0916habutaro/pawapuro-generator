@@ -19,6 +19,9 @@
 - 緑特の型の項目（緑特の型_改修指示.md 2-1）: 緑特の数（球団分析と同じ数え方。調子・投球位置・慎重盗塁・フル出場は数えない）、
   緑特の型の対象の特能の、役割（投手は先発・救援）・ポジション（野手）ごとの保有率、速球中心の救援−先発、テンポ○の先発−救援。
   実在の値は data/config/fictional_green_profile.json の「実在」。
+- 投手の役割の項目（`投手の役割と特能_改修指示.md` 2-1）: 先発・救援ごとの青特の数（実在は○○キラーを数えない）・赤特の数、
+  役割で差の大きい特能（緊急登板○・牽制○・内角攻め・スロースターター・負け運・緩急○・ナチュラルシュート）の役割ごとの保有率、
+  奪三振・球速安定の、球速の帯 × 役割ごとの保有率、特能の査定点の先発−救援。実在の値は fictional_special_profile.json の「実在」の「役割」。
 - 個別生成（架空球団用・投手と野手 各5000人）は同じ表を参考として出す（合否には使わない）。
 - 判定の種類・誤差・合否の付け方は checklib.py。誤差は、生成側は球団、実在側は実在の人数から見積もる（平均の標準誤差、保有率は二項分布）。
 - 終了コード: 不合格が1件でもあれば 1（要注意・受け入れ済みは 0）。
@@ -41,7 +44,8 @@ import pandas as pd  # noqa: E402
 
 import checklib  # noqa: E402
 from build_fictional_special_profile import (  # noqa: E402
-    GREEN_PROFILE_PATH, GREEN_SPECIALS, LINKED_BANDS, PITCHER_ROLES, POSITIONS, PROFILE_PATH, band_index, collect_players,
+    GREEN_PROFILE_PATH, GREEN_SPECIALS, LINKED_BANDS, PITCHER_ROLES, POSITIONS, PROFILE_PATH, ROLE_LINKED_BANDS, ROLE_SPECIALS, band_index,
+    collect_players, special_points,
 )
 from checklib import Checks  # noqa: E402
 
@@ -53,6 +57,8 @@ TOL_GREEN = {"投手": 0.05, "野手": 0.10}
 TOL_GREEN_RATE, TOL_GREEN_DIFF = 0.06, 0.05
 # 役割の差を判定する特能: (特能, 引かれる側, 引く側)
 GREEN_ROLE_DIFFS = (("速球中心", "救援", "先発"), ("テンポ○", "先発", "救援"))
+# 投手の役割（投手の役割と特能_改修指示.md 2-1）: 青特の数、赤特の数、特能の保有率、連動特能の帯の保有率、特能の査定点の先発−救援
+TOL_ROLE_BLUE, TOL_ROLE_RED, TOL_ROLE_RATE, TOL_ROLE_BAND, TOL_ROLE_POINTS = 0.20, 0.12, 0.05, 0.08, 1.5
 SECTIONS = {
     "pitcher_blue": "投手の青特の数（実在は2024〜2026年版の日本人。○○キラーを数えない）",
     "pitcher_diff": "投手の青特の左右差（左−右）",
@@ -65,6 +71,10 @@ SECTIONS = {
     "green_count": "緑特の数（球団分析と同じ数え方。調子・投球位置・慎重盗塁・フル出場は起用法として数えない）",
     "green_rate": "緑特の型の対象の特能の保有率（投手は役割、野手はポジションごと）",
     "green_diff": "緑特の役割の差（速球中心は救援−先発、テンポ○は先発−救援）",
+    "role_count": "投手の役割ごとの青特・赤特の数（実在は○○キラーを数えない）",
+    "role_rate": "投手の役割で差の大きい特能の、役割ごとの保有率",
+    "role_linked": "奪三振・球速安定の、球速の帯 × 役割ごとの保有率",
+    "role_points": "投手の特能の査定点の先発−救援",
 }
 # 改修前（球団生成 seed 1〜300、PR #116 の main 06bb1c7）の値は、そのコミットで同じスクリプトを流して表示用に出す（コードには持たない）。
 
@@ -94,8 +104,9 @@ def players_frame(rows: list[dict]) -> pd.DataFrame:
     for name in sorted({name for names in GREEN_SPECIALS.values() for name in names}):
         frame[name] = frame["specials"].map(lambda names, name=name: name in names)
     frame["クロスファイヤー"] = frame["specials"].map(lambda names: "クロスファイヤー" in names)
-    for _role, name, _key, _limits in LINKED_BANDS:
+    for name in sorted({name for _role, name, _key, _limits in LINKED_BANDS} | {name for name, *_ in ROLE_LINKED_BANDS} | set(ROLE_SPECIALS)):
         frame[name] = frame["specials"].map(lambda names, name=name: name in names)
+    frame["special_points"] = frame["specials"].map(special_points).astype(float)
     frame["team_key"] = frame["team"] if "team" in frame.columns else "single"
     return frame.drop(columns=["specials"])
 
@@ -192,7 +203,33 @@ def evaluate(frame: pd.DataFrame, prefix: str = SCRIPT, info: bool = False) -> C
         rate = lambda group, name=name: float(pitchers[pitchers["prole"] == group][name].mean())  # noqa: E731
         reference = green["保有率"]["投手"][name][plus]["保有率"] - green["保有率"]["投手"][name][minus]["保有率"]
         add("green_diff", name, f"{name} {plus}−{minus}", rate(plus) - rate(minus), reference - TOL_GREEN_DIFF, reference + TOL_GREEN_DIFF, f"{reference:.3f}", "{:.3f}")
+    evaluate_roles(pitchers, real["役割"], add, around)
     return checks
+
+
+def evaluate_roles(pitchers: pd.DataFrame, real: dict, add, around) -> None:
+    """投手の役割（先発・救援）ごとの項目（投手の役割と特能_改修指示.md 2-1）。real は「実在」の「役割」。"""
+    by_role = {prole: pitchers[pitchers["prole"] == prole] for prole in PITCHER_ROLES}
+    for prole, rows in by_role.items():
+        around("role_count", f"blue_{prole}", f"投手 {prole} 青特の数", float(rows["n_blue"].mean()), real["青特の数"][prole]["平均"], TOL_ROLE_BLUE)
+        around("role_count", f"red_{prole}", f"投手 {prole} 赤特の数", float(rows["n_red"].mean()), real["赤特の数"][prole]["平均"], TOL_ROLE_RED)
+    for name in ROLE_SPECIALS:
+        for prole, rows in by_role.items():
+            reference = real["保有率"][name][prole]["保有率"]
+            add("role_rate", f"{name}_{prole}", f"{name} {prole}", float(rows[name].mean()),
+                max(0.0, reference - TOL_ROLE_RATE), min(1.0, reference + TOL_ROLE_RATE), f"{reference:.3f}", "{:.3f}")
+    for name, key, limits in ROLE_LINKED_BANDS:
+        for prole, rows in by_role.items():
+            for band in range(len(limits) + 1):
+                reference = real["帯"][name][f"{prole}|{band}"]["保有率"]
+                d = rows[rows[key].map(lambda v: not math.isnan(v) and band_index(v, limits) == band)]
+                if reference is None or d.empty:
+                    continue
+                add("role_linked", f"{name}_{prole}_{band}", f"{name} {prole} {key}{band_text(limits, band)}", float(d[name].mean()),
+                    max(0.0, reference - TOL_ROLE_BAND), min(1.0, reference + TOL_ROLE_BAND), f"{reference:.3f}", "{:.3f}")
+    points = {prole: float(rows["special_points"].mean()) for prole, rows in by_role.items()}
+    reference = real["特能の査定点"]["先発"]["平均"] - real["特能の査定点"]["救援"]["平均"]
+    around("role_points", "diff", "特能の査定点 先発−救援", points["先発"] - points["救援"], reference, TOL_ROLE_POINTS)
 
 
 def band_text(limits: tuple[int, ...], band: int) -> str:
@@ -235,6 +272,19 @@ def real_errors(prefix: str = SCRIPT) -> dict[str, float]:
                     se[f"{prefix}.green_rate.{name}_{group}"] = rate_se(entry["保有率"], entry["人数"])
     for name, plus, minus in GREEN_ROLE_DIFFS:
         se[f"{prefix}.green_diff.{name}"] = math.hypot(se[f"{prefix}.green_rate.{name}_{plus}"], se[f"{prefix}.green_rate.{name}_{minus}"])
+    roles = real["役割"]
+    for prole in PITCHER_ROLES:
+        se[f"{prefix}.role_count.blue_{prole}"] = mean_se(roles["青特の数"][prole])
+        se[f"{prefix}.role_count.red_{prole}"] = mean_se(roles["赤特の数"][prole])
+        for name in ROLE_SPECIALS:
+            entry = roles["保有率"][name][prole]
+            se[f"{prefix}.role_rate.{name}_{prole}"] = rate_se(entry["保有率"], entry["人数"])
+    for name, bands in roles["帯"].items():
+        for key, entry in bands.items():
+            if entry["保有率"] is not None:
+                prole, band = key.split("|")
+                se[f"{prefix}.role_linked.{name}_{prole}_{band}"] = rate_se(entry["保有率"], entry["人数"])
+    se[f"{prefix}.role_points.diff"] = math.hypot(mean_se(roles["特能の査定点"]["先発"]), mean_se(roles["特能の査定点"]["救援"]))
     return se
 
 
