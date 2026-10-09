@@ -1,7 +1,8 @@
-"""青特の型（投手の左右・野手の打席とポジション）の補正（`青特の型_改修指示.md`）。
+"""青特の型（投手の左右×役割・野手の打席とポジション）の補正（`青特の型_改修指示.md`・`投手の役割と特能_改修指示.md`）。
 
 - 左右・ポジションの差が入っている（左投手・左打者のほうが青特が多い、捕手は少ない）
 - 右投手のクロスファイヤーは0人
+- 投手の区分は「投げ手|役割」（先発・救援）。投手は赤特も表に入る。連動特能（奪三振・球速安定）の保有率も役割で分ける
 - 補正の段階は特能（special_abilities）だけを変える（能力・ランク特能・乱数の並びは変わらない）
 - マスターに足した4つ（お祭り男・春男・夏男・秋男）は、架空球団用の野手の補正でだけ付く。外国人・ドラフト候補用では出ない
 """
@@ -45,15 +46,23 @@ def test_hand_and_segment() -> None:
     assert app.fictional_special_hand("野手", "右投左打") == "左"
     assert app.fictional_special_hand("野手", "右投両打") == "右"  # 両打は右打と同じ
     assert app.fictional_special_hand("野手", "左投右打") == "右"
-    assert app.fictional_special_segment("投手", "左投右打", "先発") == "左"
+    assert app.fictional_special_segment("投手", "左投右打", "先発") == "左|先発"
+    assert app.fictional_special_segment("投手", "右投左打", "中継ぎ") == "右|救援"  # 中継ぎ・抑えは救援
+    assert app.fictional_special_segment("投手", "右投右打", "抑え") == "右|救援"
     assert app.fictional_special_segment("野手", "右投左打", "捕手") == "捕手|左"
+    # 連動特能の区分は、投手は「投げ手|役割」、野手は打席だけ
+    assert app.fictional_linked_hand("投手", "左投左打", "先発") == "左|先発"
+    assert app.fictional_linked_hand("投手", "右投右打", "抑え") == "右|救援"
+    assert app.fictional_linked_hand("野手", "右投左打", "捕手") == "左"
 
 
 def test_linked_hand_rates_have_the_same_bands_as_linked_specials() -> None:
     for role, table in app.FICTIONAL_LINKED_HAND_RATES.items():
         base = {name: rates for name, _key, _limits, rates in app.FICTIONAL_LINKED_SPECIALS[role]}
         for name, hands in table.items():
-            assert set(hands) == {"右", "左"}
+            # 区分は 左・右 か「投げ手|役割」。どちらの投げ手も、投げ手だけの指定か、先発・救援の両方の指定がある
+            assert set(hands) <= {"右", "左"} | {f"{h}|{r}" for h in ("右", "左") for r in ("先発", "救援")}, name
+            assert all(h in hands or {f"{h}|先発", f"{h}|救援"} <= set(hands) for h in ("右", "左")), name
             assert all(len(rates) == len(base[name]) for rates in hands.values()), name
             assert all(0.0 <= rate <= 1.0 for rates in hands.values() for rate in rates)
     # 奪三振・内野安打○は左のほうが多い。広角打法は右打に多い
@@ -63,6 +72,63 @@ def test_linked_hand_rates_have_the_same_bands_as_linked_specials() -> None:
     # 保有率の上書きを返す。指定がなければ元の保有率
     assert app.fictional_linked_rates("投手", "奪三振", [0.1], "左") == app.FICTIONAL_LINKED_HAND_RATES["投手"]["奪三振"]["左"]
     assert app.fictional_linked_rates("投手", "四球", [0.1, 0.2], "左") == [0.1, 0.2]
+
+
+def test_linked_rates_by_pitcher_role() -> None:
+    """奪三振・球速安定は、同じ球速の帯でも救援のほうが多い（`投手の役割と特能_改修指示.md` 1-2）。"""
+    rates = app.FICTIONAL_LINKED_HAND_RATES["投手"]
+    for hand in ("右", "左"):
+        # 奪三振は球速156以上では役割の差がない（実在 先発・救援とも 0.62）ので、155以下の帯で比べる
+        assert all(r > s for r, s in zip(rates["奪三振"][f"{hand}|救援"][:3], rates["奪三振"][f"{hand}|先発"][:3]))
+        assert all(r > s for r, s in zip(rates["球速安定"][f"{hand}|救援"], rates["球速安定"][f"{hand}|先発"]))
+    # 「投げ手|役割」の指定があればそれを、なければ投げ手だけの指定を、それもなければ元の保有率を使う
+    assert app.fictional_linked_rates("投手", "奪三振", [0.1], "左|救援") == rates["奪三振"]["左|救援"]
+    assert app.fictional_linked_rates("野手", "内野安打○", [0.1], "左|救援") == app.FICTIONAL_LINKED_HAND_RATES["野手"]["内野安打○"]["左"]
+    assert app.fictional_linked_rates("投手", "四球", [0.1, 0.2], "右|先発") == [0.1, 0.2]
+    # 共有の乱数の空回し（hand=None）は、改修前と同じく投打・役割の差なし
+    base = next(r for name, _key, _limits, r in app.FICTIONAL_LINKED_SPECIALS["投手"] if name == "球速安定")
+    assert app.fictional_linked_rates("投手", "球速安定", base, None) == base
+
+
+def domestic_pitchers(seeds: range) -> list[dict]:
+    return [p for p in players("投手", "架空球団用", seeds) if p.get("roster_origin", "domestic") == "domestic"]
+
+
+def test_relievers_have_more_linked_specials_than_starters() -> None:
+    """個別生成でも、同じ球速の帯（148〜151）で救援のほうが球速安定・奪三振を多く持つ。"""
+    band = [p for p in domestic_pitchers(range(1, 1501)) if 148 <= app.pitcher_speed_value(p["abilities"]) <= 151]
+    starters = [p for p in band if p["position"] == "先発"]
+    relievers = [p for p in band if p["position"] != "先発"]
+    assert len(starters) > 80 and len(relievers) > 80
+    rate = lambda group, name: sum(name in p["special_abilities"] for p in group) / len(group)  # noqa: E731
+    assert rate(relievers, "球速安定") - rate(starters, "球速安定") > 0.08  # 実在は 0.32 − 0.13
+    assert rate(relievers, "奪三振") - rate(starters, "奪三振") > 0.06  # 実在は 0.28 − 0.10
+
+
+def test_profile_segment_uses_pitcher_role() -> None:
+    """青特の型の補正は、投手を「投げ手|役割」で分ける。救援だけの目標は先発には効かない。"""
+    allow = lambda name: True  # noqa: E731
+    app.FICTIONAL_SPECIAL_PROFILE_OVERRIDE = {"投手": {"緊急登板○": {"右|救援": [0.0, 1.0], "右|先発": [0.0, 0.0]}}}
+    pitcher = {"role": "投手", "position": "中継ぎ", "age": 36, "player_class": "一軍主力級", "batting_throwing": "右投右打"}
+    assert "緊急登板○" in app.fictional_special_profile_adjust(1, MASTER, pitcher, ["球持ち○"], allow)
+    assert "緊急登板○" in app.fictional_special_profile_adjust(1, MASTER, {**pitcher, "position": "抑え"}, ["球持ち○"], allow)
+    assert "緊急登板○" not in app.fictional_special_profile_adjust(1, MASTER, {**pitcher, "position": "先発"}, ["球持ち○"], allow)
+    assert "緊急登板○" not in app.fictional_special_profile_adjust(1, MASTER, {**pitcher, "batting_throwing": "左投左打"}, ["球持ち○"], allow)
+    # 赤特も外せる（先発の負け運の目標を0にすると、20歳なら必ず外れる）
+    app.FICTIONAL_SPECIAL_PROFILE_OVERRIDE = {"投手": {"負け運": {"右|先発": [0.5, 0.0]}}}
+    young = {**pitcher, "position": "先発", "age": 20, "player_class": "一軍控え級"}
+    assert app.fictional_special_profile_adjust(1, MASTER, young, ["負け運", "球持ち○"], allow) == ["球持ち○"]
+
+
+def test_role_differences_of_specials() -> None:
+    """役割で差の大きい特能が、実在と同じ向きに分かれる（指示書 0-2）。"""
+    pitchers = domestic_pitchers(range(1, 2001))
+    starters = [p for p in pitchers if p["position"] == "先発"]
+    relievers = [p for p in pitchers if p["position"] != "先発"]
+    rate = lambda group, name: sum(name in p["special_abilities"] for p in group) / len(group)  # noqa: E731
+    assert rate(relievers, "緊急登板○") - rate(starters, "緊急登板○") > 0.06
+    for name in ("スロースターター", "負け運", "牽制○", "内角攻め", "緩急○"):
+        assert rate(starters, name) - rate(relievers, name) > 0.03, name
 
 
 def test_right_pitchers_never_have_crossfire() -> None:
@@ -182,7 +248,7 @@ def test_profile_adjust_respects_count_bounds_and_groups_and_position() -> None:
     app.FICTIONAL_SPECIAL_PROFILE_OVERRIDE = {"野手": {"お祭り男": {"捕手|右": [0.0, 1.0]}}}
     assert "お祭り男" not in app.fictional_special_profile_adjust(1, MASTER, fielder(), [], lambda name: name != "お祭り男")
     # 同じグループの特能を持っているときは足さない（force=False）
-    app.FICTIONAL_SPECIAL_PROFILE_OVERRIDE = {"投手": {"対ランナー×": {"右": [0.0, 1.0]}}}
+    app.FICTIONAL_SPECIAL_PROFILE_OVERRIDE = {"投手": {"対ランナー×": {"右|先発": [0.0, 1.0]}}}
     pitcher = {"role": "投手", "position": "先発", "age": 36, "player_class": "一軍主力級", "batting_throwing": "右投右打"}
     assert "対ランナー×" not in app.fictional_special_profile_adjust(1, MASTER, pitcher, ["対ランナー"], allow)
     assert "対ランナー×" in app.fictional_special_profile_adjust(1, MASTER, pitcher, ["球持ち○"], allow)
@@ -190,7 +256,7 @@ def test_profile_adjust_respects_count_bounds_and_groups_and_position() -> None:
 
 def test_right_pitcher_crossfire_is_removed_even_below_the_lower_bound() -> None:
     allow = lambda name: True  # noqa: E731
-    app.FICTIONAL_SPECIAL_PROFILE_OVERRIDE = {"投手": {"緩急○": {"右": [0.2, 0.2]}}}  # 表に入っていなくても外す
+    app.FICTIONAL_SPECIAL_PROFILE_OVERRIDE = {"投手": {"緩急○": {"右|先発": [0.2, 0.2]}}}  # 表に入っていなくても外す
     pitcher = {"role": "投手", "position": "先発", "age": 30, "player_class": "スター級", "batting_throwing": "右投右打"}
     low = app.special_count_bounds("架空球団用", "スター級")[0]
     held = ["クロスファイヤー", "リリース○", "球持ち○", "内角攻め"][:low]
@@ -214,11 +280,19 @@ def test_profile_table_file_is_consistent() -> None:
         linked = {name for name, *_ in app.FICTIONAL_LINKED_SPECIALS[role]}
         for name, segments in specials.items():
             assert name in master_names and master_names[name]["kind"] != "green", name
+            # 赤特は投手だけ（対ランナー×のほかは `投手の役割と特能_改修指示.md` 1-1 で足した）。野手の表は青特だけ
+            assert role == "投手" or master_names[name]["kind"] != "red" or name == "対ランナー×", name
             assert name not in linked and (name not in app.FICTIONAL_NOT_REAL_SPECIALS[role] or name == "対ランナー×"), name
-            expected = {"左", "右"} if role == "投手" else {f"{p}|{h}" for p in positions for h in ("左", "右")}
+            if role == "投手":
+                expected = {f"{h}|{r}" for h in ("左", "右") for r in ("先発", "救援")}
+            else:
+                expected = {f"{p}|{h}" for p in positions for h in ("左", "右")}
             assert set(segments) == expected, name
             assert all(0.0 <= c <= 1.0 and 0.0 <= t <= 1.0 for c, t in segments.values()), name
-    assert table["投手"]["クロスファイヤー"]["右"][1] == 0.0
+    assert table["投手"]["クロスファイヤー"]["右|先発"][1] == 0.0 and table["投手"]["クロスファイヤー"]["右|救援"][1] == 0.0
+    # 投手の赤特（能力と連動させる四球・荒れ球は入れない）
+    assert {"スロースターター", "負け運", "一発", "乱調", "寸前", "軽い球", "抜け球"} <= set(table["投手"])
+    assert not {"四球", "荒れ球"} & set(table["投手"])
     assert set(NEW_SPECIALS) <= set(table["野手"])
     # 保有率が0の特能（お祭り男など）は、この段階の前には誰も持っていない
     assert all(c == 0.0 for name in NEW_SPECIALS for c, _t in table["野手"][name].values())
