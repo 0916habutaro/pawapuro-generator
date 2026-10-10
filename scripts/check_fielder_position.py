@@ -12,6 +12,8 @@
 - 判定する項目（指示書2-1）: ポジション×能力（ミート・パワー・肩力・守備力・捕球）の平均と標準偏差の比（生成÷実在）、
   ポジションごとの弾道の平均と割合（弾道1〜4）、ポジションごとの査定の平均。
   指示書1-4の表で直した能力の平均は、範囲を狭く（±1.0）する。
+- 捕手のキャッチャー（`野手のランク特能_改修指示.md` 2-1）: メインが捕手の野手（全年齢）のランクの割合（A〜G、実在±5ポイント）と
+  ランク点（実在±0.4）。実在の値は data/config/fielder_ranked_real.json（check_fielder_batting.py --build-real で作る）。
 - 21歳以下・走力・打席の左右差は check_age_profile.py・check_fielder_speed.py・check_fielder_batting.py が受け持つ。
 - 個別生成（架空球団用・野手）は同じ表を参考として出す（合否には使わない。査定は求めない）。
 - 判定の種類・誤差・合否の付け方は checklib.py。誤差は、生成側は球団、実在側は実在の野手を再抽出して見積もる。
@@ -32,8 +34,9 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import checklib  # noqa: E402
-from check_fielder_batting import real_japanese_fielders, single_fielders  # noqa: E402
-from check_pitcher_control import collect  # noqa: E402
+from check_fielder_batting import (  # noqa: E402
+    LETTERS, RANK_COLUMNS, collect, mean_se, real_japanese_fielders, real_rank_reference, share_se, single_fielders,
+)
 from checklib import Checks  # noqa: E402
 
 SCRIPT = "check_fielder_position"
@@ -85,12 +88,16 @@ FIXED_PAIRS = {
 }
 # 合格の範囲（指示書2-1）
 TOL_MEAN, TOL_MEAN_FIXED, SD_RATIO_RANGE, TOL_TRAJECTORY_MEAN, TOL_SHARE, TOL_RATING = 1.5, 1.0, (0.85, 1.20), 0.15, 6.0, 8.0
+TOL_CATCHER_SHARE, TOL_CATCHER_POINTS = 5.0, 0.4
+# 改修前（球団生成 seed 1〜300、PR #122 をマージした main 1e6eda4）の捕手のキャッチャー。表示用
+BEFORE_CATCHER = {"割合": (0.1, 0.9, 5.9, 80.0, 11.2, 1.7, 0.1), "ランク点": -0.27}
 SECTIONS = {
     "mean": "ポジション×能力の平均（実在は2024〜2026年版の日本人野手・22歳以上）",
     "sd": "ポジション×能力の標準偏差の比（生成÷実在）",
     "traj_mean": "ポジションごとの弾道の平均",
     "traj_share": "ポジションごとの弾道の割合（%）",
     "rating": "ポジションごとの査定の平均",
+    "catcher_rank": "捕手のキャッチャー（メインが捕手。全年齢。割合は%で実在±5ポイント、ランク点は実在±0.4）",
 }
 
 
@@ -129,7 +136,32 @@ def evaluate(frame: pd.DataFrame, prefix: str = SCRIPT, info: bool = False) -> C
                 real - TOL_SHARE, real + TOL_SHARE, f"{real:.1f}", "{:.1f}")
         if d["rating"].notna().any():
             add("rating", position, f"{position} 査定 平均", d["rating"].mean(), real_rating - TOL_RATING, real_rating + TOL_RATING, f"{real_rating:.1f}", "{:.1f}")
+    if "rk_キャッチャー" in frame.columns:  # 実在の選手単位データ（local_data）にはランク特能の列が無い。実在の値は fielder_ranked_real.json
+        catcher_rank_checks(checks, frame, prefix, kind)
     return checks
+
+
+def catcher_rank_checks(checks: Checks, frame: pd.DataFrame, prefix: str, kind: str) -> None:
+    """メインが捕手の野手（全年齢）のキャッチャーのランクの割合とランク点。"""
+    real = real_rank_reference()["捕手"]
+    catchers = frame[frame["position"] == "捕手"]
+    for letter in LETTERS:
+        value, r = float((catchers["rk_キャッチャー"] == letter).mean() * 100), real["キャッチャー_ランク"][letter]
+        low, high = r - TOL_CATCHER_SHARE, r + TOL_CATCHER_SHARE
+        checks.add(f"{prefix}.catcher_rank.{letter}", kind, f"捕手 キャッチャー {letter}の割合", value, low, high, section=SECTIONS["catcher_rank"],
+                   shown=f"{value:.1f}", target=f"{low:.1f}〜{high:.1f}", real=f"{r:.1f}")
+    value, r = float(catchers["pt_キャッチャー"].mean()), real["キャッチャー"][0]
+    low, high = r - TOL_CATCHER_POINTS, r + TOL_CATCHER_POINTS
+    checks.add(f"{prefix}.catcher_rank.points", kind, "捕手 キャッチャーのランク点", value, low, high, section=SECTIONS["catcher_rank"],
+               shown=f"{value:+.2f}", target=f"{low:+.2f}〜{high:+.2f}", real=f"{r:+.2f}")
+
+
+def real_catcher_errors(prefix: str = SCRIPT) -> dict[str, float]:
+    """捕手のキャッチャーの判定の実在側の誤差。"""
+    real = real_rank_reference()["捕手"]
+    se = {f"{prefix}.catcher_rank.{letter}": share_se(real["キャッチャー_ランク"][letter], real["人数"]) for letter in LETTERS}
+    se[f"{prefix}.catcher_rank.points"] = mean_se(real["キャッチャー"])
+    return se
 
 
 def grade_all(frame: pd.DataFrame, boot: int, quick: bool = False) -> list[checklib.Check]:
@@ -139,12 +171,14 @@ def grade_all(frame: pd.DataFrame, boot: int, quick: bool = False) -> list[check
     se_gen = checklib.bootstrap_se(evaluate_checks, frame, lambda f, rng: checklib.resample_frame(f, rng, "team_key"), n=boot) if boot else {}
     real = real_japanese_fielders() if boot else None
     se_real = checklib.bootstrap_se(evaluate_checks, real, checklib.resample_frame, n=boot) if real is not None else {}
+    if boot:
+        se_real.update(real_catcher_errors())
     return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
 
 
 def team_fielders(frame: pd.DataFrame) -> pd.DataFrame:
     fielders = frame[(frame["role"] == "野手") & (~frame["is_foreign"])]
-    return fielders[["team_key", "position", "age", "弾道", "rating", *ABILITIES]].reset_index(drop=True)
+    return fielders[["team_key", "position", "age", "弾道", "rating", *ABILITIES, *RANK_COLUMNS]].reset_index(drop=True)
 
 
 def single_adults(path: Path) -> pd.DataFrame:
@@ -169,6 +203,23 @@ def print_reference(generated: pd.DataFrame) -> None:
     print(pd.DataFrame(rows).to_string(index=False))
     young = generated[generated["age"] <= YOUNG_MAX_AGE]
     print(f"\n[21歳以下（参考。今回は変えていない）] {len(young)}人。パワー平均 {young['パワー'].mean():.2f}（改修前 46.13）")
+    print_catcher_reference(generated)
+
+
+def print_catcher_reference(generated: pd.DataFrame, before: bool = True) -> None:
+    """捕手のキャッチャーのランクの割合・ランク点（改修前・今回・実在。参考）。"""
+    real = real_rank_reference()
+    catchers = generated[generated["position"] == "捕手"]
+    rows = [{"": "改修前", **dict(zip(LETTERS, BEFORE_CATCHER["割合"])), "ランク点": BEFORE_CATCHER["ランク点"]}] if before else []
+    rows.append({"": "今回", **{x: round(float((catchers["rk_キャッチャー"] == x).mean() * 100), 1) for x in LETTERS},
+                 "ランク点": round(float(catchers["pt_キャッチャー"].mean()), 2)})
+    rows.append({"": "実在", **{x: round(v, 1) for x, v in real["捕手"]["キャッチャー_ランク"].items()}, "ランク点": round(real["捕手"]["キャッチャー"][0], 2)})
+    print(f"\n[捕手のキャッチャーのランクの割合（%）・ランク点（参考）] 捕手 {len(catchers)}人")
+    print(pd.DataFrame(rows).to_string(index=False))
+    sub = generated[(generated["position"] != "捕手") & (generated["rk_キャッチャー"] != "D")]
+    if "rating" in catchers and catchers["rating"].notna().any():
+        print(f"[捕手の査定の平均（全年齢。参考）] {catchers['rating'].mean():.1f}（改修前 223.5、実在 222.7）")
+    print(f"[サブポジ捕手でキャッチャーがD以外（今の重みのまま。参考）] {len(sub)}人")
 
 
 def main() -> None:
@@ -190,6 +241,7 @@ def main() -> None:
         single = single_adults(args.single_csv)
         reference = list(checklib.grade(evaluate(single, f"{SCRIPT}.single", info=True), all_info=True))
         checklib.print_checks(reference, f"個別生成（架空球団用・日本人野手 {len(single)}人。参考）")
+        print_catcher_reference(single, before=False)
         graded += reference
     sys.exit(checklib.finish(SCRIPT, graded, args))
 
