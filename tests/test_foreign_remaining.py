@@ -86,6 +86,7 @@ def fingerprint(player: dict) -> str:
 # 改修前（0619a5d）の app.py で作った、架空球団用の日本人・ドラフト候補用の指紋（各15人。架空球団用は外国人枠の seed を除く）。
 # 外国人だけを変える改修なので、日本人とドラフト候補は1人も変わらない。
 # 架空球団用の日本人野手は、野手のランク特能_改修指示.md（対左投手・キャッチャーの重み）でランク特能だけ変わった分を更新した。
+# 野手の走力肩力ランク_改修指示.md（走塁・盗塁・送球と走力・肩力の結びつき）で走塁・盗塁・送球だけ変わった分も更新した。
 UNCHANGED_PATH = Path(__file__).resolve().parent / "fixtures" / "foreign_remaining_unchanged.json"
 
 
