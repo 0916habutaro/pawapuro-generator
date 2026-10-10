@@ -6976,6 +6976,8 @@ FICTIONAL_PITCHER_RANKED_WEIGHTS = {
     "ノビ_救援": {"A": 1.5, "B": 10.5, "C": 28.5, "D": 40, "E": 13, "F": 5.0, "G": 0.2},
     "送球": {"A": 0.1, "B": 1.5, "C": 6.4, "D": 48, "E": 39, "F": 4.8, "G": 0.2},
 }
+# 対左投手は打席（左打・右打。両打は「対左投手」）、キャッチャーはメインが捕手かどうかで重みを分ける
+# （fictional_fielder_ranked_weights_key。`野手のランク特能_改修指示.md` 1-1）。
 FICTIONAL_FIELDER_RANKED_WEIGHTS = {
     "走塁": {"A": 1.0, "B": 10, "C": 32, "D": 55, "E": 1.6, "F": 0.3, "G": 0.1},
     "盗塁": {"A": 0.3, "B": 3, "C": 11.7, "D": 62, "E": 18, "F": 4.8, "G": 0.2},
@@ -6983,8 +6985,11 @@ FICTIONAL_FIELDER_RANKED_WEIGHTS = {
     "送球": {"A": 0.4, "B": 5.5, "C": 20, "D": 37, "E": 30, "F": 6.9, "G": 0.2},
     "回復": {"A": 0.2, "B": 2.5, "C": 10.3, "D": 24, "E": 52, "F": 10.7, "G": 0.3},
     "対左投手": {"A": 0.4, "B": 5, "C": 17.6, "D": 49, "E": 22, "F": 5.8, "G": 0.2},
+    "対左投手_左打": {"A": 0.1, "B": 0.3, "C": 9.6, "D": 47.4, "E": 33.9, "F": 11.7, "G": 0.1},
+    "対左投手_右打": {"A": 0.3, "B": 6.5, "C": 27.3, "D": 52.6, "E": 12.5, "F": 1.4, "G": 0.1},
     "ケガしにくさ": {"A": 0.1, "B": 1.5, "C": 6.4, "D": 65, "E": 22, "F": 4.8, "G": 0.2},
     "キャッチャー": {"A": 0.1, "B": 0.5, "C": 1.4, "D": 88, "E": 8.5, "F": 1.4, "G": 0.1},
+    "キャッチャー_捕手": {"A": 0.1, "B": 0.9, "C": 6.0, "D": 38.4, "E": 25.7, "F": 12.9, "G": 0.1},
 }
 # 選手格によるランク特能の補正（1段良くする確率, 1段悪くする確率）。能力で決まる項目には掛けない。
 FICTIONAL_CLASS_RANK_SHIFTS = {
@@ -7831,6 +7836,16 @@ def fictional_pitcher_ranked_weights_key(group: str, position: str, batting_thro
     return group
 
 
+def fictional_fielder_ranked_weights_key(group: str, position: str, batting_throwing: str) -> str:
+    """野手のランク特能の重みの鍵。対左投手は打席（両打は分けない）、キャッチャーはメインが捕手かどうかで分ける。"""
+    if group == "対左投手":
+        bats = str(batting_throwing)[-2:-1]
+        return f"{group}_{bats}打" if bats in ("左", "右") else group
+    if group == "キャッチャー" and position == "捕手":
+        return f"{group}_捕手"
+    return group
+
+
 def fictional_adjust_physique(rng: random.Random, player: dict[str, Any], role: str) -> None:
     """日本人の身長を実在に合わせて1〜2cm下げ、体重も連動して下げる（平均 投手181・野手179）。"""
     height_drop = (2 if rng.random() < 0.7 else 1) if role == "投手" else 1
@@ -8048,6 +8063,7 @@ def apply_fictional_fielder_balance(player: dict[str, Any], seed: int, master: M
         groups.append("キャッチャー")
     abilities["ranked_specials"] = fictional_ranked_specials(
         rng, master, groups, FICTIONAL_FIELDER_RANKED_WEIGHTS, str(player.get("player_class", "")), current, link_shift,
+        weights_key=lambda group: fictional_fielder_ranked_weights_key(group, position, batting_throwing),
         role="野手", age=int(player.get("age") or 0),
     )
     player["abilities"] = abilities
