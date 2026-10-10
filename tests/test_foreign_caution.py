@@ -65,12 +65,15 @@ def test_foreign_fielder_power_and_fielding_are_not_too_negative():
     assert -0.30 <= correlation <= -0.05
 
 
-def test_foreign_fielder_shortstops_are_more_common_and_keep_their_sub_positions():
+def test_foreign_fielder_shortstops_are_more_common_with_real_sub_positions():
     # 実在（2024〜2026年版）は遊撃手 15.7%。改修前は 9.6%
     shortstop = sum(p["position"] == "遊撃手" for p in FIELDERS) / len(FIELDERS)
     assert shortstop >= 0.11
-    # 遊撃手のサブポジの数は変えない。三塁手は実在（2022〜2026年版）に合わせて、サブポジ0つをなくした
-    assert app.FOREIGN_FIELDER_SUB_POSITION_COUNT_WEIGHTS["遊撃手"] == [(0, 4), (1, 12), (2, 84)]
+    # 遊撃手は実在（2024〜2026年版 62.5%・2022〜2026年版 65%）に合わせて「2つ」を84%→64%にした。
+    # 三塁手は実在（2022〜2026年版）に合わせて、サブポジ0つをなくした
+    assert dict(app.FOREIGN_FIELDER_SUB_POSITION_COUNT_WEIGHTS["遊撃手"])[2] == 64
+    shortstops = [p for p in FIELDERS if p["position"] == "遊撃手"]
+    assert 0.45 <= sum(len(p["sub_positions"]) == 2 for p in shortstops) / len(shortstops) <= 0.80
     assert dict(app.FOREIGN_FIELDER_SUB_POSITION_COUNT_WEIGHTS["三塁手"])[0] == 0
     assert all(p["sub_positions"] for p in FIELDERS if p["position"] == "三塁手")
 
