@@ -16,7 +16,7 @@
     check_pitcher_rank_pitches 球団生成300球団（個別生成の架空球団用・投手のサンプルは参考表示に使う）
     check_age_profile       個別生成 投手・野手 各30000人 ＋ 球団生成500球団
     check_fictional_balance 架空球団用 投手・野手 各5000人（サンプルCSVを scripts/generate_fictional_balance_sample.py で作り、1つにまとめて渡す）
-    check_foreign_balance   助っ人外国人用 投手・野手 各5000人
+    check_foreign_balance   助っ人外国人用 投手・野手 各5000人 ＋ 球団生成300球団の外国人（「実在（2024〜2026年版）」の節）
     check_draft_balance     ドラフト候補用 投手・野手 各5000人（1つのCSVにまとめて渡す）
 - PYTHONHASHSEED=0 を固定して流す（ハッシュの値によらないことは tests/test_hash_independence.py で確かめている。念のため固定している）。
 - 前回の正式な結果（data/config/check_snapshot.csv）との比較: 悪化した項目は不合格に数える。意図した変更なら
@@ -54,6 +54,7 @@ QUICK_ARGS = {
     "check_special_profile": ["--teams", "40"],
     "check_pitcher_rank_pitches": ["--teams", "40"],
     "check_age_profile": ["--players", "1500", "--teams", "40"],
+    "check_foreign_balance": ["--teams", "40"],
 }
 SCALE_TEXT = {
     "official": {
@@ -61,12 +62,12 @@ SCALE_TEXT = {
         "check_pitcher_control": "球団生成300球団", "check_fielder_speed": "球団生成300球団", "check_fielder_batting": "球団生成300球団", "check_fielder_position": "球団生成300球団",
         "check_special_profile": "球団生成300球団", "check_pitcher_rank_pitches": "球団生成300球団",
         "check_age_profile": "個別生成 投手・野手 各30000人＋球団生成500球団",
-        "check_fictional_balance": "投手・野手 各5000人", "check_foreign_balance": "投手・野手 各5000人", "check_draft_balance": "投手・野手 各5000人",
+        "check_fictional_balance": "投手・野手 各5000人", "check_foreign_balance": "投手・野手 各5000人＋球団生成300球団", "check_draft_balance": "投手・野手 各5000人",
     },
     "quick": {
         "validate_team_mode": "構成・背番号40球団／戦力60球団／カラー7×15球団／散らばり40球団",
         "check_pitcher_control": "球団生成40球団", "check_fielder_speed": "球団生成40球団", "check_fielder_batting": "球団生成40球団", "check_fielder_position": "球団生成40球団", "check_special_profile": "球団生成40球団", "check_pitcher_rank_pitches": "球団生成40球団", "check_age_profile": "個別生成 各1500人＋球団生成40球団",
-        "check_fictional_balance": "投手・野手 各500人", "check_foreign_balance": "投手・野手 各500人", "check_draft_balance": "投手・野手 各500人",
+        "check_fictional_balance": "投手・野手 各500人", "check_foreign_balance": "投手・野手 各500人＋球団生成40球団", "check_draft_balance": "投手・野手 各500人",
     },
 }
 
@@ -237,7 +238,7 @@ def main() -> None:
         "check_fictional_balance": [py, "scripts/check_fictional_balance.py", str(samples / "fictional_all.csv"), *common,
                                     "--checks-csv", str(csv_path("check_fictional_balance"))],
         "check_foreign_balance": [py, "scripts/check_foreign_balance.py", str(samples / "foreign_pitchers.csv"), str(samples / "foreign_fielders.csv"), *common,
-                                  "--checks-csv", str(csv_path("check_foreign_balance"))],
+                                  "--workers", str(args.workers), "--checks-csv", str(csv_path("check_foreign_balance")), *sized.get("check_foreign_balance", [])],
         "check_draft_balance": [py, "scripts/check_draft_balance.py", str(samples / "draft_all.csv"), *common, "--checks-csv", str(csv_path("check_draft_balance"))],
     }
     crashed = False
