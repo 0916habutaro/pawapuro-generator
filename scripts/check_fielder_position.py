@@ -89,8 +89,8 @@ FIXED_PAIRS = {
 # 合格の範囲（指示書2-1）
 TOL_MEAN, TOL_MEAN_FIXED, SD_RATIO_RANGE, TOL_TRAJECTORY_MEAN, TOL_SHARE, TOL_RATING = 1.5, 1.0, (0.85, 1.20), 0.15, 6.0, 8.0
 TOL_CATCHER_SHARE, TOL_CATCHER_POINTS = 5.0, 0.4
-# 改修前（球団生成 seed 1〜300、PR #122 の main）の捕手のキャッチャー。表示用
-BEFORE_CATCHER = {"割合": (0.2, 0.9, 5.9, 80.0, 11.2, 1.7, 0.1), "ランク点": -0.26}
+# 改修前（球団生成 seed 1〜300、PR #122 をマージした main 1e6eda4）の捕手のキャッチャー。表示用
+BEFORE_CATCHER = {"割合": (0.1, 0.9, 5.9, 80.0, 11.2, 1.7, 0.1), "ランク点": -0.27}
 SECTIONS = {
     "mean": "ポジション×能力の平均（実在は2024〜2026年版の日本人野手・22歳以上）",
     "sd": "ポジション×能力の標準偏差の比（生成÷実在）",
@@ -218,7 +218,7 @@ def print_catcher_reference(generated: pd.DataFrame, before: bool = True) -> Non
     print(pd.DataFrame(rows).to_string(index=False))
     sub = generated[(generated["position"] != "捕手") & (generated["rk_キャッチャー"] != "D")]
     if "rating" in catchers and catchers["rating"].notna().any():
-        print(f"[捕手の査定の平均（全年齢。参考）] {catchers['rating'].mean():.1f}（改修前 223.4、実在 222.7）")
+        print(f"[捕手の査定の平均（全年齢。参考）] {catchers['rating'].mean():.1f}（改修前 223.5、実在 222.7）")
     print(f"[サブポジ捕手でキャッチャーがD以外（今の重みのまま。参考）] {len(sub)}人")
 
 

@@ -1,5 +1,5 @@
 {
   "date": "2026-10-10",
-  "reason": "外国人の要注意の追加（外国人の要注意_改修指示.md）: 助っ人外国人用の遊撃手のサブポジ数を実在（2024〜2026年版16人 62.5%・2022〜2026年版20人 65%の間）に合わせ、0／1／2つ 4／12／84→19／17／64にした。サブポジ2つ 36.7%→33.7%（範囲内）。続く特能の抽選の揺れと、査定・戦力・背番号（validate_team_mode、誤差の平均0.13倍）が動いた。球団生成の日本人と、ほかの判定の値は変わらない",
-  "commit": "fb4d532（ブランチ claude/foreign-caution） + 未コミットの変更あり"
+  "reason": "野手のランク特能の改修（野手のランク特能_改修指示.md）: 架空球団用の日本人野手の対左投手を打席で分け、メインが捕手の野手のキャッチャーの重みを別に持った。ランク特能・査定・戦力・散らばり・背番号の判定（野手のランク点の年齢帯、ポジションごとの査定、ランクA・Gを1つ以上ほか）が動いた。悪化0件。新しい判定 check_fielder_batting.rank_left・rank_points、check_fielder_position.catcher_rank を足した。投手・外国人・ドラフト候補の個別生成は seed 1〜1000 で改修前と完全に一致するので、それだけを使う判定（check_pitcher_control・check_pitcher_rank_pitches・check_foreign_balance・check_draft_balance）は流さず、スナップショットもそのまま",
+  "commit": "b2d72b1（ブランチ claude/fielder-ranked-batting-catcher）"
 }
