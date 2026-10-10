@@ -6780,6 +6780,8 @@ def apply_foreign_fielder_balance(player: dict[str, Any], seed: int, master: Mas
 # ---------------------------------------------------------------------------
 FICTIONAL_PITCHER_BALANCE_NAMESPACE = "fictional_pitcher_balance_v1"
 FICTIONAL_FIELDER_BALANCE_NAMESPACE = "fictional_fielder_balance_v1"
+# 走力70〜79の走塁を上げる乱数（`野手の走力肩力ランク_改修指示.md` 1-2）。今の乱数の並びを変えないため別の名前空間から引く。
+FICTIONAL_FIELDER_RANK_LINK_NAMESPACE = "fictional_fielder_rank_link_v1"
 # 投手の役割ごとの補正（球速, コントロール, スタミナ）。抑えは守護神格なので球速を上げる。
 FICTIONAL_PITCHER_ROLE_SHIFTS = {
     "先発": (0.0, 1.5, -3.5),
@@ -6979,8 +6981,8 @@ FICTIONAL_PITCHER_RANKED_WEIGHTS = {
 # 対左投手は打席（左打・右打。両打は「対左投手」）、キャッチャーはメインが捕手かどうかで重みを分ける
 # （fictional_fielder_ranked_weights_key。`野手のランク特能_改修指示.md` 1-1）。
 FICTIONAL_FIELDER_RANKED_WEIGHTS = {
-    "走塁": {"A": 1.0, "B": 10, "C": 32, "D": 55, "E": 1.6, "F": 0.3, "G": 0.1},
-    "盗塁": {"A": 0.3, "B": 3, "C": 11.7, "D": 62, "E": 18, "F": 4.8, "G": 0.2},
+    "走塁": {"A": 1.0, "B": 7, "C": 28, "D": 61, "E": 2.5, "F": 0.4, "G": 0.1},
+    "盗塁": {"A": 0.3, "B": 3, "C": 11.7, "D": 59.5, "E": 20.5, "F": 5.5, "G": 0.2},
     "チャンス": {"A": 0.5, "B": 5, "C": 17.5, "D": 61, "E": 12.5, "F": 3.3, "G": 0.2},
     "送球": {"A": 0.4, "B": 5.5, "C": 20, "D": 37, "E": 30, "F": 6.9, "G": 0.2},
     "回復": {"A": 0.2, "B": 2.5, "C": 10.3, "D": 24, "E": 52, "F": 10.7, "G": 0.3},
@@ -6997,6 +6999,11 @@ FICTIONAL_CLASS_RANK_SHIFTS = {
     "二軍級": (0.0, 0.10), "若手素材型": (0.0, 0.10), "ベテラン型": (0.08, 0.05),
 }
 FICTIONAL_PHYSICAL_RANKED = {"走塁", "盗塁", "送球", "クイック", "ノビ"}
+# 野手の走力・肩力とランク特能の結びつき（1段上げる確率, 1段下げる確率）。上げるのは走力・肩力80以上、
+# 下げるのは走力50以下・肩力55以下。確率が0でも条件に当たれば乱数を1回引く（乱数の並びを変えない。
+# `野手の走力肩力ランク_改修指示.md` 1-1）。走力70〜79の走塁は、別の副乱数で確率 FICTIONAL_FIELDER_RUNNING_MID_RATE で上げる（1-2）。
+FICTIONAL_FIELDER_RANK_LINK_RATES = {"走塁": (0.8, 0.2), "盗塁": (0.35, 0.0), "送球": (0.4, 0.0)}
+FICTIONAL_FIELDER_RUNNING_MID_RATE = 0.5
 
 # 野手の基本能力（ミート, パワー, 走力, 肩力, 守備力, 捕球）。
 # 既存処理の平均・標準偏差（架空球団の日本人3000人で測定）を、実在（5年）の平均・標準偏差と相関に写す。
@@ -8047,15 +8054,18 @@ def apply_fictional_fielder_balance(player: dict[str, Any], seed: int, master: M
     player["special_abilities"] = fictional_special_profile_adjust(seed, master, player, player["special_abilities"], is_allowed)
     player["special_abilities"] = fictional_green_profile_adjust(seed, master, player, player["special_abilities"], is_allowed)
     speed, arm = values["走力"], values["肩力"]
+    link_rng = make_sub_rng(seed, FICTIONAL_FIELDER_RANK_LINK_NAMESPACE)
 
     def link_shift(group: str) -> int:
+        rates = FICTIONAL_FIELDER_RANK_LINK_RATES.get(group)
+        if rates is None:
+            return 0
+        up_rate, down_rate = rates
+        value, low = (arm, 55) if group == "送球" else (speed, 50)
+        shift = int(value >= 80 and rng.random() < up_rate) - int(value <= low and rng.random() < down_rate)
         if group == "走塁":
-            return int(speed >= 80 and rng.random() < 0.5) - int(speed <= 50 and rng.random() < 0.4)
-        if group == "盗塁":
-            return int(speed >= 80 and rng.random() < 0.6) - int(speed <= 50 and rng.random() < 0.5)
-        if group == "送球":
-            return int(arm >= 80 and rng.random() < 0.4) - int(arm <= 55 and rng.random() < 0.4)
-        return 0
+            shift += int(70 <= speed < 80 and link_rng.random() < FICTIONAL_FIELDER_RUNNING_MID_RATE)
+        return shift
 
     current = dict(old_abilities.get("ranked_specials", {}) or {})
     groups = [group for group in current if group != "キャッチャー"]

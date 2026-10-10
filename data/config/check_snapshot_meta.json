@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-10",
-  "reason": "野手のランク特能の改修（野手のランク特能_改修指示.md）: 架空球団用の日本人野手の対左投手を打席で分け、メインが捕手の野手のキャッチャーの重みを別に持った。ランク特能・査定・戦力・散らばり・背番号の判定（野手のランク点の年齢帯、ポジションごとの査定、ランクA・Gを1つ以上ほか）が動いた。悪化0件。新しい判定 check_fielder_batting.rank_left・rank_points、check_fielder_position.catcher_rank を足した。投手・外国人・ドラフト候補の個別生成は seed 1〜1000 で改修前と完全に一致するので、それだけを使う判定（check_pitcher_control・check_pitcher_rank_pitches・check_foreign_balance・check_draft_balance）は流さず、スナップショットもそのまま",
-  "commit": "b2d72b1（ブランチ claude/fielder-ranked-batting-catcher）"
+  "date": "2026-10-11",
+  "reason": "野手の走力肩力ランクの改修（野手の走力肩力ランク_改修指示.md）: 架空球団用の日本人野手の走塁・盗塁・送球と走力・肩力の結びつき（link_shift の確率、走力70〜79の走塁）と、盗塁・走塁の重みを変えた。ランク特能・査定・戦力・散らばり・背番号の判定（野手のランク点の年齢帯、ポジションごとの査定、ランク点の合計ほか）が動いた。悪化1件（check_age_profile.team.fielder.rk_pts.band_diff_max 1.516→2.033、30〜33歳のランク点が目標+2.0に対し+4.0。範囲2以下は変えない）。新しい判定 check_fielder_speed.rank_band・rank_overall・rank_total を足した。投手・外国人・ドラフト候補の個別生成は seed 1〜1000 で改修前と完全に一致するので、それだけを使う判定（check_pitcher_control・check_pitcher_rank_pitches・check_foreign_balance・check_draft_balance）は流さず、スナップショットもそのまま",
+  "commit": "62bd460（ブランチ claude/fielder-speed-arm-rank） + 未コミットの変更あり"
 }
