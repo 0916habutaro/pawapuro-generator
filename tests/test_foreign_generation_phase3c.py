@@ -56,10 +56,12 @@ def test_returnee_year_invariants_and_rate_parameter():
 
 def test_existing_foreign_import_seed_regression():
     expected = {
-        # 外国人投手は実在準拠バランス（apply_foreign_pitcher_balance）で再調整した値
-        ("投手", 2026092803): "b187eed3b172d4990556b6ca9afca28dc3548e85be1176398e943f50be22c8f9",
-        # 外国人野手は実在準拠バランス（apply_foreign_fielder_balance）で再調整した値
-        ("野手", 2026092804): "ff8954fd6e13eea579b6df482880b156b60ed5094a4668241e19b872f33df7c9",
+        # 外国人投手は実在準拠バランス（apply_foreign_pitcher_balance）で再調整した値。
+        # 外国人の残り_改修指示.md で特能（対ランナー×など）の確率とランク特能の重みを変えたので更新した
+        ("投手", 2026092803): "34cff6dae2d3a57ea75da49df49f464a307362a7f88f73c1df92667ec56b3a5b",
+        # 外国人野手は実在準拠バランス（apply_foreign_fielder_balance）で再調整した値。
+        # 外国人の残り_改修指示.md で年齢の重み・走力・打撃因子の掛け目を変えたので更新した
+        ("野手", 2026092804): "661c42dc49531969d639e83a7affb59b3dcd740d5a704f06637d94a1c78c1f54",
     }
     master = app.load_master_data()
     for (role, seed), expected_hash in expected.items():

@@ -952,11 +952,13 @@ FOREIGN_AGE_WEIGHTS = {
         (31, 115), (32, 103), (33, 81), (34, 29), (35, 20), (36, 12),
         (37, 7), (38, 5), (39, 3), (40, 2), (41, 1),
     ],
+    # 野手は実在（2026年版の外国人野手、平均29.1歳）に合わせ、以前の重みを1.5歳若くした
+    # （年齢 a の重み = 以前の a+1 歳と a+2 歳の重みの平均。外国人の残り_改修指示.md 1-3）。
     "野手": [
-        (19, 2), (20, 3), (21, 5), (22, 8), (23, 12), (24, 17),
-        (25, 30), (26, 44), (27, 55), (28, 90), (29, 105), (30, 123),
-        (31, 110), (32, 110), (33, 98), (34, 58), (35, 43), (36, 31),
-        (37, 22), (38, 15), (39, 9), (40, 5), (41, 3), (42, 2),
+        (19, 4), (20, 6.5), (21, 10), (22, 14.5), (23, 23.5), (24, 37),
+        (25, 49.5), (26, 72.5), (27, 97.5), (28, 114), (29, 116.5), (30, 110),
+        (31, 104), (32, 78), (33, 50.5), (34, 37), (35, 26.5), (36, 18.5),
+        (37, 12), (38, 7), (39, 4), (40, 2.5), (41, 1), (42, 0.5),
     ],
 }
 FOREIGN_NPB_TENURE_WEIGHTS = {
@@ -5927,13 +5929,14 @@ FOREIGN_PITCHER_SPECIAL_CONFLICTS = [
     ("対ランナー", "対ランナー×"), ("投手調子安定", "投手調子極端"),
 ]
 # ランク特能の重み（A〜G）。2026寄りの実在外国人投手の分布に合わせる。
+# ノビ・打たれ強さ・対ピンチ・対左打者は、2024〜2026年版の実在（A・Bが少ない）に合わせて A・B を減らした（外国人の残り_改修指示.md 1-2）。
 FOREIGN_PITCHER_RANKED_WEIGHTS = {
     "クイック": {"A": 0.2, "B": 0.5, "C": 1.3, "D": 36, "E": 46, "F": 12.5, "G": 3.5},
     "回復": {"A": 4, "B": 14, "C": 24, "D": 51, "E": 5, "F": 1.5, "G": 0.5},
-    "ノビ": {"A": 3, "B": 14, "C": 30, "D": 29, "E": 17, "F": 6, "G": 1},
-    "打たれ強さ": {"A": 2, "B": 8, "C": 17, "D": 67.7, "E": 4, "F": 1, "G": 0.3},
-    "対ピンチ": {"A": 1, "B": 4, "C": 10, "D": 68, "E": 12, "F": 4, "G": 1},
-    "対左打者": {"A": 1, "B": 5, "C": 13, "D": 46, "E": 25, "F": 8, "G": 2},
+    "ノビ": {"A": 1.5, "B": 10, "C": 30, "D": 29, "E": 17, "F": 5, "G": 2.5},
+    "打たれ強さ": {"A": 0.3, "B": 3.5, "C": 17, "D": 77, "E": 3, "F": 0.6, "G": 0.1},
+    "対ピンチ": {"A": 0.2, "B": 0.8, "C": 10, "D": 68, "E": 15, "F": 2.5, "G": 0.3},
+    "対左打者": {"A": 0.2, "B": 2, "C": 13, "D": 46, "E": 33, "F": 8, "G": 0.8},
     "対左打者_左投": {"A": 2, "B": 6, "C": 14, "D": 56, "E": 15, "F": 6, "G": 1},
     "ケガしにくさ": {"A": 1, "B": 3, "C": 8, "D": 53, "E": 24, "F": 9, "G": 2},
 }
@@ -6163,20 +6166,23 @@ def foreign_pitcher_special_abilities(
     else:
         walk = 0.08
     # (特能名, 確率, 選手格補正を掛けるか)
+    # 対ランナー（青）・対ランナー×（赤）・抜け球・回またぎ○・逃げ球・ナチュラルシュートは、2024〜2026年版の実在の
+    # 保有率に合わせた（外国人の残り_改修指示.md 1-1。以前は実在の赤の「対ランナー」を青と読んでいた頃の値だった）。
     candidates: list[tuple[str, float, bool]] = [
         ("奪三振", strikeout + (0.05 if archetype == "速球" else 0.0), False),
         ("四球", walk, False),
         ("球速安定", 0.40, True),
-        ("逃げ球", 0.26, True),
+        ("逃げ球", 0.36, True),
         ("一発", 0.15, True),
         ("荒れ球", 0.28 if control <= 45 else 0.11, False),
         ("キレ○", 0.15, True),
-        ("抜け球", 0.16, True),
+        ("抜け球", 0.31, True),
         ("真っスラ", 0.15, True),
-        ("ナチュラルシュート", 0.03, True),
+        ("ナチュラルシュート", 0.11, True),
         ("フライボールピッチャー", 0.20 if speed >= 157 and not has_two_seam else 0.10, False),
         ("ゴロピッチャー", 0.18 if has_two_seam or "4" in directions else 0.05, False),
-        ("対ランナー", 0.15, True),
+        ("対ランナー", 0.05, True),
+        ("対ランナー×", 0.16, True),
         ("緩急○", 0.14 if "2" in directions or names & {"チェンジアップ", "サークルチェンジ"} else 0.05, True),
         ("速球中心", 0.16 if speed >= 158 else 0.08, False),
         ("変化球中心", 0.27 if archetype == "変化球" else 0.13, False),
@@ -6193,7 +6199,7 @@ def foreign_pitcher_special_abilities(
         ("テンポ○", 0.09, False),
         ("スロースターター", 0.10 if can_start else 0.0, True),
         ("力配分", 0.06 if can_start else 0.0, True),
-        ("回またぎ○", 0.08 if can_relieve else 0.0, True),
+        ("回またぎ○", 0.20 if can_relieve else 0.0, True),
         ("負け運", 0.04, True),
         ("内角攻め", 0.015, True),
         ("乱調", 0.015, True),
@@ -6382,10 +6388,10 @@ FOREIGN_FIELDER_POSITION_AFFINITY = {
 # アーキタイプの偏り（遊撃手・二塁手は守備型が多い）を差し引いて、生成後の平均が実在に近づく値にしている。
 FOREIGN_FIELDER_POSITION_PROFILES = {
     "一塁手": (45.5, 71.5, 42.0, 64.0, 47.0),
-    "三塁手": (41.0, 70.0, 52.0, 70.0, 49.0),
+    "三塁手": (41.0, 70.0, 54.0, 70.0, 49.0),
     "二塁手": (42.0, 66.0, 70.0, 68.0, 49.0),
-    "遊撃手": (38.0, 56.0, 72.0, 77.0, 52.5),
-    "外野手": (45.0, 71.0, 61.0, 66.0, 42.0),
+    "遊撃手": (38.0, 56.0, 75.0, 77.0, 52.5),
+    "外野手": (45.0, 71.0, 66.5, 66.0, 42.0),
     "捕手": (45.0, 67.0, 46.0, 79.0, 44.0),
 }
 # アーキタイプごとの補正（ミート, パワー, 走力, 肩力, 守備力）
@@ -6397,6 +6403,9 @@ FOREIGN_FIELDER_ARCHETYPE_SHIFTS = {
     "強肩": (0.0, 0.0, 0.0, 7.0, 1.0),
     "バランス": (0.0, 0.0, 0.0, 0.0, 0.0),
 }
+# ミートとパワーの共通の打撃因子の掛け目（パワー, ミート）
+FOREIGN_FIELDER_HITTING_POWER = 5.4
+FOREIGN_FIELDER_HITTING_CONTACT = 6.0
 # 選手格ごとの打撃（ミート・パワー）の補正。守備・走力・肩にはほとんど掛けない。
 FOREIGN_FIELDER_CLASS_BATTING = {
     "大物実績者": 6.0, "主力期待級": 2.0, "レギュラー競争級": 0.0,
@@ -6509,16 +6518,17 @@ def foreign_fielder_abilities(
     batting = FOREIGN_FIELDER_CLASS_BATTING.get(player_class, 0.0)
     defense = FOREIGN_FIELDER_CLASS_DEFENSE.get(player_class, 0.0)
     # 「打てる外国人はミートもパワーもある」ように、打撃の共通因子を両方に入れる。
+    # 掛け目は、実在（2024〜2026年版）のミート・パワーの幅と相関に合わせて大きくした（外国人の残り_改修指示.md 1-3）。
     hitting = rng.gauss(0.0, 1.0)
 
-    power_mean = base_power + shift_power + batting * 0.8 + hitting * 3.4 + (height - 187.5) * 0.12
+    power_mean = base_power + shift_power + batting * 0.8 + hitting * FOREIGN_FIELDER_HITTING_POWER + (height - 187.5) * 0.12
     if age <= 24:
         power_mean -= 2.0
     power = foreign_fielder_split_normal(rng, power_mean, 6.4, 4.4, 38, 88)
     # 走力・肩・守備は、ミートと共通の打撃因子を除いたパワーの高さで下げる（ミートと守備・肩は無相関に近い）。
-    power_dev = power - base_power - batting * 0.8 - hitting * 3.4
+    power_dev = power - base_power - batting * 0.8 - hitting * FOREIGN_FIELDER_HITTING_POWER
 
-    contact_mean = base_contact + shift_contact + batting + hitting * 4.2
+    contact_mean = base_contact + shift_contact + batting + hitting * FOREIGN_FIELDER_HITTING_CONTACT
     if weakness_profile == "低ミート":
         contact_mean -= 6.0
     contact = foreign_fielder_split_normal(rng, contact_mean, 7.5, 8.2, 20, 70)
