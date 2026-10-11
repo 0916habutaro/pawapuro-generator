@@ -1,5 +1,5 @@
 {
   "date": "2026-10-11",
-  "reason": "野手の走力肩力ランクの改修（野手の走力肩力ランク_改修指示.md）: 架空球団用の日本人野手の走塁・盗塁・送球と走力・肩力の結びつき（link_shift の確率、走力70〜79の走塁）と、盗塁・走塁の重みを変えた。ランク特能・査定・戦力・散らばり・背番号の判定（野手のランク点の年齢帯、ポジションごとの査定、ランク点の合計ほか）が動いた。悪化1件（check_age_profile.team.fielder.rk_pts.band_diff_max 1.516→2.033、30〜33歳のランク点が目標+2.0に対し+4.0。範囲2以下は変えない）。新しい判定 check_fielder_speed.rank_band・rank_overall・rank_total を足した。投手・外国人・ドラフト候補の個別生成は seed 1〜1000 で改修前と完全に一致するので、それだけを使う判定（check_pitcher_control・check_pitcher_rank_pitches・check_foreign_balance・check_draft_balance）は流さず、スナップショットもそのまま",
-  "commit": "62bd460（ブランチ claude/fielder-speed-arm-rank） + 未コミットの変更あり"
+  "reason": "野手のランク年齢傾き_改修指示.md: 架空球団用の日本人野手の FICTIONAL_AGE_RANK_BETA['野手'] を測り直した（PR #124 の後に30〜33歳・34歳以上のランク点が目標より高かった）。動いてよい項目（球団生成の野手のランク点の年齢との相関、B以上の数 30〜33）だけ更新した。どちらも範囲の中。値は container（OOTP の名前DB data/imported/foreign_names.sqlite が無い環境）の正式な結果。同じ環境の改修前（d00969c）は 0.2842・0.6475",
+  "commit": "d1caa4b + 未コミット（スナップショットの更新だけ）"
 }

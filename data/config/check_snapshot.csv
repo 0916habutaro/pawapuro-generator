@@ -90,8 +90,8 @@ check_age_profile.team.fielder.n_pos.band_diff_max,実在,0.2136890951,0.0368463
 check_age_profile.team.fielder.rk_a,実在,0.01833073323,0.0009769383756
 check_age_profile.team.fielder.rk_g,実在,0.01014040562,0.0008926121432
 check_age_profile.team.fielder.rk_hi.band21,実在,0.1171023965,0.007240892955
-check_age_profile.team.fielder.rk_hi.band30,実在,0.6909512761,0.01674401689
-check_age_profile.team.fielder.rk_pts.age_corr,実在,0.2833174791,0.006540953635
+check_age_profile.team.fielder.rk_hi.band30,実在,0.6182820395,0.01638504103
+check_age_profile.team.fielder.rk_pts.age_corr,実在,0.256936331,0.006056484944
 check_age_profile.team.fielder.rk_pts.band_diff_max,実在,2.032946636,0.1509161953
 check_age_profile.team.fielder.rk_pts.sd_band21,実在,5.864111857,0.1063901432
 check_age_profile.team.fielder.rk_pts.sd_old_max,実在,7.803490065,0.1039854632
