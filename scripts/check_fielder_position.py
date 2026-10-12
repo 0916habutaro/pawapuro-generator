@@ -21,6 +21,9 @@
   実在側の誤差は異なる選手の数（捕手98人、二塁手・遊撃手135人、一塁手・三塁手・外野手226人）で見積もる。
 - ランク特能の形（`ランク特能の形_改修指示.md` 2-1）: ケガしにくさ（捕手・遊撃手／ほか）とチャンス（野手全体）のランクの割合
   （B・C・E・F は実在±4ポイント、D は実在±6ポイント）とランク点（実在±0.3）。全年齢。共通部分は rank_shape.py。
+- 能力とランク特能の結びつき（`能力とランク特能の結びつき_改修指示.md` 2-1）: 回復（野手全体。ミート・守備力・捕球）、送球（野手全体。
+  捕球・守備力）、キャッチャー（メインが捕手。捕球・守備力）の、ランクの点と能力の合成値の相関（実在±0.12）とランクの割合
+  （B〜F、実在±4ポイント）。全年齢。実在の値は data/config/rank_ability_real.json、共通部分は rank_ability.py。
 - 21歳以下・走力・打席の左右差は check_age_profile.py・check_fielder_speed.py・check_fielder_batting.py が受け持つ。
 - 個別生成（架空球団用・野手）は同じ表を参考として出す（合否には使わない。査定は求めない）。
 - 判定の種類・誤差・合否の付け方は checklib.py。誤差は、生成側は球団、実在側は実在の野手を再抽出して見積もる。
@@ -41,6 +44,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import checklib  # noqa: E402
+import rank_ability  # noqa: E402
 import rank_shape  # noqa: E402
 from check_fielder_batting import (  # noqa: E402
     LETTERS, RANK_COLUMNS, SPECIAL_FLAG_COLUMNS, collect, mean_se, real_japanese_fielders, real_rank_reference, share_se, single_fielders,
@@ -50,6 +54,8 @@ from checklib import Checks  # noqa: E402
 SCRIPT = "check_fielder_position"
 SHAPE_KEYS = rank_shape.SCRIPT_SHAPES[SCRIPT]
 SHAPE_COLUMNS = ("rk_ケガしにくさ", "rk_チャンス")
+ABILITY_KEYS = rank_ability.SCRIPT_PARTS[SCRIPT]
+ABILITY_RANK_COLUMNS = ("rk_回復", "rk_送球")  # rk_キャッチャー は RANK_COLUMNS にある
 POSITIONS = ("捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手")
 ABILITIES = ("ミート", "パワー", "肩力", "守備力", "捕球")
 YOUNG_MAX_AGE = 21
@@ -175,6 +181,8 @@ def evaluate(frame: pd.DataFrame, prefix: str = SCRIPT, info: bool = False) -> C
         catcher_special_checks(checks, frame, prefix, kind)
     if "rk_ケガしにくさ" in frame.columns:  # ランク特能の形（全年齢）。実在の値は rank_shape_real.json
         rank_shape.shape_checks(checks, frame, prefix, kind, SHAPE_KEYS)
+    if "rk_回復" in frame.columns:  # 能力とランク特能の結びつき（全年齢）。実在の値は rank_ability_real.json
+        rank_ability.ability_checks(checks, frame, prefix, kind, ABILITY_KEYS)
     return checks
 
 
@@ -246,12 +254,13 @@ def grade_all(frame: pd.DataFrame, boot: int, quick: bool = False) -> list[check
         se_real.update(real_catcher_errors())
         se_real.update(real_special_errors())
         se_real.update(rank_shape.real_errors(SCRIPT, SHAPE_KEYS))
+        se_real.update(rank_ability.real_errors(SCRIPT, ABILITY_KEYS))
     return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
 
 
 def team_fielders(frame: pd.DataFrame) -> pd.DataFrame:
     fielders = frame[(frame["role"] == "野手") & (~frame["is_foreign"])]
-    columns = ["team_key", "position", "age", "弾道", "rating", "n_red", "n_green", *ABILITIES, *RANK_COLUMNS, *SHAPE_COLUMNS, *SPECIAL_FLAG_COLUMNS]
+    columns = ["team_key", "position", "age", "弾道", "rating", "n_red", "n_green", *ABILITIES, *RANK_COLUMNS, *SHAPE_COLUMNS, *ABILITY_RANK_COLUMNS, *SPECIAL_FLAG_COLUMNS]
     return fielders[columns].reset_index(drop=True)
 
 
@@ -280,6 +289,7 @@ def print_reference(generated: pd.DataFrame) -> None:
     print_catcher_reference(generated)
     print_special_reference(generated)
     rank_shape.print_shape_reference(generated, SHAPE_KEYS)
+    rank_ability.print_ability_reference(generated, ABILITY_KEYS)
 
 
 def print_special_reference(generated: pd.DataFrame, before: bool = True) -> None:
@@ -340,6 +350,7 @@ def main() -> None:
         print_catcher_reference(single, before=False)
         print_special_reference(single, before=False)
         rank_shape.print_shape_reference(single, SHAPE_KEYS, before=False)
+        rank_ability.print_ability_reference(single, ABILITY_KEYS, before=False)
         graded += reference
     sys.exit(checklib.finish(SCRIPT, graded, args))
 

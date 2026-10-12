@@ -21,6 +21,9 @@
     救援の総変化量の平均                    実在±0.15
 - ランク特能の形（`ランク特能の形_改修指示.md` 2-1）: 対ピンチの先発・救援ごとのランクの割合（B・C・E・F は実在±4ポイント、
   D は実在±6ポイント）とランク点（実在±0.3）。実在の値は data/config/rank_shape_real.json、共通部分は rank_shape.py。
+- 能力とランク特能の結びつき（`能力とランク特能の結びつき_改修指示.md` 2-1）: 回復・打たれ強さの先発・救援ごとの、ランクの点と
+  能力（コントロール・スタミナ）の合成値の相関（実在±0.12）とランクの割合（B〜F、実在±4ポイント）。
+  実在の値は data/config/rank_ability_real.json、共通部分は rank_ability.py。
 - 実在の値は data/config/pitcher_rank_pitches_real.json（--build-real で、実在の元データ data/raw/ から作る）。
   実在側の誤差は、平均は 標準偏差/√人数、割合は √(p(1−p)/人数) で見積もる。生成側の誤差は球団を単位に再抽出して求める。
 - 個別生成（架空球団用・日本人投手）は同じ表を参考として出す（合否には使わない）。
@@ -49,6 +52,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import checklib  # noqa: E402
+import rank_ability  # noqa: E402
 import rank_shape  # noqa: E402
 from checklib import Checks  # noqa: E402
 from generator import team_analysis as ta  # noqa: E402
@@ -56,6 +60,7 @@ from generator.rating import load_table, ranked_points  # noqa: E402
 
 SCRIPT = "check_pitcher_rank_pitches"
 SHAPE_KEYS = rank_shape.SCRIPT_SHAPES[SCRIPT]
+ABILITY_KEYS = rank_ability.SCRIPT_PARTS[SCRIPT]
 REAL_PATH = APP_DIR / "data" / "config" / "pitcher_rank_pitches_real.json"
 ROLES = ("先発", "救援")
 RANK_GROUPS = ("ノビ", "回復", "対左打者")
@@ -96,20 +101,22 @@ def rank_point_table() -> dict[str, dict[str, int]]:
     return out
 
 
-def pitcher_row(role: str, throws: str | None, speed: float, ranked: dict[str, str], balls: list[Any], *, real: bool) -> dict[str, Any]:
-    """1人分の行。ranked は {項目: ランク特能の名前（末尾がランクの文字）}。"""
+def pitcher_row(role: str, throws: str | None, speed: float, ranked: dict[str, str], balls: list[Any], *, real: bool,
+                control: float = math.nan, stamina: float = math.nan) -> dict[str, Any]:
+    """1人分の行。ranked は {項目: ランク特能の名前（末尾がランクの文字）}。コントロール・スタミナは能力とランク特能の結びつきに使う。"""
     points = rank_point_table()
     primary = ta._primary_breaking(balls, real=real)
     row: dict[str, Any] = {
         "prole": role, "throws": "左" if throws == "左" else "右", "球速": speed,
         "変化球数": float(len(primary)), "総変化量": float(sum(ta._movement(ball) for ball in primary)),
-        "rank_points": float(ranked_points(ranked, "投手")),
+        "rank_points": float(ranked_points(ranked, "投手")), "コントロール": control, "スタミナ": stamina,
     }
     for group in RANK_GROUPS:
         letter = str(ranked.get(group) or "D")[-1:]
         row[f"rk_{group}"] = letter if letter in LETTERS else "D"
         row[f"pt_{group}"] = float(points[group].get(row[f"rk_{group}"], 0))
     row.update(rank_shape.letter_columns(ranked, "投手"))
+    row.update(rank_ability.letter_columns(ranked, "投手"))
     return row
 
 
@@ -139,7 +146,8 @@ def load_real_rows() -> pd.DataFrame:
                 throws, _bats = ta._hand_parts(row.get("throws_bats"))
                 role = "先発" if str(row.get("pitcher_roles") or "")[:1] == "先" else "救援"
                 speed = float(row["top_speed"]) if not pd.isna(row.get("top_speed")) else math.nan
-                rows.append({"season": season, **pitcher_row(role, throws, speed, ranked, row.get("breaking_balls") or [], real=True)})
+                rows.append({"season": season, **pitcher_row(role, throws, speed, ranked, row.get("breaking_balls") or [], real=True,
+                                                             control=ta._number(row.get("control")), stamina=ta._number(row.get("stamina")))})
     return pd.DataFrame(rows)
 
 
@@ -206,7 +214,8 @@ def generated_row(player: dict[str, Any]) -> dict[str, Any]:
     abilities = player.get("abilities") if isinstance(player.get("abilities"), dict) else {}
     throws, _bats = ta._hand_parts(player.get("batting_throwing"))
     role = "先発" if player.get("position") == "先発" else "救援"
-    return pitcher_row(role, throws, ta._number(abilities.get("球速")), abilities.get("ranked_specials") or {}, player.get("breaking_balls") or [], real=False)
+    return pitcher_row(role, throws, ta._number(abilities.get("球速")), abilities.get("ranked_specials") or {}, player.get("breaking_balls") or [], real=False,
+                       control=ta._number(abilities.get("コントロール")), stamina=ta._number(abilities.get("スタミナ")))
 
 
 def _team(team_seed: int) -> list[dict[str, Any]]:
@@ -277,6 +286,7 @@ def evaluate(frame: pd.DataFrame, prefix: str = SCRIPT, info: bool = False) -> C
         add("reliever_band", band, f"救援 球速{band}の変化球数", x.mean() if len(x) else math.nan, r - TOL_PITCH_BAND, r + TOL_PITCH_BAND, f"{r:.2f}", "{:.2f}")
 
     rank_shape.shape_checks(checks, frame, prefix, kind, SHAPE_KEYS)
+    rank_ability.ability_checks(checks, frame, prefix, kind, ABILITY_KEYS)
 
     # 参考: 球種数の割合（2・3球種）、先発の変化球数・総変化量
     for k in (2, 3):
@@ -311,7 +321,7 @@ def grade_all(frame: pd.DataFrame, boot: int, quick: bool = False) -> list[check
     """球団を単位に生成側の誤差を求めて合否を付ける。1球種の割合は範囲が実在から決まらないので、生成側の誤差だけ。"""
     checks = evaluate(frame)
     se_gen = checklib.bootstrap_se(evaluate, frame, lambda f, rng: checklib.resample_frame(f, rng, "team_key"), n=boot) if boot else {}
-    se_real = {**real_errors(), **rank_shape.real_errors(SCRIPT, SHAPE_KEYS)} if boot else {}
+    se_real = {**real_errors(), **rank_shape.real_errors(SCRIPT, SHAPE_KEYS), **rank_ability.real_errors(SCRIPT, ABILITY_KEYS)} if boot else {}
     return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
 
 
@@ -341,6 +351,7 @@ def print_reference(frame: pd.DataFrame, before: bool = True) -> None:
     print("\n[ランクの割合（%）。参考]")
     print(rank_table(frame).to_string(index=False))
     rank_shape.print_shape_reference(frame, SHAPE_KEYS, before=before)
+    rank_ability.print_ability_reference(frame, ABILITY_KEYS, before=before)
     relief = frame[frame["prole"] == "救援"]
     real = real_reference()[REAL_ALL]["救援"]
     print(f"\n[救援の1球種の総変化量の平均（参考）] {relief.loc[relief['変化球数'] == 1, '総変化量'].mean():.2f}（実在 {real['1球種の総変化量'][0]:.2f}）")
