@@ -50,19 +50,26 @@ def test_hand_and_segment() -> None:
     assert app.fictional_special_segment("投手", "右投左打", "中継ぎ") == "右|救援"  # 中継ぎ・抑えは救援
     assert app.fictional_special_segment("投手", "右投右打", "抑え") == "右|救援"
     assert app.fictional_special_segment("野手", "右投左打", "捕手") == "捕手|左"
-    # 連動特能の区分は、投手は「投げ手|役割」、野手は打席だけ
+    # 連動特能の区分は、投手は「投げ手|役割」、野手は「打席|まとまり」（捕手・二遊。ほかは打席だけ。`捕手の特能_改修指示.md` 1-1）
     assert app.fictional_linked_hand("投手", "左投左打", "先発") == "左|先発"
     assert app.fictional_linked_hand("投手", "右投右打", "抑え") == "右|救援"
-    assert app.fictional_linked_hand("野手", "右投左打", "捕手") == "左"
+    assert app.fictional_linked_hand("野手", "右投左打", "捕手") == "左|捕手"
+    assert app.fictional_linked_hand("野手", "右投左打", "外野手") == "左"
 
 
 def test_linked_hand_rates_have_the_same_bands_as_linked_specials() -> None:
     for role, table in app.FICTIONAL_LINKED_HAND_RATES.items():
         base = {name: rates for name, _key, _limits, rates in app.FICTIONAL_LINKED_SPECIALS[role]}
         for name, hands in table.items():
-            # 区分は 左・右 か「投げ手|役割」。どちらの投げ手も、投げ手だけの指定か、先発・救援の両方の指定がある
-            assert set(hands) <= {"右", "左"} | {f"{h}|{r}" for h in ("右", "左") for r in ("先発", "救援")}, name
-            assert all(h in hands or {f"{h}|先発", f"{h}|救援"} <= set(hands) for h in ("右", "左")), name
+            if role == "投手":
+                # 区分は 左・右 か「投げ手|役割」。どちらの投げ手も、投げ手だけの指定か、先発・救援の両方の指定がある
+                assert set(hands) <= {"右", "左"} | {f"{h}|{r}" for h in ("右", "左") for r in ("先発", "救援")}, name
+                assert all(h in hands or {f"{h}|先発", f"{h}|救援"} <= set(hands) for h in ("右", "左")), name
+            else:
+                # 区分は 左・右 か「打席|まとまり」。まとまりの指定は左打・右打の両方にある（無い区分は打席だけ・全体の保有率を使う）
+                groups = set(app.FICTIONAL_LINKED_FIELDER_GROUPS.values())
+                assert set(hands) <= {"右", "左"} | {f"{h}|{g}" for h in ("右", "左") for g in groups}, name
+                assert all((f"右{g}" in hands) == (f"左{g}" in hands) for g in ("", *(f"|{g}" for g in groups))), name
             assert all(len(rates) == len(base[name]) for rates in hands.values()), name
             assert all(0.0 <= rate <= 1.0 for rates in hands.values() for rate in rates)
     # 奪三振・内野安打○は左のほうが多い。広角打法は右打に多い

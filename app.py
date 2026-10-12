@@ -6935,11 +6935,26 @@ FICTIONAL_LINKED_HAND_RATES = {
             "右|救援": [0.45, 0.32, 0.35, 0.38], "左|救援": [0.45, 0.32, 0.35, 0.38],
         },
     },
+    # 野手は「打席|まとまり」（まとまりは FICTIONAL_LINKED_FIELDER_GROUPS。捕手・二遊）でも指定できる。あればそれを、なければ打席だけの指定を使う。
+    # 実在の捕手は同じミートでも選球眼・固め打ち・広角打法・三振が少なく、三振は二遊間が少なく一塁手・三塁手・外野手が多い
+    # （`捕手の特能_改修指示.md` 1-2。打席の差は入れない）。
     "野手": {
         "内野安打○": {"右": [0.045, 0.27, 0.43], "左": [0.07, 0.42, 0.75]},
-        "広角打法": {"右": [0.01, 0.12, 0.20], "左": [0.012, 0.02, 0.075]},
+        "広角打法": {
+            "右": [0.01, 0.12, 0.20], "左": [0.012, 0.02, 0.075],
+            "右|捕手": [0.0, 0.04, 0.04], "左|捕手": [0.0, 0.04, 0.04],
+        },
+        "選球眼": {"右|捕手": [0.05, 0.05, 0.10, 0.20], "左|捕手": [0.05, 0.05, 0.10, 0.20]},
+        "固め打ち": {"右|捕手": [0.01, 0.01, 0.03, 0.14], "左|捕手": [0.01, 0.01, 0.03, 0.14]},
+        "三振": {
+            "右": [0.53, 0.42, 0.50, 0.19], "左": [0.53, 0.42, 0.50, 0.19],
+            "右|二遊": [0.46, 0.34, 0.28, 0.04], "左|二遊": [0.46, 0.34, 0.28, 0.04],
+            "右|捕手": [0.22, 0.27, 0.24, 0.14], "左|捕手": [0.22, 0.27, 0.24, 0.14],
+        },
     },
 }
+# 野手の連動特能の保有率を分けるポジションのまとまり（ここに無いポジションは打席だけの区分）
+FICTIONAL_LINKED_FIELDER_GROUPS = {"捕手": "捕手", "二塁手": "二遊", "遊撃手": "二遊"}
 # 出現率を実在に寄せる特能: (特能名, 既存処理での保有率, 目標の保有率)。
 # 既存処理の保有率は架空球団の日本人3000人ずつで測った値。
 FICTIONAL_SPECIAL_RATE_TARGETS = {
@@ -7135,14 +7150,19 @@ def fictional_special_hand(role: str, batting_throwing: str) -> str:
 
 
 def fictional_linked_hand(role: str, batting_throwing: str, position: str) -> str:
-    """連動特能の保有率を引く区分。投手は「投げ手|役割」（役割は 先発・救援）、野手は打席（左・右）。"""
+    """連動特能の保有率を引く区分。投手は「投げ手|役割」（役割は 先発・救援）、
+    野手は「打席|まとまり」（まとまりは FICTIONAL_LINKED_FIELDER_GROUPS。無いポジションは打席（左・右）だけ）。"""
     hand = fictional_special_hand(role, batting_throwing)
-    return f"{hand}|{'先発' if position == '先発' else '救援'}" if role == "投手" else hand
+    if role == "投手":
+        return f"{hand}|{'先発' if position == '先発' else '救援'}"
+    group = FICTIONAL_LINKED_FIELDER_GROUPS.get(position)
+    return f"{hand}|{group}" if group else hand
 
 
 def fictional_linked_rates(role: str, name: str, rates: list[float], hand: str | None) -> list[float]:
     """能力と連動させる特能の帯ごとの保有率。投打ごとの指定（FICTIONAL_LINKED_HAND_RATES）があればそちらを使う。
-    hand が「投げ手|役割」で、その指定がなければ投げ手だけの指定を使う。hand=None（共有の乱数の空回し）は投打の差なし。"""
+    hand が「投げ手|役割」（野手は「打席|まとまり」）で、その指定がなければ投げ手（打席）だけの指定を使う。
+    hand=None（共有の乱数の空回し）は投打の差なし。"""
     by_hand = FICTIONAL_LINKED_HAND_RATES.get(role, {}).get(name, {})
     if hand in by_hand:
         return by_hand[hand]
@@ -7173,9 +7193,11 @@ def fictional_set_special(selected: list[str], name: str, present: bool, group_o
 
 
 # 選手格ごとの特能数の下限に届かないときに足す特能（実在で多い順）
+# 「野手|捕手」はメインが捕手の野手（区分が「|捕手」）。実在の捕手は選球眼が少なく、ホーム死守が多い（`捕手の特能_改修指示.md` 1-3）。
 FICTIONAL_SPECIAL_FILLERS = {
     "投手": ("球速安定", "リリース○", "球持ち○", "キレ○", "逃げ球"),
     "野手": ("選球眼", "サヨナラ男", "満塁男", "流し打ち", "初球○"),
+    "野手|捕手": ("ホーム死守", "サヨナラ男", "満塁男", "流し打ち", "初球○"),
 }
 
 
@@ -7229,7 +7251,9 @@ def _fictional_adjust_specials(rng: random.Random, master: MasterData, role: str
     while countable() > high:
         removable = [name for name in selected if is_countable_special(name)]
         selected.remove(next((name for name in reversed(removable) if name not in linked), removable[-1]))
-    for name in FICTIONAL_SPECIAL_FILLERS[role]:
+    # メインが捕手の野手（区分が「|捕手」）は捕手用の特能で足す。空回し（hand=None）は今のまま。
+    fillers = FICTIONAL_SPECIAL_FILLERS["野手|捕手"] if role == "野手" and hand and hand.endswith("|捕手") else FICTIONAL_SPECIAL_FILLERS[role]
+    for name in fillers:
         if countable() >= low:
             break
         fictional_set_special(selected, name, True, group_of, False, check)
@@ -7421,7 +7445,13 @@ def fictional_age_adjust_specials(
     group_of = {str(row["name"]): str(row.get("group", "")) for row in master.abilities}
     rate_factor = {name: target / current for name, current, target in FICTIONAL_SPECIAL_RATE_TARGETS[role]}
     hand = fictional_linked_hand(role, str(player.get("batting_throwing", "")), str(player.get("position", "")))
-    linked = {name: (key, limits, fictional_linked_rates(role, name, rates, hand)) for name, key, limits, rates in FICTIONAL_LINKED_SPECIALS[role]}
+    # 連動の比の分母（保有率の平均）は、野手は打席だけの区分の保有率で出す。「打席|まとまり」の保有率で割ると、
+    # 捕手などで保有率を下げた分が割り戻されてしまう（`捕手の特能_改修指示.md` 1-4）。投手は今のまま。
+    base_hand = hand.split("|")[0] if role == "野手" else hand
+    linked = {
+        name: (key, limits, fictional_linked_rates(role, name, rates, hand), fictional_linked_rates(role, name, rates, base_hand))
+        for name, key, limits, rates in FICTIONAL_LINKED_SPECIALS[role]
+    }
     sub_positions = player.get("sub_positions") or []
     pitcher_aptitudes = {key: str(player.get(key, "-")) for key in PITCHER_APTITUDE_KEYS} if role == "投手" else None
     chance_cache: dict[str, float] = {}
@@ -7438,8 +7468,8 @@ def fictional_age_adjust_specials(
             value *= rate_factor.get(name, 1.0)
             if name in linked:
                 # 能力と連動させる特能は、能力帯ごとの保有率の比で出やすさを変える（連動を崩さない）
-                key, limits, rates = linked[name]
-                value *= fictional_band_rate(linked_values.get(key, 0), limits, rates) / (sum(rates) / len(rates))
+                key, limits, rates, base_rates = linked[name]
+                value *= fictional_band_rate(linked_values.get(key, 0), limits, rates) / (sum(base_rates) / len(base_rates))
             chance_cache[name] = max(0.0, value)
         return chance_cache[name]
 
@@ -8050,7 +8080,7 @@ def apply_fictional_fielder_balance(player: dict[str, Any], seed: int, master: M
     is_allowed = lambda name: is_special_allowed_for_player(name, "野手", position, sub_positions)  # noqa: E731
     player["special_abilities"] = fictional_adjust_specials(
         rng, master, "野手", str(player.get("player_class", "")), list(player.get("special_abilities", [])), values,
-        is_allowed, fictional_special_hand("野手", batting_throwing),
+        is_allowed, fictional_linked_hand("野手", batting_throwing, position),
     )
     player["special_abilities"] = fictional_age_adjust_specials(seed, master, player, player["special_abilities"], abilities, values, is_allowed)
     player["special_abilities"] = fictional_special_profile_adjust(seed, master, player, player["special_abilities"], is_allowed)
