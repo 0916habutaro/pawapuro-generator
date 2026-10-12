@@ -285,6 +285,13 @@ def grade_all(frame: pd.DataFrame, boot: int, quick: bool = False) -> list[check
 # 生成（球団生成）。球団分析の表にランク特能の列を足す
 # ---------------------------------------------------------------------------
 RANK_COLUMNS = ("rank_points", *(f"{kind}_{group}" for group in RANK_GROUPS for kind in ("rk", "pt")))
+# 特能の有無の列（sp_特能名）。check_fielder_position.py の捕手の特能の判定で使う（`捕手の特能_改修指示.md` 2-1）
+SPECIAL_FLAGS = ("選球眼", "固め打ち", "三振", "広角打法", "ホーム死守")
+SPECIAL_FLAG_COLUMNS = tuple(f"sp_{name}" for name in SPECIAL_FLAGS)
+
+
+def special_flag_columns(names: list[str]) -> dict[str, bool]:
+    return {f"sp_{name}": name in names for name in SPECIAL_FLAGS}
 
 
 def _team(team_seed: int) -> pd.DataFrame:
@@ -293,7 +300,8 @@ def _team(team_seed: int) -> pd.DataFrame:
     team = app.generate_team(team_seed, master=check_pitcher_control._MASTER)
     frame = team_analysis.players_frame(team["players"], f"gen:{team_seed}", str(team_seed)).drop(columns=["rank_points"])
     ranks = pd.DataFrame([rank_columns((p.get("abilities") or {}).get("ranked_specials") or {}) for p in team["players"]])
-    return pd.concat([frame.reset_index(drop=True), ranks], axis=1)
+    flags = pd.DataFrame([special_flag_columns([str(name) for name in p.get("special_abilities") or []]) for p in team["players"]])
+    return pd.concat([frame.reset_index(drop=True), ranks, flags], axis=1)
 
 
 def collect(teams: int, start: int, workers: int) -> pd.DataFrame:
@@ -324,7 +332,10 @@ def single_fielders(path: Path) -> pd.DataFrame:
     frame = pd.DataFrame({"position": df["position"].to_numpy(), "bats": df["batting_throwing"].fillna("").map(lambda text: text[2:3]).to_numpy(),
                           "age": df["age"].to_numpy(dtype=float), "弾道": value("弾道"), **{name: value(name) for name in ABILITIES}})
     ranks = pd.DataFrame([rank_columns(abilities.get("ranked_specials") or {}) for abilities in parsed])
-    frame = pd.concat([frame, ranks], axis=1)
+    specials = [[str(name) for name in json.loads(text)] for text in df["special_abilities_json"].fillna("[]")]
+    flags = pd.DataFrame([special_flag_columns(names) for names in specials])
+    colors = pd.DataFrame([team_analysis.special_counts(names) for names in specials])[["n_red", "n_green"]].astype(float)
+    frame = pd.concat([frame, ranks, flags, colors], axis=1)
     frame["team_key"] = "single"
     return frame
 
