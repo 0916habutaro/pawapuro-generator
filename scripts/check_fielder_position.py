@@ -289,8 +289,8 @@ def print_special_reference(generated: pd.DataFrame, before: bool = True) -> Non
     print(f"\n[特能の保有率（%。全年齢、ミートの帯ごと。参考）] 捕手 {len(special_group(generated, '捕手'))}人")
     print(pd.DataFrame(rows).to_string(index=False))
     catchers = special_group(generated, "捕手")
-    print(f"[捕手の緑特・赤特の数（参考）] 緑 {catchers['n_green'].mean():.2f}・赤 {catchers['n_red'].mean():.2f}"
-          f"（改修前 {BEFORE_SPECIALS['捕手']['緑特の数']:.2f}・{BEFORE_SPECIALS['捕手']['赤特の数']:.2f}、実在 0.57・0.52）")
+    old = f"改修前 {BEFORE_SPECIALS['捕手']['緑特の数']:.2f}・{BEFORE_SPECIALS['捕手']['赤特の数']:.2f}、" if before else ""
+    print(f"[捕手の緑特・赤特の数（参考）] 緑 {catchers['n_green'].mean():.2f}・赤 {catchers['n_red'].mean():.2f}（{old}実在 0.57・0.52）")
 
 
 def print_catcher_reference(generated: pd.DataFrame, before: bool = True) -> None:
