@@ -1,5 +1,5 @@
 {
   "date": "2026-10-12",
-  "reason": "ランク特能の形の改修（走塁・盗塁・ケガしにくさ・チャンス・対ピンチの重みをポジション・役割で分けた。ランク特能・査定・戦力・背番号が動き、ランク特能の形の判定を足した）",
-  "commit": "b4c7cc1（ブランチ claude/rank-special-shape）"
+  "reason": "ランクの年齢の幅の改修（架空球団用の日本人の FICTIONAL_AGE_RANK_BETA・GAMMA を測り直した。ランク特能・査定・戦力・背番号が動く）",
+  "commit": "a695328（ブランチ claude/rank-age-spread）"
 }
