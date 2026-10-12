@@ -18,6 +18,8 @@
   走塁・盗塁・送球のランク点の全体（実在±0.2）、ランク点の合計（全体・左打・右打。実在±0.4）。ランク点は査定のランク点
   （D=0。generator/rating.py の ranked_points と同じ表）。持たない項目は D として数える。実在の値は
   data/config/fielder_speed_rank_real.json（--build-real で、実在の元データ data/raw/ から作る）。実在側の誤差は 標準偏差/√人数。
+- ランク特能の形（`ランク特能の形_改修指示.md` 2-1）: 走塁・盗塁の、ポジションのまとまり（捕手／一塁手・三塁手／二塁手・遊撃手・外野手）
+  ごとのランクの割合（B・C・E・F は実在±4ポイント、D は実在±6ポイント）とランク点（実在±0.3）。共通部分は rank_shape.py。
 - 21歳以下は今回変えていない（若手の補正 `fictional_young_transform` の範囲）ので、参考表示にする。
 - 個別生成（架空球団用・野手）は同じ表を参考として出す（合否には使わない）。
 - 判定の種類・誤差・合否の付け方は checklib.py（判定の整理_改修指示.md）。誤差は、生成側は球団、実在側は実在の野手を再抽出して見積もる。
@@ -43,11 +45,14 @@ import pandas as pd  # noqa: E402
 
 import check_pitcher_control  # noqa: E402
 import checklib  # noqa: E402
+import rank_shape  # noqa: E402
 from checklib import Checks  # noqa: E402
 from generator import team_analysis  # noqa: E402
 from generator.rating import load_table, ranked_points  # noqa: E402
 
 SCRIPT = "check_fielder_speed"
+SHAPE_KEYS = rank_shape.SCRIPT_SHAPES[SCRIPT]
+SHAPE_COLUMNS = ("rk_走塁", "rk_盗塁")
 POSITIONS = ("一塁手", "二塁手", "三塁手", "遊撃手", "外野手", "捕手")
 # 実在（2024〜2026年版の日本人野手1,103人）の走力。判定の目標。
 REAL_MEAN = 64.43
@@ -151,6 +156,8 @@ def evaluate(frame: pd.DataFrame, prefix: str = SCRIPT, info: bool = False) -> C
                    shown=f"{value:+.2f}", target=f"{low:+.2f}〜{high:+.2f}", real=f"{real:+.2f}（2026 {REAL_AGE_BANDS[label][0]:+.2f}／逆算 {REAL_AGE_BANDS[label][1]:+.2f}）")
     if "pt_走塁" in frame.columns:  # 実在の選手単位データ（local_data）にはランク特能の列が無い。実在の値は fielder_speed_rank_real.json
         rank_checks(checks, main, prefix, kind)
+    if "rk_走塁" in frame.columns:
+        rank_shape.shape_checks(checks, main, prefix, kind, SHAPE_KEYS)
     return checks
 
 
@@ -323,6 +330,7 @@ def grade_all(frame: pd.DataFrame, boot: int, quick: bool = False) -> list[check
             se_real[key] += half
     if boot:
         se_real.update(real_rank_errors())
+        se_real.update(rank_shape.real_errors(SCRIPT, SHAPE_KEYS))
     return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
 
 
@@ -335,7 +343,8 @@ def _team(team_seed: int) -> pd.DataFrame:
 
     team = app.generate_team(team_seed, master=check_pitcher_control._MASTER)
     frame = team_analysis.players_frame(team["players"], f"gen:{team_seed}", str(team_seed)).drop(columns=["rank_points"])
-    ranks = pd.DataFrame([rank_columns((p.get("abilities") or {}).get("ranked_specials") or {}) for p in team["players"]])
+    ranked = [(p.get("abilities") or {}).get("ranked_specials") or {} for p in team["players"]]
+    ranks = pd.DataFrame([{**rank_columns(r), **rank_shape.letter_columns(r, "野手")} for r in ranked])
     return pd.concat([frame.reset_index(drop=True), ranks], axis=1)
 
 
@@ -347,7 +356,7 @@ def collect(teams: int, start: int, workers: int) -> pd.DataFrame:
 
 def team_fielders(frame: pd.DataFrame) -> pd.DataFrame:
     fielders = frame[(frame["role"] == "野手") & (~frame["is_foreign"])]
-    return fielders[["team_key", "position", "bats", "走力", "肩力", "age", *RANK_COLUMNS]].reset_index(drop=True)
+    return fielders[["team_key", "position", "bats", "走力", "肩力", "age", *RANK_COLUMNS, *SHAPE_COLUMNS]].reset_index(drop=True)
 
 
 def single_fielders(path: Path) -> pd.DataFrame:
@@ -360,7 +369,7 @@ def single_fielders(path: Path) -> pd.DataFrame:
     bats = df["batting_throwing"].fillna("").map(lambda text: text[2:3])
     frame = pd.DataFrame({"position": df["position"].to_numpy(), "bats": bats.to_numpy(), "走力": speed.to_numpy(dtype=float),
                           "肩力": arm.to_numpy(dtype=float), "age": df["age"].to_numpy(dtype=float)})
-    ranks = pd.DataFrame([rank_columns(a.get("ranked_specials") or {}) for a in parsed])
+    ranks = pd.DataFrame([{**rank_columns(a.get("ranked_specials") or {}), **rank_shape.letter_columns(a.get("ranked_specials") or {}, "野手")} for a in parsed])
     return pd.concat([frame, ranks], axis=1)
 
 
@@ -394,6 +403,7 @@ def print_rank_reference(generated: pd.DataFrame, before: bool = True) -> None:
     totals = [("改修前", BEFORE_RANK["total"])] if before else []
     totals += [("今回", {k: v[0] for k, v in now["total"].items()}), ("実在", {k: v[0] for k, v in real["total"].items()})]
     print("[ランク点の合計（参考）] " + " / ".join(f"{name} " + "・".join(f"{k} {float(v):+.2f}" for k, v in d.items()) for name, d in totals))
+    rank_shape.print_shape_reference(generated, SHAPE_KEYS, before=before)
 
 
 def main() -> None:

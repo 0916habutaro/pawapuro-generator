@@ -37,8 +37,11 @@ def without_groups(player: dict, groups: tuple[str, ...] = GROUPS) -> dict:
 
 
 def only_d_weights(monkeypatch) -> None:
-    """走塁・盗塁・送球の重みを D だけにして、結びつきで動いた分だけが見えるようにする。"""
-    weights = {**app.FICTIONAL_FIELDER_RANKED_WEIGHTS, **{group: {"D": 1.0} for group in GROUPS}}
+    """走塁・盗塁・送球の重みを D だけにして、結びつきで動いた分だけが見えるようにする。
+    走塁・盗塁はポジションのまとまりごとの重み（`ランク特能の形_改修指示.md` 1-1）も D だけにする。"""
+    weights = {
+        group: {"D": 1.0} if group.split("_")[0] in GROUPS else value for group, value in app.FICTIONAL_FIELDER_RANKED_WEIGHTS.items()
+    }
     monkeypatch.setattr(app, "FICTIONAL_FIELDER_RANKED_WEIGHTS", weights)
 
 

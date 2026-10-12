@@ -19,6 +19,8 @@
     救援の1球種の割合                       2〜6%
     救援の変化球数（球速の帯ごと）           実在±0.10
     救援の総変化量の平均                    実在±0.15
+- ランク特能の形（`ランク特能の形_改修指示.md` 2-1）: 対ピンチの先発・救援ごとのランクの割合（B・C・E・F は実在±4ポイント、
+  D は実在±6ポイント）とランク点（実在±0.3）。実在の値は data/config/rank_shape_real.json、共通部分は rank_shape.py。
 - 実在の値は data/config/pitcher_rank_pitches_real.json（--build-real で、実在の元データ data/raw/ から作る）。
   実在側の誤差は、平均は 標準偏差/√人数、割合は √(p(1−p)/人数) で見積もる。生成側の誤差は球団を単位に再抽出して求める。
 - 個別生成（架空球団用・日本人投手）は同じ表を参考として出す（合否には使わない）。
@@ -47,11 +49,13 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import checklib  # noqa: E402
+import rank_shape  # noqa: E402
 from checklib import Checks  # noqa: E402
 from generator import team_analysis as ta  # noqa: E402
 from generator.rating import load_table, ranked_points  # noqa: E402
 
 SCRIPT = "check_pitcher_rank_pitches"
+SHAPE_KEYS = rank_shape.SCRIPT_SHAPES[SCRIPT]
 REAL_PATH = APP_DIR / "data" / "config" / "pitcher_rank_pitches_real.json"
 ROLES = ("先発", "救援")
 RANK_GROUPS = ("ノビ", "回復", "対左打者")
@@ -105,6 +109,7 @@ def pitcher_row(role: str, throws: str | None, speed: float, ranked: dict[str, s
         letter = str(ranked.get(group) or "D")[-1:]
         row[f"rk_{group}"] = letter if letter in LETTERS else "D"
         row[f"pt_{group}"] = float(points[group].get(row[f"rk_{group}"], 0))
+    row.update(rank_shape.letter_columns(ranked, "投手"))
     return row
 
 
@@ -271,6 +276,8 @@ def evaluate(frame: pd.DataFrame, prefix: str = SCRIPT, info: bool = False) -> C
         x = relief.loc[bands == band, "変化球数"]
         add("reliever_band", band, f"救援 球速{band}の変化球数", x.mean() if len(x) else math.nan, r - TOL_PITCH_BAND, r + TOL_PITCH_BAND, f"{r:.2f}", "{:.2f}")
 
+    rank_shape.shape_checks(checks, frame, prefix, kind, SHAPE_KEYS)
+
     # 参考: 球種数の割合（2・3球種）、先発の変化球数・総変化量
     for k in (2, 3):
         r = rr["球種数の割合"][str(k)]
@@ -304,7 +311,8 @@ def grade_all(frame: pd.DataFrame, boot: int, quick: bool = False) -> list[check
     """球団を単位に生成側の誤差を求めて合否を付ける。1球種の割合は範囲が実在から決まらないので、生成側の誤差だけ。"""
     checks = evaluate(frame)
     se_gen = checklib.bootstrap_se(evaluate, frame, lambda f, rng: checklib.resample_frame(f, rng, "team_key"), n=boot) if boot else {}
-    return checklib.grade(checks, se_gen=se_gen, se_real=real_errors() if boot else {}, all_info=quick)
+    se_real = {**real_errors(), **rank_shape.real_errors(SCRIPT, SHAPE_KEYS)} if boot else {}
+    return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
 
 
 def rank_table(frame: pd.DataFrame) -> pd.DataFrame:
@@ -329,9 +337,10 @@ def rank_table(frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def print_reference(frame: pd.DataFrame) -> None:
+def print_reference(frame: pd.DataFrame, before: bool = True) -> None:
     print("\n[ランクの割合（%）。参考]")
     print(rank_table(frame).to_string(index=False))
+    rank_shape.print_shape_reference(frame, SHAPE_KEYS, before=before)
     relief = frame[frame["prole"] == "救援"]
     real = real_reference()[REAL_ALL]["救援"]
     print(f"\n[救援の1球種の総変化量の平均（参考）] {relief.loc[relief['変化球数'] == 1, '総変化量'].mean():.2f}（実在 {real['1球種の総変化量'][0]:.2f}）")
@@ -361,7 +370,7 @@ def main() -> None:
         single = single_pitchers(args.single_csv)
         reference = list(checklib.grade(evaluate(single, f"{SCRIPT}.single", info=True), all_info=True))
         checklib.print_checks(reference, f"個別生成（架空球団用・日本人投手 {len(single)}人。参考）")
-        print_reference(single)
+        print_reference(single, before=False)
         graded += reference
     sys.exit(checklib.finish(SCRIPT, graded, args))
 

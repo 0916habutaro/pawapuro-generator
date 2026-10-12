@@ -45,7 +45,9 @@ def test_weights_key_splits_nobi_and_recovery_by_role_and_left_batters_by_hand()
     assert key("回復", "先発", "左投左打") == "回復_先発"
     assert key("対左打者", "中継ぎ", "左投左打") == "対左打者_左投"
     assert key("対左打者", "先発", "右投左打") == "対左打者"
-    assert key("対ピンチ", "中継ぎ", "左投左打") == "対ピンチ"
+    # 対ピンチも役割で分けるようにした（`ランク特能の形_改修指示.md` 1-1）
+    assert key("対ピンチ", "中継ぎ", "左投左打") == "対ピンチ_救援"
+    assert key("ケガしにくさ", "中継ぎ", "左投左打") == "ケガしにくさ"
     for name in ("ノビ_先発", "ノビ_救援", "回復_先発", "回復_救援", "対左打者", "対左打者_左投"):
         assert name in app.FICTIONAL_PITCHER_RANKED_WEIGHTS
 
