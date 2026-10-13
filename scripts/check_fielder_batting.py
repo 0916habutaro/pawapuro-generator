@@ -42,6 +42,7 @@ import pandas as pd  # noqa: E402
 
 import check_pitcher_control  # noqa: E402
 import checklib  # noqa: E402
+import rank_ability  # noqa: E402
 import rank_shape  # noqa: E402
 from checklib import Checks  # noqa: E402
 from generator import team_analysis  # noqa: E402
@@ -302,7 +303,8 @@ def _team(team_seed: int) -> pd.DataFrame:
     frame = team_analysis.players_frame(team["players"], f"gen:{team_seed}", str(team_seed)).drop(columns=["rank_points"])
     ranked = [(p.get("abilities") or {}).get("ranked_specials") or {} for p in team["players"]]
     # ランク特能の形の列（rk_ケガしにくさ・rk_チャンス）は check_fielder_position.py が使う（`ランク特能の形_改修指示.md` 2-1）
-    ranks = pd.DataFrame([{**rank_columns(r), **rank_shape.letter_columns(r, "野手")} for r in ranked])
+    # 能力とランク特能の結びつきの列（rk_回復・rk_送球）も check_fielder_position.py が使う（`能力とランク特能の結びつき_改修指示.md` 2-1）
+    ranks = pd.DataFrame([{**rank_columns(r), **rank_shape.letter_columns(r, "野手"), **rank_ability.letter_columns(r, "野手")} for r in ranked])
     flags = pd.DataFrame([special_flag_columns([str(name) for name in p.get("special_abilities") or []]) for p in team["players"]])
     return pd.concat([frame.reset_index(drop=True), ranks, flags], axis=1)
 
@@ -334,7 +336,8 @@ def single_fielders(path: Path) -> pd.DataFrame:
 
     frame = pd.DataFrame({"position": df["position"].to_numpy(), "bats": df["batting_throwing"].fillna("").map(lambda text: text[2:3]).to_numpy(),
                           "age": df["age"].to_numpy(dtype=float), "弾道": value("弾道"), **{name: value(name) for name in ABILITIES}})
-    ranks = pd.DataFrame([{**rank_columns(a.get("ranked_specials") or {}), **rank_shape.letter_columns(a.get("ranked_specials") or {}, "野手")} for a in parsed])
+    ranks = pd.DataFrame([{**rank_columns(a.get("ranked_specials") or {}), **rank_shape.letter_columns(a.get("ranked_specials") or {}, "野手"),
+                           **rank_ability.letter_columns(a.get("ranked_specials") or {}, "野手")} for a in parsed])
     specials = [[str(name) for name in json.loads(text)] for text in df["special_abilities_json"].fillna("[]")]
     flags = pd.DataFrame([special_flag_columns(names) for names in specials])
     colors = pd.DataFrame([team_analysis.special_counts(names) for names in specials])[["n_red", "n_green"]].astype(float)

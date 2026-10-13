@@ -6981,9 +6981,11 @@ FICTIONAL_SPECIAL_CONFLICTS = [("荒れ球", "ストライク先行"), ("キレ�
 # ノビ・回復は役割（先発・救援）ごと、対左打者は投げ手ごとの重みを使う（fictional_pitcher_ranked_weights_key）。
 # 役割の差は実在（2024〜2026年版の日本人）に合わせた（`投手のランク特能と救援の球種数_改修指示.md` 1-1）。
 FICTIONAL_PITCHER_RANKED_WEIGHTS = {
-    "回復_先発": {"A": 0.3, "B": 5.5, "C": 13.7, "D": 33.3, "E": 35, "F": 11.8, "G": 0.5},
-    "回復_救援": {"A": 0.3, "B": 9, "C": 23.8, "D": 39.5, "E": 24.5, "F": 3.2, "G": 0.5},
-    "打たれ強さ": {"A": 0.4, "B": 7, "C": 22.6, "D": 55, "E": 12, "F": 2.8, "G": 0.2},
+    # 回復・打たれ強さは能力の傾き（FICTIONAL_ABILITY_RANK_TILTS）をかけた後の割合が実在に合うようにした
+    # （`能力とランク特能の結びつき_改修指示.md` 1-2）
+    "回復_先発": {"A": 0.25, "B": 1.1, "C": 9.0, "D": 43.8, "E": 38.3, "F": 7.1, "G": 0.42},
+    "回復_救援": {"A": 0.28, "B": 5.0, "C": 23.1, "D": 44.6, "E": 24.8, "F": 1.7, "G": 0.47},
+    "打たれ強さ": {"A": 0.38, "B": 4.0, "C": 21.1, "D": 63.2, "E": 10.0, "F": 1.0, "G": 0.19},
     "対左打者": {"A": 0.2, "B": 1.2, "C": 11.8, "D": 47, "E": 32, "F": 9.8, "G": 0.3},
     "対左打者_左投": {"A": 0.5, "B": 4, "C": 21.5, "D": 56, "E": 17, "F": 3.8, "G": 0.2},
     "ケガしにくさ": {"A": 0.1, "B": 1.4, "C": 5.5, "D": 56, "E": 30, "F": 6.7, "G": 0.3},
@@ -7011,8 +7013,12 @@ FICTIONAL_FIELDER_RANKED_WEIGHTS = {
     "盗塁_一三": {"A": 0.29, "B": 0.5, "C": 10.59, "D": 72.01, "E": 13.85, "F": 2.57, "G": 0.2},
     "盗塁_二遊外": {"A": 0.3, "B": 3.34, "C": 14.64, "D": 50.19, "E": 20.57, "F": 10.76, "G": 0.2},
     "チャンス": {"A": 0.49, "B": 1.63, "C": 19.66, "D": 64.89, "E": 12.34, "F": 0.8, "G": 0.2},
-    "送球": {"A": 0.4, "B": 5.5, "C": 20, "D": 37, "E": 30, "F": 6.9, "G": 0.2},
-    "回復": {"A": 0.2, "B": 2.5, "C": 10.3, "D": 24, "E": 52, "F": 10.7, "G": 0.3},
+    # 送球・回復・キャッチャー_捕手は能力の傾き（FICTIONAL_ABILITY_RANK_TILTS）をかけた後の割合が実在に合うようにした
+    # （`能力とランク特能の結びつき_改修指示.md` 1-2）。キャッチャー_捕手は試作の値（C 3.2・D 60.5・E 29.9・F 6.2）だと
+    # 球団生成で D が少なく（39.7%、実在43.9%）F が多かった（16.9%、実在14.3%）ので、C〜F を直した。B は捕球・守備力の
+    # 高い捕手に傾きで集まって多くなる（3.8%、実在1.6%）ので、B を 0.05 → 0.01 に下げた
+    "送球": {"A": 0.38, "B": 3.2, "C": 19.5, "D": 44.2, "E": 28.9, "F": 3.7, "G": 0.19},
+    "回復": {"A": 0.18, "B": 0.6, "C": 5.6, "D": 26.7, "E": 62.0, "F": 4.7, "G": 0.26},
     "対左投手": {"A": 0.4, "B": 5, "C": 17.6, "D": 49, "E": 22, "F": 5.8, "G": 0.2},
     "対左投手_左打": {"A": 0.1, "B": 0.3, "C": 9.6, "D": 47.4, "E": 33.9, "F": 11.7, "G": 0.1},
     "対左投手_右打": {"A": 0.3, "B": 6.5, "C": 27.3, "D": 52.6, "E": 12.5, "F": 1.4, "G": 0.1},
@@ -7020,7 +7026,7 @@ FICTIONAL_FIELDER_RANKED_WEIGHTS = {
     "ケガしにくさ_捕遊": {"A": 0.1, "B": 1.81, "C": 3.78, "D": 80.11, "E": 11.39, "F": 2.63, "G": 0.19},
     "ケガしにくさ_他": {"A": 0.1, "B": 2.36, "C": 4.31, "D": 61.42, "E": 25.42, "F": 6.19, "G": 0.2},
     "キャッチャー": {"A": 0.1, "B": 0.5, "C": 1.4, "D": 88, "E": 8.5, "F": 1.4, "G": 0.1},
-    "キャッチャー_捕手": {"A": 0.1, "B": 0.9, "C": 6.0, "D": 38.4, "E": 25.7, "F": 12.9, "G": 0.1},
+    "キャッチャー_捕手": {"A": 0.09, "B": 0.01, "C": 2.6, "D": 66.3, "E": 32.4, "F": 5.4, "G": 0.09},
 }
 # 選手格によるランク特能の補正（1段良くする確率, 1段悪くする確率）。能力で決まる項目には掛けない。
 FICTIONAL_CLASS_RANK_SHIFTS = {
@@ -7034,8 +7040,32 @@ FICTIONAL_PHYSICAL_RANKED = {"走塁", "盗塁", "送球", "クイック", "ノ�
 # 野手の走力・肩力とランク特能の結びつき（1段上げる確率, 1段下げる確率）。上げるのは走力・肩力80以上、
 # 下げるのは走力50以下・肩力55以下。確率が0でも条件に当たれば乱数を1回引く（乱数の並びを変えない。
 # `野手の走力肩力ランク_改修指示.md` 1-1）。走力70〜79の走塁は、別の副乱数で確率 FICTIONAL_FIELDER_RUNNING_MID_RATE で上げる（1-2）。
-FICTIONAL_FIELDER_RANK_LINK_RATES = {"走塁": (0.8, 0.2), "盗塁": (0.35, 0.0), "送球": (0.4, 0.0)}
+# 送球は捕球・守備力の傾き（FICTIONAL_ABILITY_RANK_TILTS）をかけたので、肩力80以上で上げる確率を 0.4 → 0.2 に下げた
+# （肩力の高い選手は守備力も高めで、上がりすぎるため。`能力とランク特能の結びつき_改修指示.md` 1-4）。
+FICTIONAL_FIELDER_RANK_LINK_RATES = {"走塁": (0.8, 0.2), "盗塁": (0.35, 0.0), "送球": (0.2, 0.0)}
 FICTIONAL_FIELDER_RUNNING_MID_RATE = 0.5
+# 能力とランク特能の結びつき（`能力とランク特能の結びつき_改修指示.md` 1-1）。能力の高い選手ほど良いランクになるように、
+# ランクの重みに exp(t × 点) を掛ける（点は A=3 … D=0 … G=−3。A・G は増やさない）。t = κ × z、
+# z = 平均((能力 − 実在の平均) ÷ 実在のSD)。実在の平均・SD は2024〜2026年版の日本人（投手は先発・救援ごと、捕手は捕手だけ）。
+# 区分を足すときは、FICTIONAL_ABILITY_RANK_STATS に平均・SD、FICTIONAL_ABILITY_RANK_TILTS に行を足す。
+FICTIONAL_ABILITY_RANK_SCORES = {"A": 3, "B": 2, "C": 1, "D": 0, "E": -1, "F": -2, "G": -3}
+FICTIONAL_ABILITY_RANK_STATS = {
+    "投手_先発": {"コントロール": (55.27, 13.27), "スタミナ": (56.55, 11.04)},
+    "投手_救援": {"コントロール": (48.16, 10.33), "スタミナ": (46.96, 5.84)},
+    "野手": {"ミート": (42.11, 10.71), "守備力": (51.96, 11.70), "捕球": (48.58, 11.15)},
+    "捕手": {"捕球": (46.47, 10.25), "守備力": (49.14, 9.34)},
+}
+# (投手/野手, ランク特能, 区分) → (能力, 平均・SDの表の鍵, κ)。区分は投手が先発・救援、野手はメインが捕手なら「捕手」で、
+# 見つからなければ「全体」を使う（サブポジが捕手の野手のキャッチャーには傾きをかけない）。
+FICTIONAL_ABILITY_RANK_TILTS = {
+    ("投手", "回復", "先発"): (("コントロール", "スタミナ"), "投手_先発", 1.3),
+    ("投手", "回復", "救援"): (("コントロール", "スタミナ"), "投手_救援", 0.6),
+    ("投手", "打たれ強さ", "先発"): (("コントロール", "スタミナ"), "投手_先発", 0.5),
+    ("投手", "打たれ強さ", "救援"): (("コントロール", "スタミナ"), "投手_救援", 0.3),
+    ("野手", "回復", "全体"): (("ミート", "守備力", "捕球"), "野手", 1.1),
+    ("野手", "送球", "全体"): (("捕球", "守備力"), "野手", 0.75),
+    ("野手", "キャッチャー", "捕手"): (("捕球", "守備力"), "捕手", 1.7),
+}
 
 # 野手の基本能力（ミート, パワー, 走力, 肩力, 守備力, 捕球）。
 # 既存処理の平均・標準偏差（架空球団の日本人3000人で測定）を、実在（5年）の平均・標準偏差と相関に写す。
@@ -7288,10 +7318,12 @@ def fictional_ranked_specials(
     weights_key: Any = None,
     role: str = "",
     age: int | None = None,
+    ability_tilt: Any = None,
 ) -> dict[str, str]:
     """ランク特能を実在の分布から引き直す。能力・選手格による補正では A・G を新たに作らない。
 
-    role・age を渡すと、年齢でランクの重みを傾ける（fictional_age_rank_weights）。重みを変えても乱数の消費は同じ。
+    role・age を渡すと、年齢でランクの重みを傾ける（fictional_age_rank_weights）。ability_tilt（ランク特能 → 傾き t）を
+    渡すと、そのあとで能力でも傾ける（fictional_ability_rank_weights）。重みを変えても乱数の消費は同じ。
     """
     names_by_group = ranked_special_names_by_group(master)
     up_rate, down_rate = FICTIONAL_CLASS_RANK_SHIFTS.get(player_class, (0.0, 0.0))
@@ -7305,6 +7337,9 @@ def fictional_ranked_specials(
             continue
         if role and age is not None:
             weights = fictional_age_rank_weights(weights, group, role, age)
+        tilt = ability_tilt(group) if ability_tilt else 0.0
+        if tilt:
+            weights = fictional_ability_rank_weights(weights, tilt)
         base = weighted_choice(rng, list(weights.items()))
         shift = link_shift(group)
         if group not in FICTIONAL_PHYSICAL_RANKED:
@@ -7372,9 +7407,11 @@ FICTIONAL_AGE_SPECIAL_BASE_COUNTS = {
 # 目標（実在2026年版の平滑化）に合うように測り直した（野手のランク年齢傾き_改修指示.md）。
 # PR #127（ランク特能の形）の後に、30歳を過ぎると B 以上も E 以下も増える実在の幅に合わせて、γ（幅）と一緒に
 # 30歳以上の β を測り直した（ランクの年齢の幅_改修指示.md）。幅を広げて上がった分だけ β を下げている。
+# 能力でもランクを傾けた（能力は年齢とともに上がる）ので、その分 β を弱めた（`能力とランク特能の結びつき_改修指示.md` 1-3）。
+# 投手の31.5歳は、試作の 0.025 だと30〜33歳の B 以上の数が範囲の下限（0.6）近くまで減った（個別生成 0.605）ので 0.035 にした。
 FICTIONAL_AGE_RANK_BETA = {
-    "野手": [(20, -0.18), (23.5, -0.035), (27.5, 0.012), (31.5, 0.055), (36, 0.03)],
-    "投手": [(20, -0.12), (23.5, -0.06), (27.5, 0.025), (31.5, 0.035), (36, 0.04)],
+    "野手": [(20, -0.145), (23.5, -0.028), (27.5, 0.006), (31.5, 0.04), (36, 0.015)],
+    "投手": [(20, -0.095), (23.5, -0.048), (27.5, 0.018), (31.5, 0.035), (36, 0.028)],
 }
 # γ<0 はベテランの幅を広げる（実在は26〜29歳では B 以上が少なく、30歳を過ぎると B 以上も E 以下も増える）。
 # 野手は30〜33歳を同じ幅にするため (31, −0.028) の点を置き、26〜29歳は少し狭める（SD 7以上は保つ）。
@@ -7419,6 +7456,36 @@ def fictional_age_rank_weights(weights: dict[str, float], group: str, role: str,
             factor = min(1.0, factor)
         tilted[letter] = weight * factor
     return tilted
+
+
+def fictional_ability_rank_weights(weights: dict[str, float], tilt: float) -> dict[str, float]:
+    """各ランクの重みに exp(t × 点) を掛ける（点は A=3 … G=−3）。A・G の重みは増やさない。"""
+    tilted = {}
+    for letter, weight in weights.items():
+        factor = math.exp(tilt * FICTIONAL_ABILITY_RANK_SCORES.get(letter, 0))
+        if letter in {"A", "G"}:
+            factor = min(1.0, factor)
+        tilted[letter] = weight * factor
+    return tilted
+
+
+def fictional_ability_rank_tilt(role: str, position: str, values: dict[str, float]) -> Any:
+    """ランク特能の名前 → 能力による傾き t（FICTIONAL_ABILITY_RANK_TILTS に無いものは 0）を返す関数。"""
+    if role == "投手":
+        part = "先発" if position == "先発" else "救援"
+    else:
+        part = "捕手" if position == "捕手" else "全体"
+
+    def tilt(group: str) -> float:
+        spec = FICTIONAL_ABILITY_RANK_TILTS.get((role, group, part)) or FICTIONAL_ABILITY_RANK_TILTS.get((role, group, "全体"))
+        if spec is None:
+            return 0.0
+        names, stats_key, kappa = spec
+        stats = FICTIONAL_ABILITY_RANK_STATS[stats_key]
+        z = sum((float(values[name]) - stats[name][0]) / stats[name][1] for name in names) / len(names)
+        return kappa * z
+
+    return tilt
 
 
 def fictional_age_adjust_specials(
@@ -8016,6 +8083,7 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
         rng, master, list(current), FICTIONAL_PITCHER_RANKED_WEIGHTS, str(player.get("player_class", "")), current, link_shift,
         weights_key=lambda group: fictional_pitcher_ranked_weights_key(group, position, batting_throwing),
         role="投手", age=int(player.get("age") or 0),
+        ability_tilt=fictional_ability_rank_tilt("投手", position, {"コントロール": control, "スタミナ": stamina}),
     )
     player["abilities"] = abilities
     fictional_adjust_physique(rng, player, "投手")
@@ -8133,6 +8201,7 @@ def apply_fictional_fielder_balance(player: dict[str, Any], seed: int, master: M
         rng, master, groups, FICTIONAL_FIELDER_RANKED_WEIGHTS, str(player.get("player_class", "")), current, link_shift,
         weights_key=lambda group: fictional_fielder_ranked_weights_key(group, position, batting_throwing),
         role="野手", age=int(player.get("age") or 0),
+        ability_tilt=fictional_ability_rank_tilt("野手", position, values),
     )
     player["abilities"] = abilities
     fictional_adjust_physique(rng, player, "野手")
