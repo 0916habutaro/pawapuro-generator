@@ -27,8 +27,10 @@ NEW_SPECIALS = ("お祭り男", "春男", "夏男", "秋男")
 def _quiet_and_restore():
     logging.disable(logging.WARNING)
     saved = app.FICTIONAL_SPECIAL_PROFILE_OVERRIDE
+    saved_link = app.FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE
     yield
     app.FICTIONAL_SPECIAL_PROFILE_OVERRIDE = saved
+    app.FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE = saved_link
     logging.disable(logging.NOTSET)
 
 
@@ -214,8 +216,10 @@ def test_profile_stage_changes_only_special_abilities(role: str) -> None:
 
 @pytest.mark.parametrize("category", ["助っ人外国人用", "ドラフト候補用", "架空球団用"])
 def test_new_master_rows_do_not_shift_the_random_stream(category: str) -> None:
-    """マスターに足した4行（weight=0）は抽選に入れない。行を足しても、ほかの特能の抽選（乱数の並び）が変わらない。"""
+    """マスターに足した4行（weight=0）は抽選に入れない。行を足しても、ほかの特能の抽選（乱数の並び）が変わらない。
+    能力による特能の付け替え（`能力と特能の結びつき_改修指示.md`）は表にあるお祭り男を付けることがあるので、ここでは外す。"""
     app.FICTIONAL_SPECIAL_PROFILE_OVERRIDE = {}
+    app.FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE = {}
     old_master = dataclasses.replace(MASTER, abilities=[row for row in MASTER.abilities if row["name"] not in NEW_SPECIALS])
     for seed in range(1, 41):
         assert app.generate_player("野手", category, old_master, seed=seed) == app.generate_player("野手", category, MASTER, seed=seed), seed

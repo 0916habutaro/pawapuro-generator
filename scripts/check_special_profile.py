@@ -22,6 +22,10 @@
 - 投手の役割の項目（`投手の役割と特能_改修指示.md` 2-1）: 先発・救援ごとの青特の数（実在は○○キラーを数えない）・赤特の数、
   役割で差の大きい特能（緊急登板○・牽制○・内角攻め・スロースターター・負け運・緩急○・ナチュラルシュート）の役割ごとの保有率、
   奪三振・球速安定の、球速の帯 × 役割ごとの保有率、特能の査定点の先発−救援。実在の値は fictional_special_profile.json の「実在」の「役割」。
+- 能力と特能の結びつきの項目（`能力と特能の結びつき_改修指示.md` 2-1）: 能力による特能の付け替えの対象の40特能の、能力の合成値 z で見た
+  持つ選手と持たない選手の差（実在±0.4）、役割全体の保有率（改修前±1.0ポイント かつ 実在±3ポイント）、能力の総合と特能の数
+  （青・赤・緑）の相関（実在±0.08）。標準化は野手はメインのポジション、投手は先発・救援ごとの実在の平均・SD。
+  実在の値は data/config/special_ability_link_real.json、共通部分は special_ability_link.py。
 - 個別生成（架空球団用・投手と野手 各5000人）は同じ表を参考として出す（合否には使わない）。
 - 判定の種類・誤差・合否の付け方は checklib.py。誤差は、生成側は球団、実在側は実在の人数から見積もる（平均の標準誤差、保有率は二項分布）。
 - 終了コード: 不合格が1件でもあれば 1（要注意・受け入れ済みは 0）。
@@ -43,6 +47,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import checklib  # noqa: E402
+import special_ability_link  # noqa: E402
 from build_fictional_special_profile import (  # noqa: E402
     GREEN_PROFILE_PATH, GREEN_SPECIALS, LINKED_BANDS, PITCHER_ROLES, POSITIONS, PROFILE_PATH, ROLE_LINKED_BANDS, ROLE_SPECIALS, band_index,
     collect_players, special_points,
@@ -107,6 +112,9 @@ def players_frame(rows: list[dict]) -> pd.DataFrame:
     for name in sorted({name for _role, name, _key, _limits in LINKED_BANDS} | {name for name, *_ in ROLE_LINKED_BANDS} | set(ROLE_SPECIALS)):
         frame[name] = frame["specials"].map(lambda names, name=name: name in names)
     frame["special_points"] = frame["specials"].map(special_points).astype(float)
+    # 能力と特能の結びつきの対象の特能（`能力と特能の結びつき_改修指示.md` 2-1）
+    flags = pd.DataFrame([special_ability_link.flag_columns(names) for names in frame["specials"]], index=frame.index)
+    frame = frame.drop(columns=[c for c in flags.columns if c in frame.columns]).join(flags)
     frame["team_key"] = frame["team"] if "team" in frame.columns else "single"
     return frame.drop(columns=["specials"])
 
@@ -121,7 +129,9 @@ def single_frame(path: Path) -> pd.DataFrame:
         text = str(record.get("batting_throwing") or "")
         abilities = json.loads(record["abilities_json"])
         value = lambda key: _number(abilities.get(key))  # noqa: E731
-        rows.append({
+        balls = json.loads(record["breaking_balls_json"]) if isinstance(record.get("breaking_balls_json"), str) else []
+        link = special_ability_link.generated_ability_columns({"role": role, "abilities": abilities, "breaking_balls": balls})
+        rows.append({**link,
             "team": "single", "role": role, "hand": "左" if (text.startswith("左投") if role == "投手" else text[2:3] == "左") else "右",
             "position": "投手" if role == "投手" else str(record["position"]),
             "prole": ("先発" if record["position"] == "先発" else "救援") if role == "投手" else None,
@@ -204,6 +214,8 @@ def evaluate(frame: pd.DataFrame, prefix: str = SCRIPT, info: bool = False) -> C
         reference = green["保有率"]["投手"][name][plus]["保有率"] - green["保有率"]["投手"][name][minus]["保有率"]
         add("green_diff", name, f"{name} {plus}−{minus}", rate(plus) - rate(minus), reference - TOL_GREEN_DIFF, reference + TOL_GREEN_DIFF, f"{reference:.3f}", "{:.3f}")
     evaluate_roles(pitchers, real["役割"], add, around)
+    if "弾道" in frame.columns:  # 能力と特能の結びつき。実在の値は special_ability_link_real.json
+        special_ability_link.ability_checks(checks, frame, prefix, kind)
     return checks
 
 
@@ -285,6 +297,7 @@ def real_errors(prefix: str = SCRIPT) -> dict[str, float]:
                 prole, band = key.split("|")
                 se[f"{prefix}.role_linked.{name}_{prole}_{band}"] = rate_se(entry["保有率"], entry["人数"])
     se[f"{prefix}.role_points.diff"] = math.hypot(mean_se(roles["特能の査定点"]["先発"]), mean_se(roles["特能の査定点"]["救援"]))
+    se.update(special_ability_link.real_errors(prefix))
     return se
 
 
@@ -295,7 +308,8 @@ def grade_all(frame: pd.DataFrame, boot: int, quick: bool = False) -> list[check
     return checklib.grade(checks, se_gen=se_gen, se_real=real_errors() if boot else {}, all_info=quick)
 
 
-def print_reference(frame: pd.DataFrame) -> None:
+def print_reference(frame: pd.DataFrame, before: bool = True) -> None:
+    special_ability_link.print_reference(frame, before=before)
     real = real_reference()
     rows = []
     for position in POSITIONS:
@@ -334,6 +348,7 @@ def main() -> None:
         single = single_frame(args.single_csv)
         reference = list(checklib.grade(evaluate(single, f"{SCRIPT}.single", info=True), all_info=True))
         checklib.print_checks(reference, f"個別生成（架空球団用・日本人 投手{(single['role'] == '投手').sum()}人／野手{(single['role'] == '野手').sum()}人。参考）")
+        special_ability_link.print_reference(single, before=False)
         graded += reference
     sys.exit(checklib.finish(SCRIPT, graded, args))
 

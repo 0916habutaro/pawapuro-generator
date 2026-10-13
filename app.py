@@ -7748,6 +7748,108 @@ def fictional_green_profile_adjust(seed: int, master: MasterData, player: dict[s
 
 
 # ---------------------------------------------------------------------------
+# 能力による特能の付け替え（`能力と特能の結びつき_改修指示.md` 1-1〜1-3）
+# 特能の数・保有率は実在に合っているが、誰が持つかが能力とあまり関係なく決まっていた（レーザービームが肩力と無関係など）。
+# 緑特の型の後・ランク特能の前に、表の特能ごとに、能力に合った選手が持ち、合わない選手は持たなくなるように付け替える。
+#  1. 能力の合成値 z = Σ w × (能力 − 平均) ÷ SD ÷ √(Σ w²)。平均・SD は実在の、野手はメインのポジションごと、投手は先発・救援ごと。
+#  2. 全体の強さを一部除く: z' = (z − k·ρ × q × SD(z)／SD(q)) ÷ √(1 − (k·ρ)²)。q は能力の総合（標準化した値の平均）、
+#     ρ は区分ごとの q と z の相関、k は除く割合（役割ごと。野手 0.5、投手 0.75）。
+#     能力の高い選手ほど特能が多いという全体の結びつきは実在どおりなので、強めない。
+#  3. 倍率 r = exp(b × z') ÷ M（M は区分ごとの exp(b × z') の平均。平均が1になる）。
+#  4. 持っていて r < 1 なら確率 1 − r で外し、持っていなくて r > 1 なら確率 gain × p ÷ (1 − p) × (r − 1)（上限1）で付ける。
+#     p は区分ごとの改修前の保有率。外すときは選手格の特能数の下限、付けるときは上限を守り、同じグループ・矛盾する特能があれば付けない。
+# 表は data/config/fictional_ability_special_link.json の「区分」（今は 架空球団用_日本人 だけ。外国人・ドラフト候補は区分を足して使う）。
+# 乱数は新しい名前空間のサブRNGから、表の特能ごとに1回ずつ引く（条件によらず必ず1回。ほかの段階・ランク特能・体重の乱数の並びを変えない）。
+# ---------------------------------------------------------------------------
+FICTIONAL_ABILITY_SPECIAL_LINK_NAMESPACE = "fictional_ability_special_link_v1"
+FICTIONAL_ABILITY_SPECIAL_LINK_PATH = DATA_DIR / "config" / "fictional_ability_special_link.json"
+FICTIONAL_ABILITY_SPECIAL_LINK_PART = "架空球団用_日本人"
+# 調整のスクリプトが表を差し替えるための変数（None なら data/config の表を使う。{} なら付け替えない）。
+FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE: dict[str, Any] | None = None
+
+
+@lru_cache(maxsize=1)
+def load_fictional_ability_special_link() -> dict[str, Any]:
+    """能力による特能の付け替えの表（{区分: {...}}）。ファイルがなければ空（付け替えない）。"""
+    if not FICTIONAL_ABILITY_SPECIAL_LINK_PATH.exists():
+        return {}
+    return json.loads(FICTIONAL_ABILITY_SPECIAL_LINK_PATH.read_text(encoding="utf-8")).get("区分", {})
+
+
+def fictional_ability_link_values(role: str, abilities: dict[str, Any], breaking_balls: list[Any]) -> dict[str, float]:
+    """付け替えに使う能力。投手は球速・コントロール・スタミナと第一球種の数・総変化量、野手は6能力と弾道。"""
+    if role == "投手":
+        primary = ta._primary_breaking(breaking_balls or [], real=False)
+        return {
+            "球速": float(pitcher_speed_value(abilities) or 0), "コントロール": float(ability_numeric_value(abilities, "コントロール") or 0),
+            "スタミナ": float(ability_numeric_value(abilities, "スタミナ") or 0),
+            "変化球数": float(len(primary)), "総変化量": float(sum(ta._movement(ball) for ball in primary)),
+        }
+    values = {key: float(ability_numeric_value(abilities, key) or 0) for key in FICTIONAL_FIELDER_ABILITY_KEYS}
+    values["弾道"] = float(abilities.get("弾道") or 0)
+    return values
+
+
+def fictional_ability_link_rates(table: dict[str, Any], role: str, segment: str, values: dict[str, float]) -> dict[str, float]:
+    """表の特能ごとの倍率 r（区分の表がない特能は入らない）。"""
+    stats = table.get("平均・SD", {}).get(role, {}).get(segment)
+    if not stats:
+        return {}
+    z_values = {name: (values[name] - mean) / sd for name, (mean, sd) in stats.items()}
+    names = table["総合"][role]
+    quality = sum(z_values[name] for name in names) / len(names)
+    keep = float(table.get("除く割合", {}).get(role, 0.0))
+    rates = {}
+    for name, entry in table["特能"].get(role, {}).items():
+        part = entry["区分"].get(segment)
+        if part is None:
+            continue
+        weights = entry["w"]
+        z = sum(w * z_values[key] for key, w in weights.items()) / math.sqrt(sum(w * w for w in weights.values()))
+        c = keep * part["rho"]
+        z = (z - c * quality * part["zsd"] / part["qsd"]) / math.sqrt(1.0 - c * c)
+        rates[name] = math.exp(entry["b"] * z) / part["M"]
+    return rates
+
+
+def fictional_ability_special_link(
+    seed: int, master: MasterData, player: dict[str, Any], specials: list[str], is_allowed: Any, abilities: dict[str, Any],
+    part: str = FICTIONAL_ABILITY_SPECIAL_LINK_PART,
+) -> list[str]:
+    """能力による特能の付け替え。表の特能ごとに乱数を1回ずつ引き、能力に合った選手が持つようにする。
+    abilities はこの時点の能力（投手の変化球は player の breaking_balls）。"""
+    role = str(player.get("role", ""))
+    tables = FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE if FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE is not None else load_fictional_ability_special_link()
+    table = tables.get(part)
+    if not table or not table.get("特能", {}).get(role):
+        return specials
+    position = str(player.get("position", ""))
+    segment = ("先発" if position == "先発" else "救援") if role == "投手" else position
+    rates = fictional_ability_link_rates(table, role, segment, fictional_ability_link_values(role, abilities, player.get("breaking_balls") or []))
+    rng = make_sub_rng(seed, FICTIONAL_ABILITY_SPECIAL_LINK_NAMESPACE)
+    low, high = special_count_bounds("架空球団用", str(player.get("player_class", "")))
+    allowed_names = role_allowed_specials(master, role)
+    group_of = {str(row["name"]): str(row.get("group", "")) for row in master.abilities}
+    check = lambda name: name in allowed_names and is_allowed(name)  # noqa: E731
+    selected = list(specials)
+    countable = lambda: sum(is_countable_special(name) for name in selected)  # noqa: E731
+    for name in sorted(table["特能"][role]):
+        roll = rng.random()
+        rate = rates.get(name)
+        if rate is None:
+            continue
+        if name in selected:
+            if rate < 1.0 and roll < 1.0 - rate and not (is_countable_special(name) and countable() <= low):
+                selected.remove(name)
+        elif rate > 1.0:
+            p = table["特能"][role][name]["区分"][segment]["p"]
+            chance = min(1.0, table["特能"][role][name]["gain"] * p / (1.0 - p) * (rate - 1.0)) if p < 1.0 else 1.0
+            if roll < chance and not (is_countable_special(name) and countable() >= high):
+                fictional_set_special(selected, name, True, group_of, False, check)
+    return selected
+
+
+# ---------------------------------------------------------------------------
 # 若手（〜21歳）の能力の幅・水準（若手能力の幅_改修指示.md）
 # 既存処理は選手格・型・個人差の上乗せを年齢によらず同じ幅で掛け、最後の実在準拠の変換も全年齢の平均・幅に
 # 写すため、若手の幅が成人と同じになる（実在の若手は低い値に固まる）。上乗せの処理はドラフト候補・外国人と
@@ -8072,6 +8174,7 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     )
     player["special_abilities"] = fictional_special_profile_adjust(seed, master, player, player["special_abilities"], is_allowed)
     player["special_abilities"] = fictional_green_profile_adjust(seed, master, player, player["special_abilities"], is_allowed)
+    player["special_abilities"] = fictional_ability_special_link(seed, master, player, player["special_abilities"], is_allowed, abilities)
 
     def link_shift(group: str) -> int:
         if group == "ノビ":
@@ -8179,6 +8282,7 @@ def apply_fictional_fielder_balance(player: dict[str, Any], seed: int, master: M
     player["special_abilities"] = fictional_age_adjust_specials(seed, master, player, player["special_abilities"], abilities, values, is_allowed)
     player["special_abilities"] = fictional_special_profile_adjust(seed, master, player, player["special_abilities"], is_allowed)
     player["special_abilities"] = fictional_green_profile_adjust(seed, master, player, player["special_abilities"], is_allowed)
+    player["special_abilities"] = fictional_ability_special_link(seed, master, player, player["special_abilities"], is_allowed, abilities)
     speed, arm = values["走力"], values["肩力"]
     link_rng = make_sub_rng(seed, FICTIONAL_FIELDER_RANK_LINK_NAMESPACE)
 
