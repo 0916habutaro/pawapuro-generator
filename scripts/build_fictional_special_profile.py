@@ -249,6 +249,7 @@ def _init_worker(override: dict[str, Any] | None, green_override: dict[str, Any]
 
 def _team_players(team_seed: int) -> list[dict[str, Any]]:
     import app
+    import special_ability_link
     from generator import team_analysis as ta
 
     rows = []
@@ -265,6 +266,8 @@ def _team_players(team_seed: int) -> list[dict[str, Any]]:
             "prole": ("先発" if p.get("position") == "先発" else "救援") if role == "投手" else None,
             "specials": [str(n) for n in p.get("special_abilities") or []],
             "球速": ta._number(abilities.get("球速")), "走力": ta._number(abilities.get("走力")), "ミート": ta._number(abilities.get("ミート")),
+            # 能力と特能の結びつきの判定（check_special_profile.py。`能力と特能の結びつき_改修指示.md` 2-1）が使う能力の列
+            **special_ability_link.generated_ability_columns(p),
         })
     return rows
 
