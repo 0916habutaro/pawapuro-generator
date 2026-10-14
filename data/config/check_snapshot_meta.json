@@ -1,5 +1,5 @@
 {
   "date": "2026-10-14",
-  "reason": "能力と特能の結びつきの改修（架空球団用の日本人の40特能を、能力に合った選手が持つように付け替えた。特能・査定・戦力・背番号が動く。正式な規模で流した9本の結果から書き込んだ。新しい判定 check_special_profile.ability_link を足した）",
-  "commit": "88dfc00（ブランチ claude/ability-special-link） + 未コミットの変更あり"
+  "reason": "能力との結びつき（助っ人外国人用）の改修（外国人のランク特能の重み・能力の傾き、外国人の25特能の付け替え、日本人の奪三振の付け替えを総変化量と球速の帯の保有率に直した。ランク特能・特能・査定・戦力・背番号が動く。正式な規模で流した10本（check_draft_balance は seed 1〜1000 で改修前と一致するので流さない）の結果から書き込んだ。新しい判定 check_foreign_balance.team.*.rank_ability・ability_link を足した）",
+  "commit": "285f7f5（ブランチ claude/foreign-ability-link）"
 }

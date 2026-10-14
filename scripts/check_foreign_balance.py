@@ -14,6 +14,9 @@
   以前の「実在から範囲までの幅」を保ったまま実在に合わせてずらした（外国人の残り_改修指示.md 2-1）。範囲は生成の値に合わせて決めない。
 - 「実在（2024〜2026年版）」の節（外国人の残り_改修指示.md 2-1）は、個別生成のCSVと、球団生成（--teams、既定300球団）の外国人の両方で判定する。
   球団生成の判定の id は `check_foreign_balance.team.pitcher.…`／`check_foreign_balance.team.fielder.…`。
+- 球団生成の外国人では、能力との結びつき（`能力との結びつき_外国人_改修指示.md` 2-1）も判定する。ランク特能（回復・打たれ強さ・送球の
+  相関、全ランク特能の割合、ランク点）は rank_ability.py、特能（25特能の差・保有率）は special_ability_link.py の foreign_checks。
+  実在側の誤差は、異なる選手の数から見積もる（それぞれの foreign_real_errors）。
 - 判定の種類・誤差・合否の付け方は checklib.py（判定の整理_改修指示.md）。判定の一覧は reports/checks/check_foreign_balance.csv。
 - 終了コード: 不合格が1件でもあれば 1（要注意・受け入れ済みは 0）。
 - 正式な判定は 5000人（例: seed 1〜5000）で行う。1000人だとサンプルの揺れで
@@ -35,7 +38,9 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import checklib  # noqa: E402
-from checklib import Checks, in_range  # noqa: E402
+import rank_ability  # noqa: E402
+import special_ability_link  # noqa: E402
+from checklib import KIND_REAL, Checks, in_range  # noqa: E402
 
 SCRIPT = "check_foreign_balance"
 # 実在の外国人の人数（2024〜2026年版、投手122人／野手102人）。実在側の誤差を、生成側の誤差の人数比で見積もる
@@ -103,8 +108,9 @@ class Result:
         self.add(section, item, pct(v), v, lo, hi, real, target, **kw)
 
 
-def grade_part(fn, data, boot, real_n=None, quick=False, cluster=None):
-    """cluster（列名）を渡すと、生成側の誤差をそのまとまり（球団）を単位に再抽出して求める。"""
+def grade_part(fn, data, boot, real_n=None, quick=False, cluster=None, real_se=None):
+    """cluster（列名）を渡すと、生成側の誤差をそのまとまり（球団）を単位に再抽出して求める。
+    real_se（id → 実在側の誤差）を渡すと、その項目は人数比の換算の代わりにその値を使う。"""
     evaluate = lambda d: fn(d).checks  # noqa: E731
     checks = evaluate(data)
     resample = (lambda f, rng: checklib.resample_frame(f, rng, cluster)) if cluster else checklib.resample_frame
@@ -114,6 +120,8 @@ def grade_part(fn, data, boot, real_n=None, quick=False, cluster=None):
         item_n = next((n for suffix, n in REAL_N_BY_ITEM.items() if key.endswith(f".{suffix}")), None)
         if item_n:
             se_real[key] = se_gen[key] * math.sqrt(len(data) / item_n)
+    if boot and real_se:
+        se_real.update(real_se)
     return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
 
 
@@ -343,15 +351,35 @@ def collect_team_foreigners(teams, start=1, workers=1):
     return pd.DataFrame(rows)
 
 
+def team_players(df):
+    """球団生成の外国人の表を、能力との結びつきの判定に渡す選手（dict）の並びにする。"""
+    return [{"role": row.role, "position": row.position, "abilities": J(row.abilities_json),
+             "special_abilities": J(row.special_abilities_json), "breaking_balls": J(row.breaking_balls_json)}
+            for row in df.itertuples()]
+
+
+def ability_link_rows(R, df, role):
+    """能力との結びつき（`能力との結びつき_外国人_改修指示.md` 2-1）。ランク特能と特能。"""
+    players = team_players(df)
+    rank_ability.foreign_checks(R.checks, rank_ability.foreign_frame(players), R.prefix, KIND_REAL, role)
+    special_ability_link.foreign_checks(R.checks, special_ability_link.foreign_frame(players), R.prefix, KIND_REAL, role)
+
+
+def ability_link_real_errors(prefix, role):
+    return {**rank_ability.foreign_real_errors(prefix, role), **special_ability_link.foreign_real_errors(prefix, role)}
+
+
 def check_team_pitchers(df):
     R = Result(f"{SCRIPT}.team.pitcher")
     real_pitcher_rows(R, df)
+    ability_link_rows(R, df, "投手")
     return R
 
 
 def check_team_fielders(df):
     R = Result(f"{SCRIPT}.team.fielder")
     real_fielder_rows(R, df)
+    ability_link_rows(R, df, "野手")
     return R
 
 
@@ -384,10 +412,14 @@ def main(argv):
                 graded += checks
     if args.teams > 0:
         teams = collect_team_foreigners(args.teams, args.start, args.workers)
-        for role, fn in [("投手", check_team_pitchers), ("野手", check_team_fielders)]:
+        for role, fn, key in [("投手", check_team_pitchers, "pitcher"), ("野手", check_team_fielders, "fielder")]:
             d = teams[teams.role == role].reset_index(drop=True)
-            checks = grade_part(fn, d, args.boot, REAL_N[role], args.quick, cluster="team_key")
+            checks = grade_part(fn, d, args.boot, REAL_N[role], args.quick, cluster="team_key",
+                                real_se=ability_link_real_errors(f"{SCRIPT}.team.{key}", role))
             checklib.print_checks(checks, f"球団生成 {args.teams}球団（seed {args.start}〜{args.start + args.teams - 1}）の外国人 {role} {len(d)}人")
+            players = team_players(d)
+            rank_ability.print_foreign_reference(rank_ability.foreign_frame(players), role)
+            special_ability_link.print_foreign_reference(special_ability_link.foreign_frame(players), role)
             graded += checks
     print("\n" + checklib.summary_line(graded))
     sys.exit(checklib.finish(SCRIPT, graded, args))
