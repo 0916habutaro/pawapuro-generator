@@ -162,8 +162,8 @@ def test_link_does_not_change_the_random_stream(monkeypatch):
 
 
 def test_other_categories_do_not_use_the_link(monkeypatch):
-    # ドラフト候補用は付け替えを使わない。助っ人外国人用は自分の区分（助っ人外国人用）だけを使い、日本人の区分を外しても同じ
-    # （外国人の付け替えは tests/test_foreign_ability_link.py）
+    # ドラフト候補用・助っ人外国人用は自分の区分（ドラフト候補用・助っ人外国人用）だけを使い、日本人の区分を外しても同じ
+    # （外国人の付け替えは tests/test_foreign_ability_link.py、ドラフト候補は tests/test_draft_ability_link.py）
     cases = [("投手", "ドラフト候補用"), ("野手", "ドラフト候補用"), ("投手", "助っ人外国人用"), ("野手", "助っ人外国人用")]
     current = {case: players(*case) for case in cases}
     foreign = {role: [p for p in players(role) if p["roster_origin"] != "domestic"] for role in ("投手", "野手")}
@@ -173,6 +173,3 @@ def test_other_categories_do_not_use_the_link(monkeypatch):
         assert players(*case) == current[case], case
     for role in ("投手", "野手"):
         assert [p for p in players(role) if p["roster_origin"] != "domestic"] == foreign[role], role
-    no_link(monkeypatch)
-    for case in cases[:2]:
-        assert players(*case) == current[case], case

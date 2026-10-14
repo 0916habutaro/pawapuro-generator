@@ -47,6 +47,8 @@ LINK_PATH = APP_DIR / "data" / "config" / "fictional_ability_special_link.json"
 LINK_PART = "架空球団用_日本人"
 # 助っ人外国人用の区分
 FOREIGN_PART = "助っ人外国人用"
+# ドラフト候補用の区分
+DRAFT_PART = "ドラフト候補用"
 REAL_SEASONS = (2024, 2025, 2026)
 ROLES = ("投手", "野手")
 SEGMENTS = {"投手": ("先発", "救援"), "野手": ("捕手", "一塁手", "二塁手", "三塁手", "遊撃手", "外野手")}
@@ -85,7 +87,7 @@ BEFORE: dict[str, Any] = {
 }
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=4)
 def link_table(part: str = LINK_PART) -> dict[str, Any]:
     """app の表（既定は区分 LINK_PART）。"""
     return json.loads(LINK_PATH.read_text(encoding="utf-8"))["区分"][part]
@@ -190,8 +192,11 @@ REAL_ABILITY_COLUMNS = {
 }
 
 
-def load_real_rows(foreign: bool = False) -> pd.DataFrame:
-    """実在（2024〜2026年版）の日本人（foreign=True なら外国人）。元データ（data/raw/ の zip と 2026年版のフォルダ）から読む。"""
+def load_real_rows(foreign: bool = False, rookie: bool = False) -> pd.DataFrame:
+    """実在（2024〜2026年版）の日本人（foreign=True なら外国人）。元データ（data/raw/ の zip と 2026年版のフォルダ）から読む。
+    rookie=True なら、2024〜2026年版で初めて出てきた日本人（プロ1年目。rank_ability.rookie_rows と同じ）だけにし、
+    特能の列はドラフト候補用の表の特能にする。"""
+    import rank_ability
     import build_real_team_reference as ref
     from generator import real_data
     from generator import team_analysis as ta
@@ -199,17 +204,18 @@ def load_real_rows(foreign: bool = False) -> pd.DataFrame:
     kinds = ta.special_kind_map()
     foreign_keys = ref.foreign_list_keys(ref.DEFAULT_FOREIGN_LIST)
     entry = ref.load_entry_route(ref.DEFAULT_ENTRY_ROUTE)
-    rows = []
+    rows, seen = [], []
     with tempfile.TemporaryDirectory() as temp:
         folders = ref.extract_seasons(ref.DEFAULT_ZIP, Path(temp))
         folders[real_data.AGE_SEASON] = ref.DEFAULT_RAW_2026
         for season, folder in sorted(folders.items()):
-            if season not in REAL_SEASONS:
+            if season not in REAL_SEASONS and not (rookie and season >= rank_ability.ROOKIE_FIRST_SEASON):
                 continue
             tables, _ = ref.parse_directory(folder)
             players = ref.decorate_season(tables["players"], season, foreign_keys, entry)
             for row in real_data.attach_real_details(players, tables["specials"], tables["breaking"]):
-                if bool(row.get("is_foreign")) != foreign:
+                seen.append((season, "".join(str(row.get("name") or "").split())))
+                if bool(row.get("is_foreign")) != foreign or season not in REAL_SEASONS:
                     continue
                 role = "投手" if row.get("role") == "投手" else "野手"
                 specials = [name for name, kind in row.get("specials") or []
@@ -221,9 +227,10 @@ def load_real_rows(foreign: bool = False) -> pd.DataFrame:
                     "season": season, "name": "".join(str(row.get("name") or "").split()), "role": role,
                     "position": str(row.get("main_position") or "") if role == "野手" else "投手",
                     "prole": ("先発" if str(row.get("pitcher_roles") or "")[:1] == "先" else "救援") if role == "投手" else None,
-                    **values, **ta.special_counts(specials), **flag_columns(specials),
+                    **values, **ta.special_counts(specials), **flag_columns(specials, DRAFT_PART if rookie else LINK_PART),
                 })
-    return pd.DataFrame(rows)
+    frame = pd.DataFrame(rows)
+    return rank_ability.rookie_rows(frame, seen) if rookie else frame
 
 
 def real_ability_stats(rows: pd.DataFrame) -> dict[str, dict[str, dict[str, list[float]]]]:
@@ -260,18 +267,25 @@ def build_real() -> None:
     foreign_rows = load_real_rows(foreign=True)
     foreign_stats = foreign_real_ability_stats(foreign_rows)
     foreign_table = link_table(FOREIGN_PART)
+    rookie_rows = load_real_rows(rookie=True)
+    draft_table = link_table(DRAFT_PART)
     data = {
         "作り方": "python scripts/special_ability_link.py --build-real。実在（2024〜2026年版）の日本人（外国人を除く）。ポジションはメイン、"
                  "投手の役割は起用の最初の文字が「先」なら先発（ほかは救援）。能力は区分（野手はポジション、投手は先発・救援）ごとの"
                  "「平均・SD」で標準化し、合成値 z は app の表（fictional_ability_special_link.json）の重みで作る。"
                  "特能はランク特能・起用法・○○キラーを除く。保有率は%。異なる選手の数は名前で数えた（誤差に使う）。"
                  "「外国人」は実在の外国人（2024〜2026年版）で、平均・SDは投手は先発・救援ごと、野手は全体（全ポジション同じ値）。"
-                 "合成値 z は表の区分「助っ人外国人用」の重みで作る",
+                 "合成値 z は表の区分「助っ人外国人用」の重みで作る。「ドラフト候補」は実在のプロ1年目（2024〜2026年版で初めて出てきた日本人。"
+                 "2022年版以降の名簿に同じ名前がない選手）を、表の区分「ドラフト候補用」の重みと平均・SD（ドラフト候補の生成の値）で見た参考の値"
+                 "（判定の目標は日本人の実在）",
         "平均・SD": stats,
         "実在": {role: role_statistics(rows, role, stats[role], table, rows["name"]) for role in ROLES},
         "外国人": {
             "平均・SD": foreign_stats,
             "実在": {role: role_statistics(foreign_rows, role, foreign_stats[role], foreign_table, foreign_rows["name"]) for role in ROLES},
+        },
+        "ドラフト候補": {
+            "実在": {role: role_statistics(rookie_rows, role, draft_table["平均・SD"][role], draft_table, rookie_rows["name"]) for role in ROLES},
         },
     }
     REAL_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
@@ -472,6 +486,82 @@ def print_foreign_reference(frame: pd.DataFrame, role: str) -> None:
                      "保有率 改修前": FOREIGN_BEFORE.get("保有率", {}).get(role, {}).get(name), "保有率 今回": round(item["保有率"], 1),
                      "保有率 外国人の実在": round(fr["保有率"], 1)})
     print(f"\n[能力と特能の結びつき 外国人{role}（差は能力の合成値 z の持つ−持たない、保有率は%。参考）]")
+    print(pd.DataFrame(rows).to_string(index=False))
+
+
+# ---------------------------------------------------------------------------
+# ドラフト候補用（`能力との結びつき_ドラフト_改修指示.md` 2-1）
+# ---------------------------------------------------------------------------
+DRAFT_SECTIONS = {
+    "diff": "能力と特能の結びつき（ドラフト候補）: 能力の合成値 z で見た、持つ選手と持たない選手の差（日本人の実在±0.4。能力はドラフト候補の生成の平均・SDで標準化）",
+    "rate": "能力と特能の結びつき（ドラフト候補）: 対象の特能の保有率（役割全体、%。改修前±1.5ポイント）",
+}
+DRAFT_TOL_DIFF, DRAFT_TOL_RATE_BEFORE = 0.4, 1.5
+# 改修前（ドラフト候補 投手・野手 各5000人（seed 1〜5000）のうち育成候補を除く選手、PYTHONHASHSEED=0、main 17a94b5。PC で測った）の値。
+# 保有率（%）は判定の範囲に使う。差は表示用。
+DRAFT_BEFORE: dict[str, Any] = {
+    "差": {
+        "投手": {"キレ○": 0.42, "乱調": 0.25, "変化球中心": 0.07, "奪三振": 0.08, "寸前": 0.04, "打球反応○": 0.19, "緊急登板○": -0.27, "緩急○": 0.15, "負け運": 0.16, "逃げ球": 0.4, "速球中心": 0.06, "テンポ○": 0.14},
+        "野手": {"チームプレイ○": 0.23, "ミート多用": -0.04, "三振": 0.24, "併殺": 0.11, "内野安打○": 0.98, "強振多用": 0.06, "積極守備": 0.34, "積極盗塁": 0.74, "積極走塁": 0.63},
+    },
+    "保有率": {
+        "投手": {"キレ○": 3.2, "乱調": 2.5, "変化球中心": 6.0, "奪三振": 15.6, "寸前": 4.1, "打球反応○": 5.7, "緊急登板○": 4.2, "緩急○": 9.9, "負け運": 3.9, "逃げ球": 5.0, "速球中心": 6.7, "テンポ○": 6.8},
+        "野手": {"チームプレイ○": 4.8, "ミート多用": 8.0, "三振": 20.9, "併殺": 3.4, "内野安打○": 16.0, "強振多用": 7.6, "積極守備": 8.2, "積極盗塁": 7.2, "積極走塁": 8.0},
+    },
+}
+
+
+def draft_statistics(frame: pd.DataFrame, roles: tuple[str, ...] = ROLES) -> dict[str, Any]:
+    table = link_table(DRAFT_PART)
+    return {role: role_statistics(frame, role, table["平均・SD"][role], table) for role in roles}
+
+
+def draft_checks(checks: Checks, frame: pd.DataFrame, prefix: str, kind: str, role: str) -> None:
+    """ドラフト候補の特能ごとの差（日本人の実在±0.4）と保有率（改修前±1.5ポイント）。frame は能力・特能の列と role・position・prole を持つ。"""
+    from checklib import KIND_DESIGN, KIND_INFO
+
+    real, now = real_reference(), draft_statistics(frame, (role,))[role]
+    for name, item in now["特能"].items():
+        value, rv = item["差"], real[role]["特能"][name]["差"]
+        checks.add(f"{prefix}.ability_link.{name}_diff", kind, f"{name} 持つ−持たない（z）", value,
+                   round(rv - DRAFT_TOL_DIFF, 4), round(rv + DRAFT_TOL_DIFF, 4), section=DRAFT_SECTIONS["diff"],
+                   shown="nan" if math.isnan(value) else f"{value:+.2f}",
+                   target=f"{rv - DRAFT_TOL_DIFF:+.2f}〜{rv + DRAFT_TOL_DIFF:+.2f}", real=f"{rv:+.2f}（日本人）")
+    for name, item in now["特能"].items():
+        before = DRAFT_BEFORE.get("保有率", {}).get(role, {}).get(name)
+        if before is None:
+            continue
+        value, low, high = item["保有率"], round(before - DRAFT_TOL_RATE_BEFORE, 3), round(before + DRAFT_TOL_RATE_BEFORE, 3)
+        checks.add(f"{prefix}.ability_link.{name}_rate_before", KIND_INFO if kind == KIND_INFO else KIND_DESIGN,
+                   f"{name} 保有率（改修前±1.5）", value, low, high, section=DRAFT_SECTIONS["rate"], shown=f"{value:.1f}",
+                   target=f"{low:.1f}〜{high:.1f}（改修前 {before:.1f}）", real=f"{real[role]['特能'][name]['保有率']:.1f}（日本人）")
+
+
+def draft_real_errors(prefix: str, role: str) -> dict[str, float]:
+    """ドラフト候補の差の目標（日本人の実在）の誤差。"""
+    se = real_errors(prefix)
+    return {f"{prefix}.ability_link.{name}_diff": se[f"{prefix}.ability_link.{role}_{name}_diff"] for name in link_table(DRAFT_PART)["特能"][role]}
+
+
+def draft_columns(player: dict[str, Any]) -> dict[str, Any]:
+    """生成のドラフト候補（dict）1人分の、draft_checks に使う列（能力・対象の特能を持つかどうか）。"""
+    names = [str(name) for name in player.get("special_abilities") or []]
+    held = set(names)
+    role = "投手" if player.get("role") == "投手" else "野手"
+    from generator import team_analysis as ta
+
+    return {**generated_ability_columns({**player, "role": role}),
+            **{name: name in held for r in ROLES for name in link_table(DRAFT_PART)["特能"][r]}, **ta.special_counts(names)}
+
+
+def print_draft_reference(frame: pd.DataFrame, role: str) -> None:
+    """ドラフト候補の特能ごとの差・保有率（改修前・今回・目標。参考）。"""
+    real, now = real_reference(), draft_statistics(frame, (role,))[role]
+    rows = [{"特能": name, "差 改修前": DRAFT_BEFORE.get("差", {}).get(role, {}).get(name), "差 今回": round(item["差"], 2),
+             "差 目標（日本人の実在）": round(real[role]["特能"][name]["差"], 2),
+             "保有率 改修前": DRAFT_BEFORE.get("保有率", {}).get(role, {}).get(name), "保有率 今回": round(item["保有率"], 1)}
+            for name, item in now["特能"].items()]
+    print(f"\n[能力と特能の結びつき ドラフト候補{role}（差は能力の合成値 z の持つ−持たない、保有率は%。参考）]")
     print(pd.DataFrame(rows).to_string(index=False))
 
 

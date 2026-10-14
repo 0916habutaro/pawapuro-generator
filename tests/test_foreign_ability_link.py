@@ -118,8 +118,9 @@ def test_strikeout_uses_the_band_rate():
     assert app.fictional_ability_link_p(entry, "先発", {"球速": 160}) == entry["区分"]["先発"]["p"]
 
 
-def test_conflicting_special_is_swapped_only_when_it_does_not_fit(monkeypatch):
-    # 付けたい特能と矛盾する特能は、その特能の r が1未満なら外して付け替える（指示書 1-4。助っ人外国人用だけ）
+def test_conflicting_special_is_swapped_only_when_it_fits_less(monkeypatch):
+    # 付けたい特能と矛盾する特能は、その特能も表にあって r が付けたい特能の r より小さければ外して付け替える
+    # （指示書 1-4 で r が1未満のときだけだったのを、`能力との結びつき_ドラフト_改修指示.md` 1-4 で広げた。助っ人外国人用だけ）
     abilities = {key: app.ability(value) for key, value in zip(app.FICTIONAL_FIELDER_ABILITY_KEYS, (60, 75, 40, 60, 45, 45))}
     abilities["弾道"] = 4
     player = {"role": "野手", "position": "一塁手", "player_class": "レギュラー競争級", "breaking_balls": []}
@@ -127,11 +128,11 @@ def test_conflicting_special_is_swapped_only_when_it_does_not_fit(monkeypatch):
     base = table()
     entries = dict(base["特能"]["野手"])
 
-    def forced(pull_b: float) -> dict:
-        # 広角打法は必ず付けたい（r 大・p 0.5）、プルヒッターは b で r を決める（M 1）
-        wide = {**entries["広角打法"], "b": 50.0, "gain": 100.0, "区分": {s: {**v, "M": 1.0, "p": 0.5, "rho": 0.0} for s, v in entries["広角打法"]["区分"].items()}}
+    def forced(pull_b: float, wide_b: float = 50.0, with_pull: bool = True) -> dict:
+        # 広角打法は必ず付けたい（r>1・gain 100・p 0.5）、プルヒッターは b で r を決める（M 1）
+        wide = {**entries["広角打法"], "b": wide_b, "gain": 100.0, "区分": {s: {**v, "M": 1.0, "p": 0.5, "rho": 0.0} for s, v in entries["広角打法"]["区分"].items()}}
         pull = {**entries["プルヒッター"], "b": pull_b, "区分": {s: {**v, "M": 1.0, "rho": 0.0} for s, v in entries["プルヒッター"]["区分"].items()}}
-        return {PART: {**base, "特能": {"野手": {"広角打法": wide, "プルヒッター": pull}}}}
+        return {PART: {**base, "特能": {"野手": {"広角打法": wide, **({"プルヒッター": pull} if with_pull else {})}}}}
 
     def run() -> list[str]:
         return app.fictional_ability_special_link(
@@ -145,11 +146,16 @@ def test_conflicting_special_is_swapped_only_when_it_does_not_fit(monkeypatch):
     monkeypatch.setattr(app, "make_sub_rng", lambda seed, namespace: Low())
     monkeypatch.setattr(app, "FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE", forced(-5.0))  # プルヒッターは能力に合っていない（r<1）
     assert sorted(run()) == ["広角打法"]
-    monkeypatch.setattr(app, "FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE", forced(5.0))  # 合っている（r>1）なら付け替えない
+    monkeypatch.setattr(app, "FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE", forced(5.0))  # 合っている（r>1）が、広角打法の r のほうが大きい
+    assert sorted(run()) == ["広角打法"]
+    monkeypatch.setattr(app, "FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE", forced(50.0, wide_b=2.0))  # プルヒッターの r のほうが大きい
     assert run() == ["プルヒッター"]
-    # 日本人の表には「矛盾の付け替え」がない
-    assert not app.load_fictional_ability_special_link()[app.FICTIONAL_ABILITY_SPECIAL_LINK_PART].get("矛盾の付け替え")
-    assert app.load_fictional_ability_special_link()[PART]["矛盾の付け替え"] is True
+    monkeypatch.setattr(app, "FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE", forced(0.0, with_pull=False))  # 相手が表にないなら付け替えない
+    assert run() == ["プルヒッター"]
+    # 「矛盾の付け替え」は助っ人外国人用だけ（架空球団用の日本人・ドラフト候補用は false）
+    tables = app.load_fictional_ability_special_link()
+    assert {part: table_.get("矛盾の付け替え") for part, table_ in tables.items()} == {
+        app.FICTIONAL_ABILITY_SPECIAL_LINK_PART: False, PART: True, app.DRAFT_ABILITY_SPECIAL_LINK_PART: False}
 
 
 def test_foreign_link_draws_once_per_special(monkeypatch):

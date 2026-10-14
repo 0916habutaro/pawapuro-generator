@@ -15,6 +15,9 @@
   実在データを同じ形式に変換してこのチェッカーにかけると、全項目合格する（年齢の項目は対象外）。
 - 判定の種類・誤差・合否の付け方は checklib.py（判定の整理_改修指示.md）。判定の一覧は reports/checks/check_draft_balance.csv。
 - 終了コード: 不合格が1件でもあれば 1（要注意・受け入れ済みは 0）。
+- 能力との結びつき（`能力との結びつき_ドラフト_改修指示.md` 2-1）: ランク特能（相関・割合・ランク点）は rank_ability.py、
+  特能（21特能の差・保有率）は special_ability_link.py の draft_checks。目標はランク特能の割合・ランク点が実在のプロ1年目
+  （2024〜2026年版で初めて出てきた日本人）、相関・特能の差が日本人の実在。実在側の誤差はそれぞれの異なる選手の数で見積もる。
 - 正式な判定は 5000人（例: seed 1〜5000）で行う。2000人だと経路別の人数が少なく
   境界付近の項目がまれに外れるので、途中確認用として扱う。
   基準に合わせるために分布そのものを歪めないこと。
@@ -29,7 +32,9 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import checklib  # noqa: E402
-from checklib import Checks, in_range  # noqa: E402
+import rank_ability  # noqa: E402
+import special_ability_link  # noqa: E402
+from checklib import KIND_REAL, Checks, in_range  # noqa: E402
 
 SCRIPT = "check_draft_balance"
 # 実在のプロ1年目の人数（2022〜2026、投手167人／野手139人）。実在側の誤差を、生成側の誤差の人数比で見積もる
@@ -95,11 +100,14 @@ class Result:
         self.add(section, item, f(v), v, lo, hi, tgt(lo, hi, f), real)
 
 
-def grade_part(fn, data, boot, real_n=None, quick=False):
+def grade_part(fn, data, boot, real_n=None, quick=False, real_se=None):
+    """real_se（id → 実在側の誤差）を渡すと、その項目は人数比の換算の代わりにその値を使う。"""
     evaluate = lambda d: fn(d).checks  # noqa: E731
     checks = evaluate(data)
     se_gen = checklib.bootstrap_se(evaluate, data, checklib.resample_frame, n=boot) if boot else {}
     se_real = checklib.scale_se(se_gen, len(data), real_n) if real_n else {}
+    if boot and real_se:
+        se_real.update(real_se)
     return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
 
 
@@ -266,6 +274,50 @@ def check_common(df, R):
             R.rng(s, f"{r} 年齢平均", df.age[df.entry_route == r].mean(), lo, hi, "（1年目は+0.7〜0.9）")
 
 
+# ---------------------------------------------------------------- 能力との結びつき
+
+LINK_PREFIX = {"投手": f"{SCRIPT}.pitcher", "野手": f"{SCRIPT}.fielder"}
+
+
+def add_link_columns(df):
+    """能力との結びつきの判定に使う列（ランク特能の文字・ランク点・能力・対象の特能の有無）を足す。ブートストラップの前に1回だけ作る。"""
+    rows = []
+    for row in df.itertuples():
+        player = {"role": row.role, "position": row.position, "abilities": J(row.abilities_json),
+                  "special_abilities": J(row.special_abilities_json), "breaking_balls": J(row.breaking_balls_json)}
+        rows.append({**rank_ability.draft_columns(player), **special_ability_link.draft_columns(player)})
+    extra = pd.DataFrame(rows, index=df.index)
+    return pd.concat([df, extra[[c for c in extra.columns if c not in df.columns]]], axis=1)
+
+
+def check_ability_link(df, R):
+    for role in ("投手", "野手"):
+        part = df[df.role == role]
+        if not len(part):
+            continue
+        frame = part.assign(position=part.position if role == "野手" else "投手")
+        rank_ability.draft_checks(R.checks, frame, LINK_PREFIX[role], KIND_REAL, role)
+        special_ability_link.draft_checks(R.checks, frame, LINK_PREFIX[role], KIND_REAL, role)
+
+
+def ability_link_real_errors(df):
+    se = {}
+    for role in ("投手", "野手"):
+        if (df.role == role).any():
+            se.update(rank_ability.draft_real_errors(LINK_PREFIX[role], role))
+            se.update(special_ability_link.draft_real_errors(LINK_PREFIX[role], role))
+    return se
+
+
+def print_ability_link_reference(df):
+    for role in ("投手", "野手"):
+        part = df[df.role == role]
+        if len(part):
+            frame = part.assign(position=part.position if role == "野手" else "投手")
+            rank_ability.print_draft_reference(frame, role)
+            special_ability_link.print_draft_reference(frame, role)
+
+
 # ---------------------------------------------------------------- main
 
 
@@ -280,6 +332,8 @@ def evaluate(df):
         check_fielders(F, R)
     check_spread(P, F, R)
     check_common(df, R)
+    if "rank_points" in df.columns:
+        check_ability_link(df, R)
     return R
 
 
@@ -296,14 +350,15 @@ def main(argv):
         n_all = len(df)
         if "player_class" in df.columns:
             df = df[df.player_class != "育成候補"]
-        df = df.reset_index(drop=True)
+        df = add_link_columns(df.reset_index(drop=True))
         P = df[df.role == "投手"]
         F = df[df.role == "野手"]
-        checks = grade_part(evaluate, df, args.boot, REAL_N, args.quick)
+        checks = grade_part(evaluate, df, args.boot, REAL_N, args.quick, real_se=ability_link_real_errors(df))
         if index:  # 複数のCSVを渡したときの id の区別
             for check in checks:
                 check.id += f"#{index + 1}"
         checklib.print_checks(checks, f"{p}  {n_all}人中 育成候補を除く{len(df)}人（投手{len(P)}／野手{len(F)}）")
+        print_ability_link_reference(df)
         graded += checks
         cnt = df.groupby(["role", "entry_route"]).size()
         small = [f"{k[0]}{k[1]}={v}" for k, v in cnt.items() if k[1] in MAIN_ROUTES and v < 200]
