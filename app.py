@@ -5932,17 +5932,20 @@ FOREIGN_PITCHER_SPECIAL_CONFLICTS = [
     ("キレ○", "抜け球"), ("勝ち運", "負け運"), ("ストライク先行", "ボール先行"),
     ("対ランナー", "対ランナー×"), ("投手調子安定", "投手調子極端"),
 ]
-# ランク特能の重み（A〜G）。2026寄りの実在外国人投手の分布に合わせる。
-# ノビ・打たれ強さ・対ピンチ・対左打者は、2024〜2026年版の実在（A・Bが少ない）に合わせて A・B を減らした（外国人の残り_改修指示.md 1-2）。
+# ランク特能の重み（A〜G）。能力の傾き（FOREIGN_ABILITY_RANK_TILTS）・選手格の補正・球速の連動を通した後のランクの割合が、
+# 実在の外国人投手（2024〜2026年版 122人）に合うようにした（`能力との結びつき_外国人_改修指示.md` 1-2）。
+# 球団生成（seed 1〜300）の外国人の1人ずつについて、最後のランクの分布を重み・傾き・補正の確率から計算し、その平均が目標になるまで
+# 「重み × 目標 ÷ 平均」を繰り返した。目標は実在の割合で、A・G は判定（各1.5%以下）に余裕を持たせて 0.6% までにし、はみ出た分は隣へ寄せた。
+# ノビは B・F から補正で1段動く分で A・G が増えるので B・F を減らした。対左打者は投げ手ごとの実在（右92人・左30人）に合わせた。
 FOREIGN_PITCHER_RANKED_WEIGHTS = {
-    "クイック": {"A": 0.2, "B": 0.5, "C": 1.3, "D": 36, "E": 46, "F": 12.5, "G": 3.5},
-    "回復": {"A": 4, "B": 14, "C": 24, "D": 51, "E": 5, "F": 1.5, "G": 0.5},
-    "ノビ": {"A": 1.5, "B": 10, "C": 30, "D": 29, "E": 17, "F": 5, "G": 2.5},
-    "打たれ強さ": {"A": 0.3, "B": 3.5, "C": 17, "D": 77, "E": 3, "F": 0.6, "G": 0.1},
-    "対ピンチ": {"A": 0.2, "B": 0.8, "C": 10, "D": 68, "E": 15, "F": 2.5, "G": 0.3},
-    "対左打者": {"A": 0.2, "B": 2, "C": 13, "D": 46, "E": 33, "F": 8, "G": 0.8},
-    "対左打者_左投": {"A": 2, "B": 6, "C": 14, "D": 56, "E": 15, "F": 6, "G": 1},
-    "ケガしにくさ": {"A": 1, "B": 3, "C": 8, "D": 53, "E": 24, "F": 9, "G": 2},
+    "クイック": {"A": 0, "B": 0, "C": 4.1, "D": 35.25, "E": 48.36, "F": 11.7, "G": 0.6},
+    "回復": {"A": 0, "B": 1.432, "C": 46.09, "D": 52.34, "E": 0.134, "F": 0, "G": 0},
+    "ノビ": {"A": 0, "B": 2.271, "C": 36.23, "D": 38.53, "E": 19.89, "F": 2.866, "G": 0.219},
+    "打たれ強さ": {"A": 0, "B": 0.818, "C": 13.21, "D": 84.71, "E": 1.023, "F": 0.235, "G": 0},
+    "対ピンチ": {"A": 0, "B": 0, "C": 9.678, "D": 72.35, "E": 16.82, "F": 1.157, "G": 0},
+    "対左打者": {"A": 0, "B": 0, "C": 15.05, "D": 41.89, "E": 35.67, "F": 7.397, "G": 0},
+    "対左打者_左投": {"A": 0, "B": 4.879, "C": 16.58, "D": 60.22, "E": 17.41, "F": 0.654, "G": 0.261},
+    "ケガしにくさ": {"A": 0, "B": 0, "C": 3.317, "D": 67.99, "E": 21.8, "F": 6.892, "G": 0.003},
 }
 FOREIGN_PITCHER_STARTER_ACQUISITIONS = {"先発候補", "再生候補", "左腕補強", "若手育成"}
 
@@ -6302,7 +6305,9 @@ def foreign_pitcher_ranked_specials(
     player_class: str,
     speed: int,
     batting_throwing: str,
+    ability_tilt: Any = None,
 ) -> dict[str, str]:
+    """ability_tilt（ランク特能 → 傾き t）を渡すと、能力で重みを傾ける（fictional_ability_rank_weights）。乱数の消費は同じ。"""
     names_by_group = ranked_special_names_by_group(master)
     result = dict(current)
     for group in current:
@@ -6311,6 +6316,9 @@ def foreign_pitcher_ranked_specials(
         names = names_by_group.get(group, {})
         if not weights or not set(RANKED_SPECIAL_RANKS).issubset(names):
             continue
+        tilt = ability_tilt(group) if ability_tilt else 0.0
+        if tilt:
+            weights = fictional_ability_rank_weights(weights, tilt)
         rank_value = weighted_choice(rng, list(weights.items()))
         shift = foreign_class_rank_shift(rng, player_class) if group != "クイック" else 0
         if group == "ノビ":
@@ -6358,8 +6366,13 @@ def apply_foreign_pitcher_balance(player: dict[str, Any], seed: int, master: Mas
         rng, master, position, archetype, player_class, weakness_profile, speed, control,
         batting_throwing, pitcher_aptitudes, breaking_balls,
     )
+    player["special_abilities"] = fictional_ability_special_link(
+        seed, master, player, player["special_abilities"], lambda name: True, abilities, part=FOREIGN_ABILITY_SPECIAL_LINK_PART,
+        category="助っ人外国人用", namespace=FOREIGN_ABILITY_SPECIAL_LINK_NAMESPACE, conflicts=FOREIGN_PITCHER_SPECIAL_CONFLICTS,
+    )
     abilities["ranked_specials"] = foreign_pitcher_ranked_specials(
         rng, master, dict(abilities.get("ranked_specials", {}) or {}), player_class, speed, batting_throwing,
+        ability_tilt=fictional_ability_rank_tilt("投手", position, {"コントロール": control, "スタミナ": stamina}, FOREIGN_ABILITY_RANK_TILTS),
     )
     player["abilities"] = abilities
 
@@ -6464,16 +6477,19 @@ FOREIGN_FIELDER_SPECIAL_CONFLICTS = [
     ("野手調子安定", "野手調子極端"), ("積極打法", "慎重打法"), ("積極盗塁", "慎重盗塁"),
     ("パワーヒッター", "ラインドライブ"), ("プルヒッター", "広角打法"), ("三振", "粘り打ち"),
 ]
-# ランク特能の重み（A〜G）。実在外国人野手（回復・盗塁は2026寄り）の分布に合わせる。
+# ランク特能の重み（A〜G）。投手と同じやり方で、実在の外国人野手（2024〜2026年版 102人）に合わせた（`能力との結びつき_外国人_改修指示.md` 1-2）。
+# 送球は実在の B 4.9%・C 2.0% が人数の少なさによる揺れなので B・C をならし、F から送球不安で1段下がる分で G が増えるので G を抑えた。
+# ケガしにくさは F から選手格の補正で1段下がる分で G が増えるので F を減らした。回復は球団生成で D が少なく出るので D を厚くした。
+# キャッチャーは捕手を守れる選手の中の割合（実在は5人で D1・E1・F2・G1）をならした値（C 2・D 25・E 30・F 38・G 5%）に合わせた。
 FOREIGN_FIELDER_RANKED_WEIGHTS = {
-    "走塁": {"A": 1, "B": 5, "C": 16, "D": 74, "E": 3, "F": 0.8, "G": 0.2},
-    "送球": {"A": 0.2, "B": 1.3, "C": 5.5, "D": 39, "E": 45, "F": 8, "G": 1},
-    "盗塁": {"A": 0.3, "B": 1.5, "C": 4.2, "D": 62, "E": 23, "F": 7, "G": 2},
-    "対左投手": {"A": 3, "B": 9, "C": 22, "D": 33, "E": 22, "F": 9, "G": 2},
-    "チャンス": {"A": 1.5, "B": 6, "C": 16, "D": 59, "E": 11, "F": 5, "G": 1.5},
-    "ケガしにくさ": {"A": 0.2, "B": 0.8, "C": 2.5, "D": 64, "E": 22, "F": 8, "G": 2.5},
-    "回復": {"A": 1.5, "B": 6.5, "C": 15, "D": 57, "E": 14, "F": 5, "G": 1},
-    "キャッチャー": {"A": 1, "B": 4, "C": 20, "D": 50, "E": 20, "F": 4, "G": 1},
+    "走塁": {"A": 0, "B": 4.952, "C": 22.05, "D": 66.86, "E": 5.104, "F": 1.033, "G": 0},
+    "送球": {"A": 0, "B": 0.775, "C": 2.557, "D": 42.14, "E": 50.59, "F": 3.938, "G": 0},
+    "盗塁": {"A": 0, "B": 0, "C": 1.586, "D": 72.08, "E": 21.48, "F": 4.857, "G": 0},
+    "対左投手": {"A": 0, "B": 10.13, "C": 25, "D": 39.99, "E": 17.29, "F": 7.578, "G": 0},
+    "チャンス": {"A": 0, "B": 2.697, "C": 18.58, "D": 65.53, "E": 10.74, "F": 2.443, "G": 0},
+    "ケガしにくさ": {"A": 0, "B": 0, "C": 0, "D": 76.82, "E": 16.5, "F": 6.681, "G": 0},
+    "回復": {"A": 0, "B": 0, "C": 16.52, "D": 53.9, "E": 29.59, "F": 0, "G": 0},
+    "キャッチャー": {"A": 0, "B": 0, "C": 0, "D": 26.87, "E": 28.71, "F": 42.73, "G": 1.693},
 }
 # 選手格の補正を掛けないランク特能（走力・肩で決まる項目）
 FOREIGN_FIELDER_PHYSICAL_RANKED = {"走塁", "送球", "盗塁"}
@@ -6706,6 +6722,9 @@ def foreign_fielder_ranked_specials(
     groups = [group for group in current if group != "キャッチャー"]
     if has_position_aptitude(position, sub_positions, {"捕手"}):
         groups.append("キャッチャー")
+    # 回復・送球は能力で重みを傾ける（`能力との結びつき_外国人_改修指示.md` 1-2）。乱数の消費は同じ。
+    values = {name: float(ability_numeric_value(abilities, name) or 0) for name in ("ミート", "守備力", "捕球")}
+    ability_tilt = fictional_ability_rank_tilt("野手", position, values, FOREIGN_ABILITY_RANK_TILTS)
     result: dict[str, str] = {}
     for group in groups:
         weights = FOREIGN_FIELDER_RANKED_WEIGHTS.get(group)
@@ -6714,6 +6733,9 @@ def foreign_fielder_ranked_specials(
             if group in current:
                 result[group] = current[group]
             continue
+        tilt = ability_tilt(group)
+        if tilt:
+            weights = fictional_ability_rank_weights(weights, tilt)
         rank_value = weighted_choice(rng, list(weights.items()))
         shift = 0 if group in FOREIGN_FIELDER_PHYSICAL_RANKED else foreign_class_rank_shift(rng, player_class)
         if group == "走塁" and speed >= 75 and rng.random() < 0.30:
@@ -6760,6 +6782,11 @@ def apply_foreign_fielder_balance(player: dict[str, Any], seed: int, master: Mas
     player["sub_positions"] = sub_positions
     player["special_abilities"] = foreign_fielder_special_abilities(
         rng, master, position, archetype, player_class, weakness_profile, abilities, sub_positions,
+    )
+    player["special_abilities"] = fictional_ability_special_link(
+        seed, master, player, player["special_abilities"],
+        lambda name: is_special_allowed_for_player(name, "野手", position, sub_positions), abilities, part=FOREIGN_ABILITY_SPECIAL_LINK_PART,
+        category="助っ人外国人用", namespace=FOREIGN_ABILITY_SPECIAL_LINK_NAMESPACE, conflicts=FOREIGN_FIELDER_SPECIAL_CONFLICTS,
     )
     abilities["ranked_specials"] = foreign_fielder_ranked_specials(
         rng, master, dict(old_abilities.get("ranked_specials", {}) or {}), position, player_class, weakness_profile, abilities, sub_positions,
@@ -7054,6 +7081,11 @@ FICTIONAL_ABILITY_RANK_STATS = {
     "投手_救援": {"コントロール": (48.16, 10.33), "スタミナ": (46.96, 5.84)},
     "野手": {"ミート": (42.11, 10.71), "守備力": (51.96, 11.70), "捕球": (48.58, 11.15)},
     "捕手": {"捕球": (46.47, 10.25), "守備力": (49.14, 9.34)},
+    # 助っ人外国人用（`能力との結びつき_外国人_改修指示.md` 1-2）。実在の外国人（2024〜2026年版）の、投手は先発・救援ごと、
+    # 野手は全体（外国人の野手はポジションの偏りが大きく人数も少ないため）の平均・SD
+    "外国人_投手_先発": {"コントロール": (55.05, 8.54), "スタミナ": (59.81, 6.51)},
+    "外国人_投手_救援": {"コントロール": (45.02, 9.99), "スタミナ": (46.23, 4.27)},
+    "外国人_野手": {"ミート": (43.55, 12.16), "守備力": (46.23, 9.17), "捕球": (44.67, 8.79)},
 }
 # (投手/野手, ランク特能, 区分) → (能力, 平均・SDの表の鍵, κ)。区分は投手が先発・救援、野手はメインが捕手なら「捕手」で、
 # 見つからなければ「全体」を使う（サブポジが捕手の野手のキャッチャーには傾きをかけない）。
@@ -7065,6 +7097,16 @@ FICTIONAL_ABILITY_RANK_TILTS = {
     ("野手", "回復", "全体"): (("ミート", "守備力", "捕球"), "野手", 1.1),
     ("野手", "送球", "全体"): (("捕球", "守備力"), "野手", 0.75),
     ("野手", "キャッチャー", "捕手"): (("捕球", "守備力"), "捕手", 1.7),
+}
+# 助っ人外国人用の傾き（`能力との結びつき_外国人_改修指示.md` 1-2）。区分の決め方は FICTIONAL_ABILITY_RANK_TILTS と同じ。
+# κ は、傾きをかけた後の相関が「日本人の実在と外国人の実在の平均」に合うようにした（外国人の実在は1区分37〜58人と少ないため）。
+FOREIGN_ABILITY_RANK_TILTS = {
+    ("投手", "回復", "先発"): (("コントロール", "スタミナ"), "外国人_投手_先発", 1.656),
+    ("投手", "回復", "救援"): (("コントロール", "スタミナ"), "外国人_投手_救援", 0.682),
+    ("投手", "打たれ強さ", "先発"): (("コントロール", "スタミナ"), "外国人_投手_先発", 1.029),
+    ("投手", "打たれ強さ", "救援"): (("コントロール", "スタミナ"), "外国人_投手_救援", 0.911),
+    ("野手", "回復", "全体"): (("ミート", "守備力", "捕球"), "外国人_野手", 1.384),
+    ("野手", "送球", "全体"): (("捕球", "守備力"), "外国人_野手", 1.12),
 }
 
 # 野手の基本能力（ミート, パワー, 走力, 肩力, 守備力, 捕球）。
@@ -7218,8 +7260,13 @@ def fictional_linked_rates(role: str, name: str, rates: list[float], hand: str |
     return rates
 
 
-def fictional_set_special(selected: list[str], name: str, present: bool, group_of: dict[str, str], force: bool, is_allowed: Any) -> None:
-    """特能の有無を切り替える。force=True なら同じグループ・矛盾ペアの特能を外してでも付ける。"""
+def fictional_set_special(
+    selected: list[str], name: str, present: bool, group_of: dict[str, str], force: bool, is_allowed: Any,
+    conflicts: list[tuple[str, str]] | None = None,
+) -> None:
+    """特能の有無を切り替える。force=True なら同じグループ・矛盾ペアの特能を外してでも付ける。
+    conflicts（矛盾ペア）は既定で FICTIONAL_SPECIAL_CONFLICTS（架空球団用）。"""
+    conflicts = FICTIONAL_SPECIAL_CONFLICTS if conflicts is None else conflicts
     if not present:
         if name in selected:
             selected.remove(name)
@@ -7230,7 +7277,7 @@ def fictional_set_special(selected: list[str], name: str, present: bool, group_o
     rivals = [
         item for item in selected
         if (group.startswith("g") and group_of.get(item) == group)
-        or any({item, name} == {a, b} for a, b in FICTIONAL_SPECIAL_CONFLICTS)
+        or any({item, name} == {a, b} for a, b in conflicts)
     ]
     if rivals and not force:
         return
@@ -7469,15 +7516,17 @@ def fictional_ability_rank_weights(weights: dict[str, float], tilt: float) -> di
     return tilted
 
 
-def fictional_ability_rank_tilt(role: str, position: str, values: dict[str, float]) -> Any:
-    """ランク特能の名前 → 能力による傾き t（FICTIONAL_ABILITY_RANK_TILTS に無いものは 0）を返す関数。"""
+def fictional_ability_rank_tilt(role: str, position: str, values: dict[str, float], tilts: dict[Any, Any] | None = None) -> Any:
+    """ランク特能の名前 → 能力による傾き t（tilts に無いものは 0）を返す関数。tilts は既定で FICTIONAL_ABILITY_RANK_TILTS
+    （架空球団用の日本人）。助っ人外国人用は FOREIGN_ABILITY_RANK_TILTS を渡す。"""
+    tilts = FICTIONAL_ABILITY_RANK_TILTS if tilts is None else tilts
     if role == "投手":
         part = "先発" if position == "先発" else "救援"
     else:
         part = "捕手" if position == "捕手" else "全体"
 
     def tilt(group: str) -> float:
-        spec = FICTIONAL_ABILITY_RANK_TILTS.get((role, group, part)) or FICTIONAL_ABILITY_RANK_TILTS.get((role, group, "全体"))
+        spec = tilts.get((role, group, part)) or tilts.get((role, group, "全体"))
         if spec is None:
             return 0.0
         names, stats_key, kappa = spec
@@ -7758,12 +7807,21 @@ def fictional_green_profile_adjust(seed: int, master: MasterData, player: dict[s
 #  3. 倍率 r = exp(b × z') ÷ M（M は区分ごとの exp(b × z') の平均。平均が1になる）。
 #  4. 持っていて r < 1 なら確率 1 − r で外し、持っていなくて r > 1 なら確率 gain × p ÷ (1 − p) × (r − 1)（上限1）で付ける。
 #     p は区分ごとの改修前の保有率。外すときは選手格の特能数の下限、付けるときは上限を守り、同じグループ・矛盾する特能があれば付けない。
-# 表は data/config/fictional_ability_special_link.json の「区分」（今は 架空球団用_日本人 だけ。外国人・ドラフト候補は区分を足して使う）。
+# 表は data/config/fictional_ability_special_link.json の「区分」（架空球団用_日本人・助っ人外国人用。ドラフト候補は区分を足して使う）。
 # 乱数は新しい名前空間のサブRNGから、表の特能ごとに1回ずつ引く（条件によらず必ず1回。ほかの段階・ランク特能・体重の乱数の並びを変えない）。
+#
+# 特能の表に「p帯」（能力・帯の上限・区分ごとの帯の保有率）があれば、付けるときの p に選手の帯の保有率を使う
+# （`能力との結びつき_外国人_改修指示.md` 1-5。今は奪三振だけ。奪三振は球速の帯で保有率を決めているので、区分の保有率を使うと
+# 帯の高い投手は外れる分に付く分が追いつかず、帯の差が平らになる）。
+# 区分の表に「矛盾の付け替え」が true なら、付けたい特能と同じグループ・矛盾する特能を、その特能の r が1未満（能力に合っていない）
+# なら外して付け替える（`能力との結びつき_外国人_改修指示.md` 1-4。今は助っ人外国人用だけ）。
 # ---------------------------------------------------------------------------
 FICTIONAL_ABILITY_SPECIAL_LINK_NAMESPACE = "fictional_ability_special_link_v1"
 FICTIONAL_ABILITY_SPECIAL_LINK_PATH = DATA_DIR / "config" / "fictional_ability_special_link.json"
 FICTIONAL_ABILITY_SPECIAL_LINK_PART = "架空球団用_日本人"
+# 助っ人外国人用（`能力との結びつき_外国人_改修指示.md` 1-3）。日本人とは別の名前空間の副乱数から引く。
+FOREIGN_ABILITY_SPECIAL_LINK_NAMESPACE = "foreign_ability_special_link_v1"
+FOREIGN_ABILITY_SPECIAL_LINK_PART = "助っ人外国人用"
 # 調整のスクリプトが表を差し替えるための変数（None なら data/config の表を使う。{} なら付け替えない）。
 FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE: dict[str, Any] | None = None
 
@@ -7812,25 +7870,43 @@ def fictional_ability_link_rates(table: dict[str, Any], role: str, segment: str,
     return rates
 
 
+def fictional_ability_link_p(entry: dict[str, Any], segment: str, values: dict[str, float]) -> float:
+    """付けるときの p。表に「p帯」があれば選手の帯（能力が上限以下になる最初の帯。どれも超えれば最後の帯）の保有率。"""
+    band = entry.get("p帯")
+    if band and segment in band["p"]:
+        value = values[band["能力"]]
+        index = next((i for i, limit in enumerate(band["上限"]) if value <= limit), len(band["上限"]))
+        return float(band["p"][segment][index])
+    return float(entry["区分"][segment]["p"])
+
+
 def fictional_ability_special_link(
     seed: int, master: MasterData, player: dict[str, Any], specials: list[str], is_allowed: Any, abilities: dict[str, Any],
     part: str = FICTIONAL_ABILITY_SPECIAL_LINK_PART,
+    category: str = "架空球団用",
+    namespace: str = FICTIONAL_ABILITY_SPECIAL_LINK_NAMESPACE,
+    conflicts: list[tuple[str, str]] | None = None,
 ) -> list[str]:
     """能力による特能の付け替え。表の特能ごとに乱数を1回ずつ引き、能力に合った選手が持つようにする。
-    abilities はこの時点の能力（投手の変化球は player の breaking_balls）。"""
+    abilities はこの時点の能力（投手の変化球は player の breaking_balls）。
+    part は表の区分、category は特能数の上下限（special_count_bounds）の区分、namespace は副乱数の名前空間、
+    conflicts は矛盾ペア（既定は FICTIONAL_SPECIAL_CONFLICTS）。"""
     role = str(player.get("role", ""))
     tables = FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE if FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE is not None else load_fictional_ability_special_link()
     table = tables.get(part)
     if not table or not table.get("特能", {}).get(role):
         return specials
+    conflicts = FICTIONAL_SPECIAL_CONFLICTS if conflicts is None else conflicts
     position = str(player.get("position", ""))
     segment = ("先発" if position == "先発" else "救援") if role == "投手" else position
-    rates = fictional_ability_link_rates(table, role, segment, fictional_ability_link_values(role, abilities, player.get("breaking_balls") or []))
-    rng = make_sub_rng(seed, FICTIONAL_ABILITY_SPECIAL_LINK_NAMESPACE)
-    low, high = special_count_bounds("架空球団用", str(player.get("player_class", "")))
+    values = fictional_ability_link_values(role, abilities, player.get("breaking_balls") or [])
+    rates = fictional_ability_link_rates(table, role, segment, values)
+    rng = make_sub_rng(seed, namespace)
+    low, high = special_count_bounds(category, str(player.get("player_class", "")))
     allowed_names = role_allowed_specials(master, role)
     group_of = {str(row["name"]): str(row.get("group", "")) for row in master.abilities}
     check = lambda name: name in allowed_names and is_allowed(name)  # noqa: E731
+    swap = bool(table.get("矛盾の付け替え"))
     selected = list(specials)
     countable = lambda: sum(is_countable_special(name) for name in selected)  # noqa: E731
     for name in sorted(table["特能"][role]):
@@ -7842,11 +7918,31 @@ def fictional_ability_special_link(
             if rate < 1.0 and roll < 1.0 - rate and not (is_countable_special(name) and countable() <= low):
                 selected.remove(name)
         elif rate > 1.0:
-            p = table["特能"][role][name]["区分"][segment]["p"]
-            chance = min(1.0, table["特能"][role][name]["gain"] * p / (1.0 - p) * (rate - 1.0)) if p < 1.0 else 1.0
-            if roll < chance and not (is_countable_special(name) and countable() >= high):
-                fictional_set_special(selected, name, True, group_of, False, check)
+            entry = table["特能"][role][name]
+            p = fictional_ability_link_p(entry, segment, values)
+            chance = min(1.0, entry["gain"] * p / (1.0 - p) * (rate - 1.0)) if p < 1.0 else 1.0
+            if roll >= chance:
+                continue
+            rivals = fictional_special_rivals(selected, name, group_of, conflicts) if swap and check(name) else []
+            if rivals and all(rates.get(item, 1.0) < 1.0 for item in rivals):
+                # 能力に合っていない矛盾の特能を外して付け替える（特能数は増えないので上限は見ない。下限だけ守る）
+                after = countable() - sum(is_countable_special(item) for item in rivals) + is_countable_special(name)
+                if after >= min(low, countable()):
+                    for item in rivals:
+                        selected.remove(item)
+                    selected.append(name)
+            elif not (is_countable_special(name) and countable() >= high):
+                fictional_set_special(selected, name, True, group_of, False, check, conflicts)
     return selected
+
+
+def fictional_special_rivals(selected: list[str], name: str, group_of: dict[str, str], conflicts: list[tuple[str, str]]) -> list[str]:
+    """name と同時に持てない特能（同じグループ g〜、矛盾ペア）のうち、selected にあるもの。"""
+    group = group_of.get(name, name)
+    return [
+        item for item in selected
+        if (group.startswith("g") and group_of.get(item) == group) or any({item, name} == {a, b} for a, b in conflicts)
+    ]
 
 
 # ---------------------------------------------------------------------------

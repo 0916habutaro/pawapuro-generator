@@ -37,7 +37,12 @@ def without_ranked(player: dict) -> dict:
 
 
 def no_tilt(monkeypatch) -> None:
-    monkeypatch.setattr(app, "fictional_ability_rank_tilt", lambda role, position, values: (lambda group: 0.0))
+    monkeypatch.setattr(app, "fictional_ability_rank_tilt", lambda role, position, values, tilts=None: (lambda group: 0.0))
+
+
+def no_japanese_tilt(monkeypatch) -> None:
+    """日本人の傾きの表だけを空にする（助っ人外国人用は自分の表 FOREIGN_ABILITY_RANK_TILTS を使う）。"""
+    monkeypatch.setattr(app, "FICTIONAL_ABILITY_RANK_TILTS", {})
 
 
 def test_tilt_follows_the_table():
@@ -113,10 +118,11 @@ def test_tilt_does_not_change_the_random_stream(monkeypatch):
 
 
 def test_other_categories_do_not_use_the_tilt(monkeypatch):
+    # ドラフト候補用は傾けない。助っ人外国人用は自分の表で傾ける（tests/test_foreign_ability_link.py）ので、日本人の表を空にしても同じ
     cases = [("投手", "ドラフト候補用"), ("野手", "ドラフト候補用"), ("投手", "助っ人外国人用"), ("野手", "助っ人外国人用")]
     current = {case: players(*case) for case in cases}
     foreign = {role: [p for p in players(role) if p["roster_origin"] != "domestic"] for role in ("投手", "野手")}
-    no_tilt(monkeypatch)
+    no_japanese_tilt(monkeypatch)
     for case in cases:
         assert players(*case) == current[case], case
     for role in ("投手", "野手"):
