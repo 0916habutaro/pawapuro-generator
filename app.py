@@ -6950,12 +6950,14 @@ FICTIONAL_LINKED_SPECIALS = {
 # 帯の上限は FICTIONAL_LINKED_SPECIALS と同じ（奪三振 球速〜147／〜151／〜155／156〜、内野安打○ 走力〜70／〜80／81〜、広角打法 ミート〜40／〜50／51〜）。
 # 投手は「投げ手|役割」（役割は 先発・救援。中継ぎ・抑えは救援）でも指定できる。あればそれを、なければ投げ手（左・右）の指定を使う
 # （fictional_linked_rates）。実在は同じ球速でも救援のほうが奪三振・球速安定が多い（`投手の役割と特能_改修指示.md` 1-2）。
+# 奪三振の左投の球速152以上は、能力による付け替え（p帯 は投げ手を分けない）で左投手が減る分を見込んで上げた
+# （152〜155 先発 0.45→0.60・救援 0.60→0.76、156〜 先発 0.70→0.75・救援 0.80→0.85。`能力との結びつき_ドラフト_改修指示.md` 1-5）。
 FICTIONAL_LINKED_HAND_RATES = {
     "投手": {
         "奪三振": {
             "右": [0.055, 0.135, 0.215, 0.62], "左": [0.135, 0.25, 0.55, 0.75],
             "右|先発": [0.045, 0.07, 0.15, 0.62], "右|救援": [0.07, 0.21, 0.28, 0.61],
-            "左|先発": [0.09, 0.15, 0.45, 0.70], "左|救援": [0.20, 0.40, 0.60, 0.80],
+            "左|先発": [0.09, 0.15, 0.60, 0.75], "左|救援": [0.20, 0.40, 0.76, 0.85],
         },
         "球速安定": {
             "右|先発": [0.23, 0.15, 0.26, 0.24], "左|先発": [0.23, 0.15, 0.26, 0.24],
@@ -7813,8 +7815,10 @@ def fictional_green_profile_adjust(seed: int, master: MasterData, player: dict[s
 # 特能の表に「p帯」（能力・帯の上限・区分ごとの帯の保有率）があれば、付けるときの p に選手の帯の保有率を使う
 # （`能力との結びつき_外国人_改修指示.md` 1-5。今は奪三振だけ。奪三振は球速の帯で保有率を決めているので、区分の保有率を使うと
 # 帯の高い投手は外れる分に付く分が追いつかず、帯の差が平らになる）。
-# 区分の表に「矛盾の付け替え」が true なら、付けたい特能と同じグループ・矛盾する特能を、その特能の r が1未満（能力に合っていない）
-# なら外して付け替える（`能力との結びつき_外国人_改修指示.md` 1-4。今は助っ人外国人用だけ）。
+# 区分の表に「矛盾の付け替え」が true なら、付けたい特能と同じグループ・矛盾する特能を、その特能も表にあって r が付けたい特能の r より
+# 小さければ外して付け替える（`能力との結びつき_外国人_改修指示.md` 1-4 では r が1未満のときだけだったのを、
+# `能力との結びつき_ドラフト_改修指示.md` 1-4 で広げた。今は助っ人外国人用だけ。架空球団用の日本人・ドラフト候補用は false）。
+# 付けるかどうかの乱数は今のまま1回で、付け替えるかどうかに乱数は使わない。
 # ---------------------------------------------------------------------------
 FICTIONAL_ABILITY_SPECIAL_LINK_NAMESPACE = "fictional_ability_special_link_v1"
 FICTIONAL_ABILITY_SPECIAL_LINK_PATH = DATA_DIR / "config" / "fictional_ability_special_link.json"
@@ -7924,8 +7928,8 @@ def fictional_ability_special_link(
             if roll >= chance:
                 continue
             rivals = fictional_special_rivals(selected, name, group_of, conflicts) if swap and check(name) else []
-            if rivals and all(rates.get(item, 1.0) < 1.0 for item in rivals):
-                # 能力に合っていない矛盾の特能を外して付け替える（特能数は増えないので上限は見ない。下限だけ守る）
+            if rivals and all(item in rates and rates[item] < rate for item in rivals):
+                # 付けたい特能より能力に合っていない（r が小さい）矛盾の特能を外して付け替える（特能数は増えないので上限は見ない。下限だけ守る）
                 after = countable() - sum(is_countable_special(item) for item in rivals) + is_countable_special(name)
                 if after >= min(low, countable()):
                     for item in rivals:
@@ -8638,6 +8642,116 @@ def draft_adjust_specials(
     return selected
 
 
+# ---------------------------------------------------------------------------
+# ドラフト候補のランク特能と能力の結びつき（`能力との結びつき_ドラフト_改修指示.md` 1-1〜1-3）
+# 共通の処理で付けたランクは A〜G がなだらかに広がっていた（実在のプロ1年目は D に集まり、A・G はいない）。
+# ランク特能は、特能を決めたあとに新しい副乱数（DRAFT_RANK_NAMESPACE）から引き直す。ランク特能ごとに乱数を1回ずつ引く
+# （重み・捕手かどうかによらず必ず1回。ほかの抽選の乱数の並びは変えない）。選手格・走力などによるずらしは入れない。
+# 回復・打たれ強さ（投手）、回復・送球・キャッチャー（野手）は、#129 と同じ fictional_ability_rank_weights で能力で傾ける。
+# t = κ × z、z はドラフト候補の生成そのものの平均・SD（投手は先発・救援ごと、野手はポジションごと）で標準化した能力の平均。
+# ドラフト候補は日本人全体より能力が低いので、日本人の平均・SDで標準化すると全員のランクが下がるため。
+# 特能は fictional_ability_special_link を区分「ドラフト候補用」・名前空間 DRAFT_ABILITY_SPECIAL_LINK_NAMESPACE で使う。
+# ---------------------------------------------------------------------------
+DRAFT_RANK_NAMESPACE = "draft_rank_v1"
+DRAFT_ABILITY_SPECIAL_LINK_NAMESPACE = "draft_ability_special_link_v1"
+DRAFT_ABILITY_SPECIAL_LINK_PART = "ドラフト候補用"
+# 調整のスクリプトがランク特能の引き直しを止めるための変数（False なら共通の処理のランクのまま）。
+DRAFT_RANK_REDRAW = True
+# ランク特能の重み（A〜G）。傾きを通したあとのランクの割合（選手ごとに重み・傾きから計算した分布の平均。育成候補を除く
+# seed 1〜5000）が、実在のプロ1年目（2024〜2026年版で初めて出てきた日本人。投手138人・野手90人、キャッチャーはメインが捕手の20人）
+# に合うまで「重み × 目標 ÷ 平均」を繰り返した。実在に A・G はいない（野手のケガしにくさの G 1人を除く）ので A・G は 0 にし、
+# 野手のケガしにくさの G は F に寄せた。キャッチャーはメインが捕手の選手の中の割合を、実在の捕手20人に合わせた。
+# 傾きのないランク特能は重みが実在の割合そのもの。乱数はこの表の並びで引く。
+# キャッチャーは捕手を守れる選手（メイン・サブポジ）に付け、傾きはメインが捕手の選手だけにかける。
+DRAFT_RANKED_WEIGHTS = {
+    "投手": {
+        "対ピンチ": {"A": 0, "B": 1.45, "C": 13.04, "D": 76.09, "E": 7.97, "F": 1.45, "G": 0},
+        "ケガしにくさ": {"A": 0, "B": 0, "C": 2.9, "D": 60.87, "E": 29.71, "F": 6.52, "G": 0},
+        "クイック": {"A": 0, "B": 3.621, "C": 11.592, "D": 71.024, "E": 13.043, "F": 0.72, "G": 0},
+        "ノビ": {"A": 0, "B": 5.071, "C": 31.883, "D": 47.105, "E": 13.771, "F": 2.17, "G": 0},
+        "対左打者": {"A": 0, "B": 0.72, "C": 9.42, "D": 56.52, "E": 27.54, "F": 5.8, "G": 0},
+        "打たれ強さ": {"A": 0, "B": 2.698, "C": 14.515, "D": 70.533, "E": 11.234, "F": 1.02, "G": 0},
+        "回復": {"A": 0, "B": 0.076, "C": 2.842, "D": 32.425, "E": 50.441, "F": 14.217, "G": 0},
+    },
+    "野手": {
+        "チャンス": {"A": 0, "B": 0, "C": 14.441, "D": 72.227, "E": 12.221, "F": 1.11, "G": 0},
+        "ケガしにくさ": {"A": 0, "B": 2.22, "C": 2.22, "D": 76.678, "E": 14.441, "F": 4.44, "G": 0},
+        "盗塁": {"A": 0, "B": 0, "C": 6.669, "D": 65.553, "E": 21.108, "F": 6.669, "G": 0},
+        "対左投手": {"A": 0, "B": 3.33, "C": 11.11, "D": 57.78, "E": 16.67, "F": 11.11, "G": 0},
+        "送球": {"A": 0, "B": 0.308, "C": 10.753, "D": 37.24, "E": 39.305, "F": 12.395, "G": 0},
+        "走塁": {"A": 0, "B": 11.11, "C": 20, "D": 66.67, "E": 2.22, "F": 0, "G": 0},
+        "回復": {"A": 0, "B": 0, "C": 0.659, "D": 6.208, "E": 76.025, "F": 17.108, "G": 0},
+        "キャッチャー": {"A": 0, "B": 0, "C": 0.402, "D": 18.192, "E": 37.084, "F": 44.321, "G": 0},
+    },
+}
+# 傾きの標準化に使う、ドラフト候補の生成の平均・SD（改修前の生成 seed 1〜5000、育成候補を含む。PC で測った。
+# data/config/fictional_ability_special_link.json の区分「ドラフト候補用」の「平均・SD」と同じ値）。
+DRAFT_ABILITY_RANK_STATS: dict[str, dict[str, dict[str, tuple[float, float]]]] = {
+    "投手": {
+        "先発": {"コントロール": (46.06, 10.78), "スタミナ": (50.96, 7.43)},
+        "救援": {"コントロール": (43.91, 10.77), "スタミナ": (42.05, 7.61)},
+    },
+    "野手": {
+        "捕手": {"ミート": (30.99, 9.71), "守備力": (39.92, 7.19), "捕球": (35.15, 6.63)},
+        "一塁手": {"ミート": (34.32, 8.84), "守備力": (35.55, 11.64), "捕球": (38.17, 6.81)},
+        "二塁手": {"ミート": (35.22, 9.10), "守備力": (53.57, 7.60), "捕球": (47.30, 6.28)},
+        "三塁手": {"ミート": (33.64, 8.92), "守備力": (35.77, 11.35), "捕球": (35.37, 10.04)},
+        "遊撃手": {"ミート": (34.38, 9.41), "守備力": (50.48, 7.19), "捕球": (45.30, 6.65)},
+        "外野手": {"ミート": (34.58, 9.30), "守備力": (43.41, 11.24), "捕球": (40.51, 10.04)},
+    },
+}
+# (投手/野手, ランク特能, 区分) → (能力, κ)。区分は投手が先発・救援、野手は「全体」、キャッチャーはメインが捕手なら「捕手」。
+# κ は、傾きをかけた後の相関が日本人の実在（#129 の目標）に合うようにした（試作のまま）。
+DRAFT_ABILITY_RANK_TILTS = {
+    ("投手", "回復", "先発"): (("コントロール", "スタミナ"), 1.453),
+    ("投手", "回復", "救援"): (("コントロール", "スタミナ"), 0.799),
+    ("投手", "打たれ強さ", "先発"): (("コントロール", "スタミナ"), 0.776),
+    ("投手", "打たれ強さ", "救援"): (("コントロール", "スタミナ"), 0.492),
+    ("野手", "回復", "全体"): (("ミート", "守備力", "捕球"), 1.372),
+    ("野手", "送球", "全体"): (("捕球", "守備力"), 0.768),
+    ("野手", "キャッチャー", "捕手"): (("捕球", "守備力"), 1.58),
+}
+
+
+def draft_ability_rank_tilt(role: str, position: str, values: dict[str, float]) -> Any:
+    """ランク特能の名前 → 能力による傾き t（DRAFT_ABILITY_RANK_TILTS に無いもの・平均・SD の無い区分は 0）を返す関数。"""
+    segment = ("先発" if position == "先発" else "救援") if role == "投手" else position
+    stats = DRAFT_ABILITY_RANK_STATS.get(role, {}).get(segment)
+
+    def tilt(group: str) -> float:
+        part = "捕手" if group == "キャッチャー" else ("全体" if role == "野手" else segment)
+        spec = DRAFT_ABILITY_RANK_TILTS.get((role, group, part))
+        if spec is None or stats is None or (group == "キャッチャー" and position != "捕手"):
+            return 0.0
+        names, kappa = spec
+        return kappa * sum((float(values[name]) - stats[name][0]) / stats[name][1] for name in names) / len(names)
+
+    return tilt
+
+
+def draft_ranked_specials(
+    seed: int, master: MasterData, role: str, current: dict[str, str], tilt: Any, can_catch: bool,
+) -> dict[str, str]:
+    """ドラフト候補のランク特能を DRAFT_RANKED_WEIGHTS（能力で傾ける）から引き直す。表にないランク特能（投手の送球など）はそのまま。
+    キャッチャーは can_catch（捕手を守れる）のときだけ付け、守れなければ外す。"""
+    names_by_group = ranked_special_names_by_group(master)
+    rng = make_sub_rng(seed, DRAFT_RANK_NAMESPACE)
+    drawn = {}
+    for group, weights in DRAFT_RANKED_WEIGHTS[role].items():
+        t = tilt(group)
+        items = list((fictional_ability_rank_weights(weights, t) if t else weights).items())
+        drawn[group] = weighted_choice(rng, items)
+    wanted = [group for group in drawn if group != "キャッチャー" or can_catch]
+    # 並びは今のランク特能のまま（無かったものは後ろに足す）
+    result = {}
+    for group in [*current, *[group for group in wanted if group not in current]]:
+        if group not in drawn:
+            result[group] = current[group]
+        elif group in wanted:
+            result[group] = names_by_group.get(group, {}).get(drawn[group], f"{group}{drawn[group]}")
+    return result
+
+
 def apply_draft_pitcher_balance(player: dict[str, Any], seed: int, master: MasterData) -> dict[str, Any]:
     """ドラフト候補の投手を、実在のプロ1年目の投手の傾向に合わせて部分的に直す。"""
     rng = make_sub_rng(seed, DRAFT_PITCHER_BALANCE_NAMESPACE)
@@ -8666,11 +8780,20 @@ def apply_draft_pitcher_balance(player: dict[str, Any], seed: int, master: Maste
     player["abilities"] = abilities
 
     player["breaking_balls"] = draft_pitcher_breaking_balls(rng, list(player.get("breaking_balls", [])), str(player.get("batting_throwing", "")), route)
+    is_allowed = lambda name: is_special_allowed_for_player(name, "投手", position, [], pitcher_aptitudes)  # noqa: E731
     player["special_abilities"] = draft_adjust_specials(
         rng, master, "投手", route, str(player.get("player_class", "")), list(player.get("special_abilities", [])),
-        {"球速": speed, "コントロール": control},
-        lambda name: is_special_allowed_for_player(name, "投手", position, [], pitcher_aptitudes),
+        {"球速": speed, "コントロール": control}, is_allowed,
     )
+    player["special_abilities"] = fictional_ability_special_link(
+        seed, master, player, player["special_abilities"], is_allowed, abilities, part=DRAFT_ABILITY_SPECIAL_LINK_PART,
+        category="ドラフト候補用", namespace=DRAFT_ABILITY_SPECIAL_LINK_NAMESPACE,
+    )
+    if DRAFT_RANK_REDRAW:
+        abilities["ranked_specials"] = draft_ranked_specials(
+            seed, master, "投手", dict(abilities.get("ranked_specials", {}) or {}),
+            draft_ability_rank_tilt("投手", position, {"コントロール": control, "スタミナ": stamina}), False,
+        )
     return player
 
 
@@ -8732,16 +8855,23 @@ def apply_draft_fielder_balance(player: dict[str, Any], seed: int, master: Maste
     sub_positions = draft_fielder_sub_positions(rng, position, batting_throwing)
     player["sub_positions"] = sub_positions
     values = {key: float(abilities[key]["value"]) for key in FICTIONAL_FIELDER_ABILITY_KEYS}
+    is_allowed = lambda name: is_special_allowed_for_player(name, "野手", position, sub_positions)  # noqa: E731
     player["special_abilities"] = draft_adjust_specials(
-        rng, master, "野手", route, player_class, list(player.get("special_abilities", [])), values,
-        lambda name: is_special_allowed_for_player(name, "野手", position, sub_positions),
+        rng, master, "野手", route, player_class, list(player.get("special_abilities", [])), values, is_allowed,
+    )
+    player["special_abilities"] = fictional_ability_special_link(
+        seed, master, player, player["special_abilities"], is_allowed, abilities, part=DRAFT_ABILITY_SPECIAL_LINK_PART,
+        category="ドラフト候補用", namespace=DRAFT_ABILITY_SPECIAL_LINK_NAMESPACE,
     )
     # サブポジを付け替えたので、キャッチャーのランク特能を捕手適性の有無に合わせる。
     ranked = dict(abilities.get("ranked_specials", {}) or {})
-    if has_position_aptitude(position, sub_positions, {"捕手"}):
+    can_catch = has_position_aptitude(position, sub_positions, {"捕手"})
+    if can_catch:
         ranked.setdefault("キャッチャー", ranked_special_names_by_group(master).get("キャッチャー", {}).get("D", "キャッチャーD"))
     else:
         ranked.pop("キャッチャー", None)
+    if DRAFT_RANK_REDRAW:
+        ranked = draft_ranked_specials(seed, master, "野手", ranked, draft_ability_rank_tilt("野手", position, values), can_catch)
     abilities["ranked_specials"] = ranked
     player["abilities"] = abilities
     return player

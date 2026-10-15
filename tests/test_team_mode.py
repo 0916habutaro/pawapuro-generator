@@ -24,6 +24,8 @@ def fingerprint(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
+# 指紋（tests/fixtures/generate_player_baseline.json）は、能力との結びつき_ドラフト_改修指示.md でドラフト候補用60人と助っ人外国人用の野手7人の
+# 特能・ランク特能だけ変わった分を更新した（改修前の app.py で元の指紋を再現でき、ほかの項目は変わっていないことを確かめた）。
 # 改修前の app.py で作った指紋と比べるスクリプト。PYTHONHASHSEED を固定した別プロセスで比べる
 # （ハッシュによらないことは test_hash_independence.py で確かめている。念のための固定）。
 BASELINE_SCRIPT = r"""

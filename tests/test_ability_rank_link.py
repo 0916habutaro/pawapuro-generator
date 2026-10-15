@@ -118,7 +118,7 @@ def test_tilt_does_not_change_the_random_stream(monkeypatch):
 
 
 def test_other_categories_do_not_use_the_tilt(monkeypatch):
-    # ドラフト候補用は傾けない。助っ人外国人用は自分の表で傾ける（tests/test_foreign_ability_link.py）ので、日本人の表を空にしても同じ
+    # ドラフト候補用・助っ人外国人用は自分の表で傾ける（tests/test_draft_ability_link.py・tests/test_foreign_ability_link.py）ので、日本人の表を空にしても同じ
     cases = [("投手", "ドラフト候補用"), ("野手", "ドラフト候補用"), ("投手", "助っ人外国人用"), ("野手", "助っ人外国人用")]
     current = {case: players(*case) for case in cases}
     foreign = {role: [p for p in players(role) if p["roster_origin"] != "domestic"] for role in ("投手", "野手")}
