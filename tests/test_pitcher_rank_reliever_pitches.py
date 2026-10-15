@@ -100,6 +100,8 @@ def test_reliever_pitch_count_draws_twice_and_follows_the_band(speed, count_afte
 
 def test_only_relievers_lose_pitches_and_keep_the_finisher(monkeypatch):
     monkeypatch.setattr(app, "FICTIONAL_MOVEMENT_QUALITY", NEUTRAL_MOVEMENT)
+    # 球種を減らしたあとに球種名を引き直す段階（test_pitch_type_speed.py）は止めて、残る球の名前を比べる。
+    monkeypatch.setattr(app, "FICTIONAL_PITCH_TYPE_SPEED_OVERRIDE", {})
     monkeypatch.setattr(app, "FICTIONAL_RELIEVER_DROP_THIRD", NEVER)
     monkeypatch.setattr(app, "FICTIONAL_RELIEVER_DROP_SECOND", NEVER)
     kept = domestic_pitchers()
