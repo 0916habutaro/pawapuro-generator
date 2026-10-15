@@ -6905,6 +6905,14 @@ FICTIONAL_RELIEVER_PITCH_COUNT_NAMESPACE = "fictional_reliever_pitch_count_v1"
 FICTIONAL_RELIEVER_SPEED_BANDS = (147, 151, 155)
 FICTIONAL_RELIEVER_DROP_THIRD = (0.0, 0.10, 0.06, 0.50)
 FICTIONAL_RELIEVER_DROP_SECOND = (0.0, 0.083, 0.13, 0.013)
+# 変化球の方向と球種を、球速と投げ手に合わせて引き直す（`変化球の種類と球速_改修指示.md` 1-1）。
+# 実在は球速の速い投手ほどフォーク方向（SFF・Vスライダーなど）を持ち、シンカー方向・シュート方向が少ない。
+# 表は data/config/fictional_pitch_type_speed.json（scripts/pitch_type_speed.py --build-real で実在から作る）。
+# 専用の副乱数から、方向の組で1回（第一球種が1〜3球種のとき）、球ごとに1回ずつ引く。
+FICTIONAL_PITCH_TYPE_SPEED_NAMESPACE = "fictional_pitch_type_speed_v1"
+FICTIONAL_PITCH_TYPE_SPEED_PATH = DATA_DIR / "config" / "fictional_pitch_type_speed.json"
+# 調整のスクリプトが表を差し替えるための変数（None なら data/config の表を使う。{} なら引き直さない）。
+FICTIONAL_PITCH_TYPE_SPEED_OVERRIDE: dict[str, Any] | None = None
 # 3球種目を足すときの球種の重み補正（左右でチェンジアップ系の出やすさが違う）
 FICTIONAL_ADDED_PITCH_HAND_FACTORS = {
     "右投": {"サークルチェンジ": 0.4, "チェンジアップ": 0.4, "ファストチェンジ": 0.2, "シンキングスプリット": 0.6, "ナックル": 0.0},
@@ -8122,6 +8130,108 @@ def fictional_reliever_pitch_count(rng: random.Random, breaking_balls: list[dict
     return balls
 
 
+@lru_cache(maxsize=1)
+def load_fictional_pitch_type_speed() -> dict[str, Any]:
+    """変化球の方向と球種を球速で引き直す表。ファイルがなければ空（引き直さない）。"""
+    if not FICTIONAL_PITCH_TYPE_SPEED_PATH.exists():
+        return {}
+    return json.loads(FICTIONAL_PITCH_TYPE_SPEED_PATH.read_text(encoding="utf-8"))
+
+
+def pitch_type_speed_x(table: dict[str, Any], speed: float, hand: str) -> float:
+    """x = (球速 − 中心) / 幅 を ±x上限 に収める。"""
+    limit = float(table["x上限"])
+    return max(-limit, min(limit, (float(speed) - float(table["中心"][hand])) / float(table["幅"])))
+
+
+def pitch_type_name_weights(table: dict[str, Any], hand: str, code: str, movement: int, x: float, batting_throwing: str,
+                            *, second_pitch: bool = False, exclude: str = "") -> list[tuple[str, float]]:
+    """方向 code・変化量 movement の球の球種名の候補と重み（重み × exp(x × 傾き) × 変化量の起こりやすさ）。"""
+    allowed = allowed_pitch_names_for_generation(code, batting_throwing)
+    items = []
+    for name, weight in table["球種の重み"][hand].get(code, {}).items():
+        master = BREAKING_BY_NAME.get(name)
+        if master is None or name not in allowed or name == exclude:
+            continue
+        if second_pitch and not master.get("second_pitch_allowed", False):
+            continue
+        if not int(master.get("min_movement", 1)) <= movement <= int(master.get("max_movement", 7)):
+            continue
+        likelihood = table["変化量の起こりやすさ"].get(name, [1.0] * 6)[min(movement, 6) - 1]
+        value = float(weight) * math.exp(x * float(table["球種の傾き"].get(name, 0.0))) * float(likelihood)
+        if value > 0:
+            items.append((name, value))
+    return items
+
+
+def fictional_pitch_type_by_speed(rng: random.Random, breaking_balls: list[dict[str, Any]], speed: float, batting_throwing: str) -> list[dict[str, Any]]:
+    """変化球の方向の組と球種名を、球速と投げ手に合わせて引き直す（`変化球の種類と球速_改修指示.md` 1-1）。
+
+    ① 第一球種が1〜3球種なら、方向の組を「重み × exp(x × 組の方向の傾きの和)」で引き直す（1球種は傾きをかけない）。
+       外れた方向と入った方向を番号順に1対1で対応させ、外れた方向の球（第二球種も）の方向を書き換える。変化量は残す。
+    ② 第一球種の球種名を、その方向・変化量で投げられる球種から引き直す。候補がなければ変化量を3以下にして候補を作り、
+       選んだ球種の範囲に変化量を収める。
+    ③ 第二球種は同じ方向の第一球種の名前を除いて引き直し、変化量を第一球種以下に収める。候補がなければ外す。
+    ストレート系第二球種は変えない。変化球数は変えない。"""
+    table = FICTIONAL_PITCH_TYPE_SPEED_OVERRIDE if FICTIONAL_PITCH_TYPE_SPEED_OVERRIDE is not None else load_fictional_pitch_type_speed()
+    if not table:
+        return breaking_balls
+    hand = "左投" if batting_throwing.startswith("左投") else "右投"
+    x = pitch_type_speed_x(table, speed, hand)
+    balls = [dict(ball) for ball in breaking_balls]
+    primaries = primary_breaking_balls(balls)
+
+    current = sorted(str(ball.get("direction_code")) for ball in primaries)
+    k = len(current)
+    set_weights = table["方向の組の重み"][hand].get(str(k))
+    if set_weights and len(set(current)) == k:
+        slopes = table["方向の傾き"][hand]
+        items = [
+            (combo, float(weight) * (math.exp(x * sum(float(slopes[code]) for code in combo)) if k > 1 else 1.0))
+            for combo, weight in set_weights.items()
+        ]
+        chosen = sorted(weighted_choice(rng, items))
+        mapping = dict(zip(sorted(set(current) - set(chosen)), sorted(set(chosen) - set(current))))
+        for ball in balls:
+            code = str(ball.get("direction_code"))
+            if ball.get("kind") == "breaking" and code in mapping:
+                ball["direction_code"] = mapping[code]
+                ball["direction"] = DIRECTION_NAMES[mapping[code]]
+
+    for ball in primaries:
+        code, movement = str(ball["direction_code"]), pitch_movement(ball)
+        items = pitch_type_name_weights(table, hand, code, movement, x, batting_throwing)
+        if not items:
+            items = pitch_type_name_weights(table, hand, code, min(movement, 3), x, batting_throwing)
+        if not items:
+            continue
+        name = weighted_choice(rng, items)
+        master = BREAKING_BY_NAME[name]
+        ball["name"] = name
+        ball["movement"] = ball["level"] = max(int(master.get("min_movement", 1)), min(int(master.get("max_movement", 7)), movement))
+
+    primary_by_code = {str(ball["direction_code"]): ball for ball in primaries}
+    kept: list[dict[str, Any]] = []
+    for ball in balls:
+        if ball.get("kind") != "breaking" or not ball.get("is_second_pitch"):
+            kept.append(ball)
+            continue
+        primary = primary_by_code.get(str(ball.get("direction_code")))
+        if primary is None:
+            continue
+        movement = min(pitch_movement(ball), pitch_movement(primary))
+        items = pitch_type_name_weights(table, hand, str(primary["direction_code"]), movement, x, batting_throwing,
+                                        second_pitch=True, exclude=str(primary["name"]))
+        if not items:
+            continue
+        ball["name"] = weighted_choice(rng, items)
+        ball["movement"] = ball["level"] = movement
+        kept.append(ball)
+    balls[:] = kept
+    enforce_second_pitch_movement_order(balls)
+    return balls
+
+
 def fictional_movement_by_quality(rng: random.Random, breaking_balls: list[dict[str, Any]], role: str, control: float, stamina: float, protect_finisher: bool = False) -> list[dict[str, Any]]:
     """投手の良し悪し（コントロール・スタミナ）に合わせて、変化球の総変化量を最大3段階増減する。種類・数・方向は変えない。
 
@@ -8257,6 +8367,9 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
         player["breaking_balls"] = fictional_reliever_pitch_count(
             make_sub_rng(seed, FICTIONAL_RELIEVER_PITCH_COUNT_NAMESPACE), player["breaking_balls"], speed,
         )
+    player["breaking_balls"] = fictional_pitch_type_by_speed(
+        make_sub_rng(seed, FICTIONAL_PITCH_TYPE_SPEED_NAMESPACE), player["breaking_balls"], speed, batting_throwing,
+    )
     # 19歳以下は変化量の上限（fictional_young_breaking_balls）で決まるので、良し悪しの増減はかけない。
     if not age or age > FICTIONAL_YOUNG_BREAKING_MAX_AGE:
         player["breaking_balls"] = fictional_movement_by_quality(

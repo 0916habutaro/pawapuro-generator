@@ -26,6 +26,8 @@ def fingerprint(value):
 
 # 指紋（tests/fixtures/generate_player_baseline.json）は、能力との結びつき_ドラフト_改修指示.md でドラフト候補用60人と助っ人外国人用の野手7人の
 # 特能・ランク特能だけ変わった分を更新した（改修前の app.py で元の指紋を再現でき、ほかの項目は変わっていないことを確かめた）。
+# 変化球の種類と球速_改修指示.md で、架空球団用の投手27人と team_roster 2件（中の日本人投手）の変化球が変わった分を更新した
+# （app.FICTIONAL_PITCH_TYPE_SPEED_OVERRIDE = {} で表を空にすると元の指紋を再現できることを確かめた）。
 # 改修前の app.py で作った指紋と比べるスクリプト。PYTHONHASHSEED を固定した別プロセスで比べる
 # （ハッシュによらないことは test_hash_independence.py で確かめている。念のための固定）。
 BASELINE_SCRIPT = r"""
