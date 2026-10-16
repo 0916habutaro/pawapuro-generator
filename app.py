@@ -6866,13 +6866,18 @@ FICTIONAL_RELIEVER_STAMINA_TRANSFORM = {"S0": 48.0, "A": 0.76, "B": 0.21, "C0": 
 # 21歳以下にはかけない（21歳以下の補正は先発・救援で共通の定数で、若手の範囲の判定を崩さないため）。
 FICTIONAL_STARTER_STAMINA_TRANSFORM = {"S0": 57.0, "A": 1.15, "D": {"右": -2.0, "左": -4.4}}
 # 変化球の総変化量を投手の良し悪しに合わせて増減する（実在は良い投手ほど変化球も良い。生成は結びつきが弱い）。
-# 良し悪し q = 先発 ((コントロール−55)/13 + (スタミナ−57)/11)/2、救援 (コントロール−48)/10。
-# 増減の段階 delta = round(B × q + O + u)（u は −0.5〜0.5 の一様乱数）を −3〜+3 に収め、総変化量を動かす。
-# B は q との結びつきの強さ、O は役割ごとの平均のずらし。値は球団生成（seed 1〜300）で合わせた。
+# 良し悪し q = 先発 0.4×(コントロール−55)/13 + 0.6×(スタミナ−57)/11、救援 (コントロール−48)/10。
+# 増減の段階 delta = round(B × q + O + shift + 球種数・球速・寄せの項 + u)（u は −0.5〜0.5 の一様乱数）を −3〜+3 に収め、総変化量を動かす。
+# B は q との結びつきの強さ、O・shift は役割ごとの平均のずらし。値は球団生成（seed 1〜300）で合わせた。
+# 球種数・球速の項と、今の総変化量を中心へ少し寄せる項は `変化球の数と変化量_改修指示.md` 1-2（救援は球速の項だけ）。
+#   count: (係数, 中心)        係数 × (第一球種の数 − 中心)
+#   speed: (係数, 中心, 幅)    係数 × (球速 − 中心) / 幅
+#   pull:  (係数, 中心)        −係数 × (今の総変化量 − 中心)
 FICTIONAL_MOVEMENT_QUALITY_NAMESPACE = "fictional_pitcher_movement_v1"
 FICTIONAL_MOVEMENT_QUALITY = {
-    "先発": {"B": 0.8, "O": -0.1, "control": (55.0, 13.0), "stamina": (57.0, 11.0)},
-    "救援": {"B": 0.2, "O": -0.2, "control": (48.0, 10.0)},
+    "先発": {"B": 0.65, "O": -0.1, "shift": -0.15, "control_weight": 0.4, "control": (55.0, 13.0), "stamina": (57.0, 11.0),
+             "count": (0.40, 2.65), "speed": (0.40, 151.0, 4.0), "pull": (0.10, 6.5)},
+    "救援": {"B": 0.2, "O": -0.2, "control": (48.0, 10.0), "speed": (0.15, 151.0, 4.0)},
 }
 FICTIONAL_MOVEMENT_QUALITY_MAX_STEPS = 3
 # 抑え（守護神格）の決め球の変化量
@@ -6905,6 +6910,20 @@ FICTIONAL_RELIEVER_PITCH_COUNT_NAMESPACE = "fictional_reliever_pitch_count_v1"
 FICTIONAL_RELIEVER_SPEED_BANDS = (147, 151, 155)
 FICTIONAL_RELIEVER_DROP_THIRD = (0.0, 0.10, 0.06, 0.50)
 FICTIONAL_RELIEVER_DROP_SECOND = (0.0, 0.083, 0.13, 0.013)
+# 先発の球種の数を年齢・コントロールで増減する（`変化球の数と変化量_改修指示.md` 1-1）。実在は年長・コントロールの良い先発ほど
+# 球種が多く、4球種は25歳以上でコントロールの良い先発だけ。
+#   s = a_old × min(max(年齢 − age0, 0), age_span) / 3 + a_ctl × (コントロール − c0) / cs
+#   4球種で（年齢 ≤ four_max_age または コントロール < four_control_below）なら3球種に減らす（ここで終わり）。
+#   s > 0: 2→3 は u < min(add_max, s)、3→4 は 年齢 ≥ four_min_age・コントロール ≥ four_min_control で u < four_rate × s。
+#   s < 0: 3→2 は u < min(add_max, drop_rate × |s|)。
+# 専用の副乱数から1人3回引く（u、足す方向、足す変化量）。
+FICTIONAL_PITCH_COUNT_AGE_CONTROL_NAMESPACE = "fictional_pitch_count_age_control_v1"
+FICTIONAL_PITCH_COUNT_AGE_CONTROL = {
+    "a_old": 0.37, "age0": 29, "age_span": 6, "a_ctl": 0.30, "c0": 55.0, "cs": 13.0,
+    "add_max": 0.75, "four_rate": 0.08, "four_min_age": 25, "four_min_control": 55, "drop_rate": 0.15,
+    "four_max_age": 23, "four_control_below": 50,
+}
+FICTIONAL_MAX_VISIBLE_PITCHES = 4
 # 変化球の方向と球種を、球速と投げ手に合わせて引き直す（`変化球の種類と球速_改修指示.md` 1-1）。
 # 実在は球速の速い投手ほどフォーク方向（SFF・Vスライダーなど）を持ち、シンカー方向・シュート方向が少ない。
 # 表は data/config/fictional_pitch_type_speed.json（scripts/pitch_type_speed.py --build-real で実在から作る）。
@@ -8130,6 +8149,59 @@ def fictional_reliever_pitch_count(rng: random.Random, breaking_balls: list[dict
     return balls
 
 
+def _choice_by_uniform(items: list[tuple[Any, int | float]], r: float) -> Any:
+    """重みつきの選択を、先に引いた一様乱数 r（0〜1）で行う（乱数を引く回数を固定するため）。"""
+    threshold = r * sum(weight for _item, weight in items)
+    for item, weight in items:
+        threshold -= weight
+        if threshold < 0:
+            return item
+    return items[-1][0]
+
+
+def fictional_pitch_count_by_age_control(rng: random.Random, breaking_balls: list[dict[str, Any]], age: int, control: float,
+                                         batting_throwing: str) -> list[dict[str, Any]]:
+    """先発の第一球種の数を年齢・コントロールで増減する（`変化球の数と変化量_改修指示.md` 1-1）。乱数は必ず3回引く。
+
+    外すのは変化量がいちばん小さい球（同じ方向の第二球種も一緒に外す）。足す球の方向は持っていない方向から
+    DIRECTION_SELECTION_WEIGHTS の重みで選び、名前はその方向で投げられる球種のうち base_weight がいちばん大きいもの
+    （あとの fictional_pitch_type_by_speed で引き直す）、変化量は FICTIONAL_ADDED_PITCH_MOVEMENT_WEIGHTS で選ぶ。"""
+    cfg = FICTIONAL_PITCH_COUNT_AGE_CONTROL
+    u, r_direction, r_movement = rng.random(), rng.random(), rng.random()
+    balls = [dict(ball) for ball in breaking_balls]
+    primaries = primary_breaking_balls(balls)
+    count = len(primaries)
+    if count >= 4:
+        if age <= cfg["four_max_age"] or control < cfg["four_control_below"]:
+            remove_extra_primary_pitches(balls, 3)
+        return balls
+    s = cfg["a_old"] * min(max(age - cfg["age0"], 0), cfg["age_span"]) / 3 + cfg["a_ctl"] * (control - cfg["c0"]) / cfg["cs"]
+    if s < 0 and count == 3:
+        if u < min(cfg["add_max"], cfg["drop_rate"] * abs(s)):
+            remove_extra_primary_pitches(balls, 2)
+        return balls
+    if s > 0 and count == 2:
+        add = u < min(cfg["add_max"], s)
+    elif s > 0 and count == 3:
+        add = age >= cfg["four_min_age"] and control >= cfg["four_min_control"] and u < cfg["four_rate"] * s
+    else:
+        add = False
+    # 見える球種（変化球・ストレート系第二球種）は4つまで（第二球種などで4つあるときは足さない）
+    if not add or len(balls) >= FICTIONAL_MAX_VISIBLE_PITCHES:
+        return balls
+    used = [str(ball.get("direction_code")) for ball in primaries]
+    code = _choice_by_uniform([(code, weight) for code, weight in DIRECTION_SELECTION_WEIGHTS.items() if code not in used], r_direction)
+    held = [str(ball.get("name")) for ball in balls]
+    names = [name for name in sorted(allowed_pitch_names_for_generation(code, batting_throwing)) if name not in held]
+    if not names:
+        return balls
+    name = max(names, key=lambda n: float(BREAKING_BY_NAME[n].get("base_weight", 0)))
+    movement = _choice_by_uniform(FICTIONAL_ADDED_PITCH_MOVEMENT_WEIGHTS, r_movement)
+    last_primary = max(index for index, ball in enumerate(balls) if any(ball is p for p in primaries))
+    balls.insert(last_primary + 1, make_breaking_ball(name, movement, False, 1))
+    return balls
+
+
 @lru_cache(maxsize=1)
 def load_fictional_pitch_type_speed() -> dict[str, Any]:
     """変化球の方向と球種を球速で引き直す表。ファイルがなければ空（引き直さない）。"""
@@ -8232,18 +8304,31 @@ def fictional_pitch_type_by_speed(rng: random.Random, breaking_balls: list[dict[
     return balls
 
 
-def fictional_movement_by_quality(rng: random.Random, breaking_balls: list[dict[str, Any]], role: str, control: float, stamina: float, protect_finisher: bool = False) -> list[dict[str, Any]]:
-    """投手の良し悪し（コントロール・スタミナ）に合わせて、変化球の総変化量を最大3段階増減する。種類・数・方向は変えない。
+def fictional_movement_by_quality(rng: random.Random, breaking_balls: list[dict[str, Any]], role: str, control: float, stamina: float,
+                                  protect_finisher: bool = False, speed: float | None = None) -> list[dict[str, Any]]:
+    """投手の良し悪し（コントロール・スタミナ）と球種数・球速に合わせて、変化球の総変化量を最大3段階増減する。種類・数・方向は変えない。
 
     増やすときは変化量が小さい球から1段ずつ（その球種の上限まで）、減らすときは大きい球から1段ずつ（下限まで）。
-    ストレート系第二球種と第二球種は数えない。"""
+    ストレート系第二球種と第二球種は数えない。乱数は1回引く。"""
     cfg = FICTIONAL_MOVEMENT_QUALITY[role]
     c_mid, c_sd = cfg["control"]
     q = (control - c_mid) / c_sd
     if "stamina" in cfg:
         s_mid, s_sd = cfg["stamina"]
-        q = (q + (stamina - s_mid) / s_sd) / 2
-    steps = round(cfg["B"] * q + cfg["O"] + rng.uniform(-0.5, 0.5))
+        weight = cfg.get("control_weight", 0.5)
+        q = weight * q + (1 - weight) * (stamina - s_mid) / s_sd
+    level = cfg["B"] * q + cfg["O"] + cfg.get("shift", 0.0)
+    current = primary_breaking_balls(breaking_balls)
+    if "count" in cfg:
+        coef, center = cfg["count"]
+        level += coef * (len(current) - center)
+    if "speed" in cfg and speed is not None:
+        coef, center, width = cfg["speed"]
+        level += coef * (float(speed) - center) / width
+    if "pull" in cfg:
+        coef, center = cfg["pull"]
+        level -= coef * (sum(pitch_movement(ball) for ball in current) - center)
+    steps = round(level + rng.uniform(-0.5, 0.5))
     steps = max(-FICTIONAL_MOVEMENT_QUALITY_MAX_STEPS, min(FICTIONAL_MOVEMENT_QUALITY_MAX_STEPS, steps))
     if steps == 0:
         return breaking_balls
@@ -8367,6 +8452,10 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
         player["breaking_balls"] = fictional_reliever_pitch_count(
             make_sub_rng(seed, FICTIONAL_RELIEVER_PITCH_COUNT_NAMESPACE), player["breaking_balls"], speed,
         )
+    else:
+        player["breaking_balls"] = fictional_pitch_count_by_age_control(
+            make_sub_rng(seed, FICTIONAL_PITCH_COUNT_AGE_CONTROL_NAMESPACE), player["breaking_balls"], age, control, batting_throwing,
+        )
     player["breaking_balls"] = fictional_pitch_type_by_speed(
         make_sub_rng(seed, FICTIONAL_PITCH_TYPE_SPEED_NAMESPACE), player["breaking_balls"], speed, batting_throwing,
     )
@@ -8374,7 +8463,7 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     if not age or age > FICTIONAL_YOUNG_BREAKING_MAX_AGE:
         player["breaking_balls"] = fictional_movement_by_quality(
             make_sub_rng(seed, FICTIONAL_MOVEMENT_QUALITY_NAMESPACE), player["breaking_balls"],
-            "先発" if position == "先発" else "救援", control, stamina, protect_finisher=position == "抑え",
+            "先発" if position == "先発" else "救援", control, stamina, protect_finisher=position == "抑え", speed=speed,
         )
     player["breaking_balls"] = fictional_young_breaking_balls(player["breaking_balls"], age)
     is_allowed = lambda name: is_special_allowed_for_player(name, "投手", position, [], pitcher_aptitudes)  # noqa: E731

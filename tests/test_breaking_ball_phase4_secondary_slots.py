@@ -11,8 +11,10 @@ from scripts.validate_breaking_ball_phase4 import AFTER, count_invalid_direction
 
 def generated_pair(seed: int):
     master = app.load_master_data()
-    # 架空球団バランスの球種数調整（第二球種を外す・3球種目を足す・救援の球種を減らす）は Phase 4 と別の処理なので止めて比べる。
-    with patch.object(app, "FICTIONAL_SECOND_FASTBALL_DROP_RATE", 0.0), patch.object(app, "FICTIONAL_THIRD_PITCH_ADD_RATE", 0.0),             patch.object(app, "FICTIONAL_RELIEVER_DROP_THIRD", (0.0,) * 4), patch.object(app, "FICTIONAL_RELIEVER_DROP_SECOND", (0.0,) * 4):
+    # 架空球団バランスの球種数調整（第二球種を外す・3球種目を足す・救援の球種を減らす・先発の球種の数を年齢とコントロールで増減する）は
+    # Phase 4 と別の処理なので止めて比べる。
+    neutral_count = {**app.FICTIONAL_PITCH_COUNT_AGE_CONTROL, "a_old": 0.0, "a_ctl": 0.0, "four_max_age": 0, "four_control_below": 0}
+    with patch.object(app, "FICTIONAL_PITCH_COUNT_AGE_CONTROL", neutral_count), patch.object(app, "FICTIONAL_SECOND_FASTBALL_DROP_RATE", 0.0), patch.object(app, "FICTIONAL_THIRD_PITCH_ADD_RATE", 0.0),             patch.object(app, "FICTIONAL_RELIEVER_DROP_THIRD", (0.0,) * 4), patch.object(app, "FICTIONAL_RELIEVER_DROP_SECOND", (0.0,) * 4):
         app.PHASE4_SECONDARY_SLOTS_ENABLED = False
         before = app.generate_player("投手", "架空球団用", master, seed)
         app.PHASE4_SECONDARY_SLOTS_ENABLED = True

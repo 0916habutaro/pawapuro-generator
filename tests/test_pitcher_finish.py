@@ -15,7 +15,11 @@ import app
 MASTER = app.load_master_data()
 SEEDS = range(1, 2001)
 NEUTRAL_STAMINA = {"S0": 57.0, "A": 1.0, "D": {"右": 0.0, "左": 0.0}}
-NEUTRAL_MOVEMENT = {role: {**cfg, "B": 0.0, "O": 0.0} for role, cfg in app.FICTIONAL_MOVEMENT_QUALITY.items()}
+# 総変化量の増減を止める（変化球の数と変化量_改修指示.md で足した球種数・球速・寄せの項とずらしも外す）
+NEUTRAL_MOVEMENT = {
+    role: {key: value for key, value in {**cfg, "B": 0.0, "O": 0.0}.items() if key not in ("shift", "count", "speed", "pull")}
+    for role, cfg in app.FICTIONAL_MOVEMENT_QUALITY.items()
+}
 
 
 def ability(player: dict, key: str) -> int:
