@@ -11,7 +11,11 @@ import app
 
 MASTER = app.load_master_data()
 SEEDS = range(1, 601)
-NEUTRAL_MOVEMENT = {role: {**cfg, "B": 0.0, "O": 0.0} for role, cfg in app.FICTIONAL_MOVEMENT_QUALITY.items()}
+# 総変化量の増減を止める（変化球の数と変化量_改修指示.md で足した球種数・球速・寄せの項とずらしも外す）
+NEUTRAL_MOVEMENT = {
+    role: {key: value for key, value in {**cfg, "B": 0.0, "O": 0.0}.items() if key not in ("shift", "count", "speed", "pull")}
+    for role, cfg in app.FICTIONAL_MOVEMENT_QUALITY.items()
+}
 ALWAYS = (1.0, 1.0, 1.0, 1.0)
 NEVER = (0.0, 0.0, 0.0, 0.0)
 

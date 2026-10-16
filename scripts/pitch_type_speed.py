@@ -17,6 +17,9 @@
     変化量の起こりやすさ … 球種ごとの変化量1〜6の件数に、同じ方向の割合を3件分の重みで足して均した割合。
     x = (球速 − 中心) / 4 を −2.5〜2.5 に収める。中心は 右投 152、左投 149。
 - check_pitcher_rank_pitches.py が、この module の type_checks で「変化球の種類と球速」の節を足す（指示書2-1）。
+- 先発の球種の数と総変化量（`変化球の数と変化量_改修指示.md` 2-1）も同じ実在から作り、実在の値は pitch_type_speed_real.json の
+  「先発の球種の数と総変化量」に入れる。count_checks がその節を足す。実在の年齢は2026年版は記載の値、2024・2025年版は生年からの
+  逆算（age_backcalc）。変化球数・総変化量は第一球種だけで数える。誤差は 標準偏差/√異なる選手の数。
 """
 from __future__ import annotations
 
@@ -75,6 +78,17 @@ BEFORE = {
     "fast": {"〜148": 49.4, "149〜152": 51.0, "153〜": 53.6},
     "slow": {"〜148": 39.2, "149〜152": 40.7, "153〜": 36.2},
 }
+
+
+# 先発の球種の数と総変化量（`変化球の数と変化量_改修指示.md` 2-1）
+AGE_BANDS = (("〜23", 0, 23), ("24〜29", 24, 29), ("30〜33", 30, 33), ("34〜", 34, 999))
+CONTROL_BANDS = (("〜44", 0, 44), ("45〜54", 45, 54), ("55〜64", 55, 64), ("65〜", 65, 999))
+TOL_COUNT_MIN, TOL_MOVEMENT_BY_COUNT = 0.10, 0.3
+FOUR_YOUNG_MAX_AGE, FOUR_LOW_CONTROL = 23, 50
+FOUR_LIMIT, FOUR_STARTER_RANGE = 0.5, (1.0, 4.0)  # %
+STARTER_SPEED_CORR, STARTER_COUNT_CORR, RELIEVER_SPEED_CORR = (0.05, 0.25), (0.33, 0.53), (-0.05, 0.12)
+FAST_STARTER, SLOW_STARTER = 154, 148
+COUNT_SECTION = "先発の球種の数と総変化量（第一球種。実在は2024〜2026年版の日本人投手。誤差は異なる選手の数）"
 
 
 def canonical(name: str) -> str:
@@ -152,9 +166,13 @@ def load_real_rows() -> tuple[pd.DataFrame, list[dict[str, Any]]]:
                 balls = ball_map.get((row["team"], row["name"]), [])
                 name = "".join(str(row.get("name") or "").split())
                 role = "先発" if str(row.get("pitcher_roles") or "")[:1] == "先" else "救援"
-                rows.append({"season": season, "name": name, "hand": hand, "prole": role, "球速": float(speed),
-                             **type_columns(balls, real=True)})
                 primary = [ball for ball in balls if ball["slot"] <= 1]
+                rows.append({"season": season, "name": name, "hand": hand, "prole": role, "球速": float(speed),
+                             "age": pd.to_numeric(row.get("age_backcalc"), errors="coerce"),
+                             "コントロール": pd.to_numeric(row.get("control"), errors="coerce"),
+                             "スタミナ": pd.to_numeric(row.get("stamina"), errors="coerce"),
+                             "変化球数": float(len(primary)), "総変化量": float(sum(ball["movement"] for ball in primary)),
+                             **type_columns(balls, real=True)})
                 balls_out.append({"name": name, "hand": hand, "x": speed_x(float(speed), hand), "balls": primary})
     return pd.DataFrame(rows), balls_out
 
@@ -435,6 +453,46 @@ def _distinct(frame: pd.DataFrame) -> int:
     return int(frame["name"].nunique()) if "name" in frame.columns else int(len(frame))
 
 
+def _mean_stat(frame: pd.DataFrame, column: str) -> list[float]:
+    """[平均, 標準偏差, 異なる選手の数]。"""
+    x = pd.to_numeric(frame[column], errors="coerce").dropna()
+    return [round(float(x.mean()), 4) if len(x) else math.nan, round(float(x.std()), 4) if len(x) > 1 else math.nan, _distinct(frame.loc[x.index])]
+
+
+def _corr(frame: pd.DataFrame, a: str, b: str) -> float:
+    x = frame[[a, b]].apply(pd.to_numeric, errors="coerce").dropna()
+    return round(float(x[a].corr(x[b])), 4) if len(x) > 2 else math.nan
+
+
+def count_statistics(frame: pd.DataFrame) -> dict[str, Any]:
+    """先発の球種の数と総変化量（指示書2-1）。frame は prole・age・コントロール・スタミナ・球速・変化球数・総変化量の列を持つ。"""
+    starter = frame[frame["prole"] == "先発"]
+    relief = frame[frame["prole"] == "救援"]
+    out: dict[str, Any] = {"年齢帯": {}, "コントロール帯": {}}
+    for key, column, bands in (("年齢帯", "age", AGE_BANDS), ("コントロール帯", "コントロール", CONTROL_BANDS)):
+        values = pd.to_numeric(starter[column], errors="coerce")
+        for band, low, high in bands:
+            part = starter[(values >= low) & (values <= high)]
+            out[key][band] = {"球種数": _mean_stat(part, "変化球数"), "2球種": round(_pct(part["変化球数"] == 2), 2),
+                              "4球種": round(_pct(part["変化球数"] >= 4), 2)}
+    age = pd.to_numeric(starter["age"], errors="coerce")
+    control = pd.to_numeric(starter["コントロール"], errors="coerce")
+    out["4球種"] = {
+        "〜23歳": round(_pct(starter.loc[age <= FOUR_YOUNG_MAX_AGE, "変化球数"] >= 4), 2),
+        "コントロール50未満": round(_pct(starter.loc[control < FOUR_LOW_CONTROL, "変化球数"] >= 4), 2),
+        "先発全体": round(_pct(starter["変化球数"] >= 4), 2),
+    }
+    out["総変化量"] = {}
+    for role, part in (("先発", starter), ("救援", relief)):
+        out["総変化量"][role] = {"平均と標準偏差": _mean_stat(part, "総変化量"), **{
+            f"×{column}": _corr(part, "総変化量", column) for column in ("コントロール", "スタミナ", "球速", "変化球数")}}
+    out["球種数ごとの総変化量"] = {str(k): _mean_stat(starter[starter["変化球数"] == k], "総変化量") for k in (2, 3)}
+    speed = pd.to_numeric(starter["球速"], errors="coerce")
+    out["球速ごとの総変化量"] = {f"{FAST_STARTER}以上": _mean_stat(starter[speed >= FAST_STARTER], "総変化量"),
+                         f"{SLOW_STARTER}以下": _mean_stat(starter[speed <= SLOW_STARTER], "総変化量")}
+    return out
+
+
 def statistics(frame: pd.DataFrame) -> dict[str, Any]:
     out: dict[str, Any] = {"方向の保有率": {}, "全体の方向の保有率": {}, "速い・遅い球種": {}, "球種の保有率": {}, "球速の差": {}, "方向の組": {}}
     sets = frame["pt_names"].fillna("").astype(str).str.split("|").map(set)
@@ -471,9 +529,11 @@ def build_real(write_table: bool = False) -> None:
     data = {
         "作り方": "python scripts/pitch_type_speed.py --build-real。実在（2024〜2026年版）の日本人投手（外国人を除く）。方向は第一球種（slot 1）、"
                  "球種は第一球種・第二球種（シンカーとスクリューは「シンカー」）。割合は%で、年版ごとの行で数える。"
-                 "異なる選手の数は名前で数えた（誤差に使う）。球速の差は、その球種を持つ先発の球速の平均と先発全体の平均の差 [差, 異なる選手の数]。",
+                 "異なる選手の数は名前で数えた（誤差に使う）。球速の差は、その球種を持つ先発の球速の平均と先発全体の平均の差 [差, 異なる選手の数]。"
+                 "先発の球種の数と総変化量は第一球種で数え、平均は [平均, 標準偏差, 異なる選手の数]（年齢は2024・2025年版は逆算）。",
         "人数": int(len(rows)), "異なる選手の数": _distinct(rows),
         **stats,
+        "先発の球種の数と総変化量": count_statistics(rows),
     }
     REAL_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(f"書き出しました: {REAL_PATH}（{len(rows)}人、異なる選手 {_distinct(rows)}人）")
@@ -587,6 +647,85 @@ def real_errors(prefix: str) -> dict[str, float]:
     for combo in checked_combos(real):
         se[f"{prefix}.pitch_type.combo.{combo}"] = share_se(real["方向の組"][combo], n_all)
     return se
+
+
+def _mean_se(stat: list[float]) -> float:
+    return stat[1] / math.sqrt(stat[2]) if stat[2] > 1 and not math.isnan(stat[1]) else math.nan
+
+
+def count_checks(checks: Checks, frame: pd.DataFrame, prefix: str, kind: str) -> None:
+    """先発の球種の数と総変化量の判定（`変化球の数と変化量_改修指示.md` 2-1）。frame は count_statistics の列を持つ（生成）。"""
+    real, now = real_reference()["先発の球種の数と総変化量"], count_statistics(frame)
+    design = checklib.KIND_INFO if kind == checklib.KIND_INFO else checklib.KIND_DESIGN
+
+    def add(key: str, label: str, value: float, low: float, high: float, real_text: str, fmt: str = "{:.2f}", item_kind: str = kind) -> None:
+        checks.add(f"{prefix}.pitch_count.{key}", item_kind, label, value, low, high, section=COUNT_SECTION,
+                   shown="nan" if math.isnan(value) else fmt.format(value), target=f"{fmt.format(low)}〜{fmt.format(high)}", real=real_text)
+
+    for key, short, bands in (("年齢帯", "age", AGE_BANDS), ("コントロール帯", "control", CONTROL_BANDS)):
+        prefix_label = "年齢" if short == "age" else "コントロール"
+        for band, _low, _high in bands:
+            r = real[key][band]["球種数"]
+            se = _mean_se(r)
+            tol = max(TOL_COUNT_MIN, 2 * se) if not math.isnan(se) else TOL_COUNT_MIN
+            add(f"{short}.{band}", f"先発 {prefix_label}{band}の球種数の平均", now[key][band]["球種数"][0], r[0] - tol, r[0] + tol,
+                f"{r[0]:.2f}（{r[2]}人）")
+    for key, label in (("〜23歳", "23歳以下の先発の4球種"), ("コントロール50未満", "コントロール50未満の先発の4球種")):
+        add(f"four.{key}", label, now["4球種"][key], 0.0, FOUR_LIMIT, f"{real['4球種'][key]:.1f}", fmt="{:.1f}", item_kind=design)
+    add("four.先発全体", "先発全体の4球種（%）", now["4球種"]["先発全体"], *FOUR_STARTER_RANGE, f"{real['4球種']['先発全体']:.1f}", fmt="{:.1f}",
+        item_kind=design)
+    for role, column, key, (low, high) in (("先発", "球速", "starter_speed", STARTER_SPEED_CORR), ("先発", "変化球数", "starter_count", STARTER_COUNT_CORR),
+                                           ("救援", "球速", "reliever_speed", RELIEVER_SPEED_CORR)):
+        r = real["総変化量"][role][f"×{column}"]
+        add(f"corr.{key}", f"{role}の総変化量×{column}相関", now["総変化量"][role][f"×{column}"], low, high, f"{r:.3f}", fmt="{:.3f}")
+    for k in ("2", "3"):
+        r = real["球種数ごとの総変化量"][k]
+        add(f"movement.{k}", f"先発 {k}球種の総変化量の平均", now["球種数ごとの総変化量"][k][0], r[0] - TOL_MOVEMENT_BY_COUNT, r[0] + TOL_MOVEMENT_BY_COUNT,
+            f"{r[0]:.2f}（{r[2]}人）")
+    r = real["球速ごとの総変化量"][f"{FAST_STARTER}以上"]
+    tol = 2 * _mean_se(r)
+    add("movement.fast", f"{FAST_STARTER}km以上の先発の総変化量の平均", now["球速ごとの総変化量"][f"{FAST_STARTER}以上"][0], r[0] - tol, r[0] + tol,
+        f"{r[0]:.2f}（{r[2]}人）")
+
+
+def count_real_errors(prefix: str) -> dict[str, float]:
+    """実在側の誤差（平均は 標準偏差/√異なる選手の数）。4球種・相関は範囲を固定で決めたので、生成側の誤差だけ。"""
+    real = real_reference()["先発の球種の数と総変化量"]
+    se: dict[str, float] = {}
+    for key, short, bands in (("年齢帯", "age", AGE_BANDS), ("コントロール帯", "control", CONTROL_BANDS)):
+        for band, _low, _high in bands:
+            se[f"{prefix}.pitch_count.{short}.{band}"] = _mean_se(real[key][band]["球種数"])
+    for k in ("2", "3"):
+        se[f"{prefix}.pitch_count.movement.{k}"] = _mean_se(real["球種数ごとの総変化量"][k])
+    se[f"{prefix}.pitch_count.movement.fast"] = _mean_se(real["球速ごとの総変化量"][f"{FAST_STARTER}以上"])
+    return se
+
+
+def print_count_reference(frame: pd.DataFrame) -> None:
+    """先発の球種の数（年齢帯・コントロール帯）と総変化量の表（今回／実在。参考）。"""
+    real, now = real_reference()["先発の球種の数と総変化量"], count_statistics(frame)
+    for key, bands in (("年齢帯", AGE_BANDS), ("コントロール帯", CONTROL_BANDS)):
+        rows = [{key: band, "平均": f"{now[key][band]['球種数'][0]:.2f}／{real[key][band]['球種数'][0]:.2f}",
+                 "2球種": f"{now[key][band]['2球種']:.1f}／{real[key][band]['2球種']:.1f}",
+                 "4球種": f"{now[key][band]['4球種']:.1f}／{real[key][band]['4球種']:.1f}",
+                 "実在の異なる選手": real[key][band]["球種数"][2]} for band, _l, _h in bands]
+        print(f"\n[先発の球種の数（{key}。今回／実在、%）。参考]")
+        print(pd.DataFrame(rows).to_string(index=False))
+    rows = []
+    for label, path in (("平均", ("平均と標準偏差", 0)), ("標準偏差", ("平均と標準偏差", 1)), ("×コントロール相関", ("×コントロール", None)),
+                        ("×スタミナ相関", ("×スタミナ", None)), ("×球速相関", ("×球速", None)), ("×球種数相関", ("×変化球数", None))):
+        cells = {}
+        for role in ("先発", "救援"):
+            n, r = now["総変化量"][role][path[0]], real["総変化量"][role][path[0]]
+            n, r = (n[path[1]], r[path[1]]) if path[1] is not None else (n, r)
+            cells[role] = f"{n:.3f}／{r:.3f}"
+        rows.append({"総変化量": label, **cells})
+    print("\n[総変化量（今回／実在）。参考]")
+    print(pd.DataFrame(rows).to_string(index=False))
+    print("[先発の球種数ごと・球速ごとの総変化量（今回／実在）] " + "、".join(
+        [f"{k}球種 {now['球種数ごとの総変化量'][k][0]:.2f}／{real['球種数ごとの総変化量'][k][0]:.2f}" for k in ("2", "3")]
+        + [f"{key} {now['球速ごとの総変化量'][key][0]:.2f}／{real['球速ごとの総変化量'][key][0]:.2f}" for key in real["球速ごとの総変化量"]]))
+    print("[先発の4球種（%、今回／実在）] " + "、".join(f"{k} {now['4球種'][k]:.1f}／{real['4球種'][k]:.1f}" for k in real["4球種"]))
 
 
 def watch_notes(frame: pd.DataFrame) -> list[str]:

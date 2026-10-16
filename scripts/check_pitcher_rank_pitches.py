@@ -27,6 +27,9 @@
 - 変化球の種類と球速（`変化球の種類と球速_改修指示.md` 2-1）: 方向の保有率（球速の帯ごと）、全体の方向の保有率、速い投手・遅い投手の
   球種を持つ割合、球種の保有率、持つ先発の球速と全体の平均の差、方向の組。実在の値は data/config/pitch_type_speed_real.json
   （`python scripts/pitch_type_speed.py --build-real` で作る）、共通部分は pitch_type_speed.py。
+- 先発の球種の数と総変化量（`変化球の数と変化量_改修指示.md` 2-1）: 先発の年齢帯・コントロール帯ごとの球種数の平均、
+  23歳以下・コントロール50未満・先発全体の4球種、総変化量と球速・球種数の相関、球種数ごと・154km以上の先発の総変化量。
+  実在の値は pitch_type_speed_real.json の「先発の球種の数と総変化量」、共通部分は pitch_type_speed.py（count_checks）。
 - 実在の値は data/config/pitcher_rank_pitches_real.json（--build-real で、実在の元データ data/raw/ から作る）。
   実在側の誤差は、平均は 標準偏差/√人数、割合は √(p(1−p)/人数) で見積もる。生成側の誤差は球団を単位に再抽出して求める。
 - 個別生成（架空球団用・日本人投手）は同じ表を参考として出す（合否には使わない）。
@@ -219,8 +222,9 @@ def generated_row(player: dict[str, Any]) -> dict[str, Any]:
     abilities = player.get("abilities") if isinstance(player.get("abilities"), dict) else {}
     throws, _bats = ta._hand_parts(player.get("batting_throwing"))
     role = "先発" if player.get("position") == "先発" else "救援"
-    return pitcher_row(role, throws, ta._number(abilities.get("球速")), abilities.get("ranked_specials") or {}, player.get("breaking_balls") or [], real=False,
-                       control=ta._number(abilities.get("コントロール")), stamina=ta._number(abilities.get("スタミナ")))
+    row = pitcher_row(role, throws, ta._number(abilities.get("球速")), abilities.get("ranked_specials") or {}, player.get("breaking_balls") or [], real=False,
+                      control=ta._number(abilities.get("コントロール")), stamina=ta._number(abilities.get("スタミナ")))
+    return {**row, "age": ta._number(player.get("age"))}
 
 
 def _team(team_seed: int) -> list[dict[str, Any]]:
@@ -246,7 +250,7 @@ def single_pitchers(path: Path) -> pd.DataFrame:
     rows = []
     for record in df.to_dict("records"):
         player = {
-            "position": record["position"], "batting_throwing": record["batting_throwing"],
+            "position": record["position"], "batting_throwing": record["batting_throwing"], "age": record.get("age"),
             "abilities": json.loads(record["abilities_json"]), "breaking_balls": json.loads(record["breaking_balls_json"]),
         }
         rows.append({"team_key": str(record.get("seed", len(rows))), **generated_row(player)})
@@ -293,6 +297,7 @@ def evaluate(frame: pd.DataFrame, prefix: str = SCRIPT, info: bool = False) -> C
     rank_shape.shape_checks(checks, frame, prefix, kind, SHAPE_KEYS)
     rank_ability.ability_checks(checks, frame, prefix, kind, ABILITY_KEYS)
     pitch_type_speed.type_checks(checks, frame, prefix, kind)
+    pitch_type_speed.count_checks(checks, frame, prefix, kind)
 
     # 参考: 球種数の割合（2・3球種）、先発の変化球数・総変化量
     for k in (2, 3):
@@ -328,7 +333,7 @@ def grade_all(frame: pd.DataFrame, boot: int, quick: bool = False) -> list[check
     checks = evaluate(frame)
     se_gen = checklib.bootstrap_se(evaluate, frame, lambda f, rng: checklib.resample_frame(f, rng, "team_key"), n=boot) if boot else {}
     se_real = {**real_errors(), **rank_shape.real_errors(SCRIPT, SHAPE_KEYS), **rank_ability.real_errors(SCRIPT, ABILITY_KEYS),
-               **pitch_type_speed.real_errors(SCRIPT)} if boot else {}
+               **pitch_type_speed.real_errors(SCRIPT), **pitch_type_speed.count_real_errors(SCRIPT)} if boot else {}
     return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
 
 
@@ -360,6 +365,7 @@ def print_reference(frame: pd.DataFrame, before: bool = True) -> None:
     rank_shape.print_shape_reference(frame, SHAPE_KEYS, before=before)
     rank_ability.print_ability_reference(frame, ABILITY_KEYS, before=before)
     pitch_type_speed.print_type_reference(frame, before=before)
+    pitch_type_speed.print_count_reference(frame)
     relief = frame[frame["prole"] == "救援"]
     real = real_reference()[REAL_ALL]["救援"]
     print(f"\n[救援の1球種の総変化量の平均（参考）] {relief.loc[relief['変化球数'] == 1, '総変化量'].mean():.2f}（実在 {real['1球種の総変化量'][0]:.2f}）")
