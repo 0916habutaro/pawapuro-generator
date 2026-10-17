@@ -59,6 +59,11 @@ DB_PATH = APP_DIR / "players.sqlite3"
 # 表示時に計算する★査定値の列（DBには保存しない。「全データを出力」にも含めない）
 RATING_COLUMN = "rating"
 JAPANESE_SURNAME_PATH = DATA_DIR / "japan_surname.csv"
+# 日本人の名（下の名前）の出やすさの表（日本人の名前_改修指示.md 1-2）
+JAPANESE_GIVEN_NAME_WEIGHTS_PATH = DATA_DIR / "config" / "japanese_given_name_weights.json"
+JAPANESE_GIVEN_NAME_TIERS = ("定番", "よくある字", "その他", "控えめ")
+# 名を選ぶときに共通の乱数を空回しする数。改修前の名の一覧（53個）の rng.choice と同じだけ進める（一覧を変えても53のまま）
+JAPANESE_GIVEN_NAME_LEGACY_COUNT = 53
 CATEGORIES = ["架空球団用", "ドラフト候補用", "助っ人外国人用"]
 GROWTH_TYPE_LABELS = {
     "very_early": "超早熟",
@@ -5424,8 +5429,77 @@ def choose_japanese_name(rng: random.Random, names: dict[str, Any], prefecture: 
     if not isinstance(entry, dict) or not entry.get("名"):
         raise ValueError("日本人名マスタに名がありません")
     surname = choose_japanese_surname(prefecture, rng, surname_master)
-    given_name = str(rng.choice(entry["名"]))
+    # 名は別の乱数で選ぶ（名の一覧や重みを変えても、名より後に決まる能力などが変わらないように）。
+    # 種は共通の乱数の今の状態から作り（乱数を進めない。hash() は PYTHONHASHSEED で変わるので使わない）、
+    # 共通の乱数は改修前の一覧（53個）の rng.choice と同じだけ空回しする。
+    sub_seed = int.from_bytes(hashlib.sha256(repr(rng.getstate()).encode("utf-8")).digest()[:8], "big")
+    rng.choice(range(JAPANESE_GIVEN_NAME_LEGACY_COUNT))
+    given_names, cum_weights = japanese_given_name_table(entry["名"])
+    given_name = random.Random(f"japanese_given_name_v1:{sub_seed}").choices(given_names, cum_weights=cum_weights, k=1)[0]
     return f"{surname} {given_name}"
+
+
+@lru_cache(maxsize=1)
+def load_japanese_given_name_weight_config() -> dict[str, Any]:
+    config = json.loads(JAPANESE_GIVEN_NAME_WEIGHTS_PATH.read_text(encoding="utf-8"))
+    missing = [tier for tier in JAPANESE_GIVEN_NAME_TIERS if tier not in config.get("重み", {})]
+    if missing:
+        raise ValueError(f"日本人の名の重みの表に段がありません: {', '.join(missing)}")
+    return config
+
+
+def japanese_given_name_tiers(given_names: list[Any] | tuple[Any, ...]) -> list[str]:
+    """名ごとの段（定番・よくある字・その他・控えめ）を、名の一覧の順に返す（日本人の名前_改修指示.md 1-2）。
+
+    定番は表の「定番」、控えめは定番にない1字の名前と表の「控えめ（名指し）」、よくある字は2字以上で全部の字が
+    定番の名前に使われている字のもの、その他は残り。表にあって一覧にない名前は無視する。"""
+    config = load_japanese_given_name_weight_config()
+    present = {str(name) for name in given_names}
+    standard = frozenset(name for name in config.get("定番", []) if name in present)
+    standard_chars = frozenset("".join(standard))
+    modest = frozenset(config.get("控えめ（名指し）", []))
+    tiers = []
+    for value in given_names:
+        name = str(value)
+        if name in standard:
+            tiers.append("定番")
+        elif len(name) == 1 or name in modest:
+            tiers.append("控えめ")
+        elif len(name) >= 2 and set(name) <= standard_chars:
+            tiers.append("よくある字")
+        else:
+            tiers.append("その他")
+    return tiers
+
+
+# 名の一覧ごとの（名の並び, 累積の重み）と、名前の一覧ごとの集合。約1万個の一覧を呼ぶたびに数え直さないよう、一覧ごとに1回だけ作る。
+# 鍵は一覧の id。同じ一覧かどうかは参照と長さで確かめる（参照を持つので id が別の一覧に使い回されることはない）。
+_JAPANESE_GIVEN_NAME_TABLES: dict[int, tuple[Any, int, tuple[tuple[str, ...], list[float]]]] = {}
+_NAME_LIST_SETS: dict[int, tuple[Any, int, frozenset[str]]] = {}
+
+
+def japanese_given_name_table(given_names: list[Any] | tuple[Any, ...]) -> tuple[tuple[str, ...], list[float]]:
+    cached = _JAPANESE_GIVEN_NAME_TABLES.get(id(given_names))
+    if cached is not None and cached[0] is given_names and cached[1] == len(given_names):
+        return cached[2]
+    weights_by_tier = load_japanese_given_name_weight_config()["重み"]
+    names = tuple(str(name) for name in given_names)
+    cum_weights = list(itertools.accumulate(float(weights_by_tier[tier]) for tier in japanese_given_name_tiers(names)))
+    table = (names, cum_weights)
+    _JAPANESE_GIVEN_NAME_TABLES[id(given_names)] = (given_names, len(given_names), table)
+    return table
+
+
+def name_list_set(values: Any) -> frozenset[str]:
+    """名前の一覧を集合にして使い回す（名前の判定で、一覧を毎回先頭から調べないため）。"""
+    if not values:
+        return frozenset()
+    cached = _NAME_LIST_SETS.get(id(values))
+    if cached is not None and cached[0] is values and cached[1] == len(values):
+        return cached[2]
+    result = frozenset(values)
+    _NAME_LIST_SETS[id(values)] = (values, len(values), result)
+    return result
 
 
 def choose_japanese_identity(rng: random.Random, names: dict[str, Any], surname_master: dict[str, dict[str, tuple[Any, ...]]] | None = None) -> tuple[str, str]:
@@ -5496,9 +5570,11 @@ def fallback_skin_color(seed: int, nationality: str, name: str) -> int:
 
 def name_matches_entry(name: str, entry: Any) -> bool:
     if isinstance(entry, dict):
-        surnames = entry.get("姓", [])
-        given_names = entry.get("名", [])
-        return any(name.startswith(f"{surname} ") for surname in surnames) and any(name.endswith(f" {given}") for given in given_names)
+        surnames = name_list_set(entry.get("姓", []))
+        given_names = name_list_set(entry.get("名", []))
+        # 「姓＋空白」で始まり「空白＋名」で終わるか。空白の位置ごとに前と後ろを集合で引く（一覧を先頭から調べない）
+        spaces = [index for index, char in enumerate(name) if char == " "]
+        return any(name[:index] in surnames for index in spaces) and any(name[index + 1:] in given_names for index in spaces)
     if isinstance(entry, list):
         return name in entry
     return False
@@ -5509,7 +5585,7 @@ def japanese_name_matches_surname_master(name: str, master: MasterData, birthpla
     if not isinstance(entry, dict):
         return False
     parts = str(name or "").split()
-    if len(parts) != 2 or parts[1] not in entry.get("名", []):
+    if len(parts) != 2 or parts[1] not in name_list_set(entry.get("名", [])):
         return False
 
     surname = parts[0]
@@ -9708,6 +9784,7 @@ def generate_team(team_seed: int | None = None, team_name: str = "", master: Mas
     left_remaining = left_target
     pitchers_remaining = sum(pitcher_slots.values())
     relaxed = {level: 0 for level in TEAM_MODE_RELAX_LABELS}
+    name_retries = 0  # 同じ名前の選手が出て作り直した回数（日本人の名前_改修指示.md 2-1 の判定に使う）
     domestic_players: list[dict[str, Any]] = []
     lookahead: dict[str, Any] = {"cells": None}
 
@@ -9801,7 +9878,10 @@ def generate_team(team_seed: int | None = None, team_name: str = "", master: Mas
                     team_profile=profile,
                     accept=partial(slot_accepts, slot=slot, level=level),
                 )
-                if candidate is None or str(candidate["name"]) in used_names:
+                if candidate is None:
+                    continue
+                if str(candidate["name"]) in used_names:
+                    name_retries += 1
                     continue
                 # 能力の調整後にポジションなどが変わっていないか、完成した選手でも確かめる
                 if not slot_accepts(candidate, slot, level, final=True):
@@ -9867,6 +9947,7 @@ def generate_team(team_seed: int | None = None, team_name: str = "", master: Mas
         "type_targets": type_goal,
         "warnings": warnings,
         "relaxed": {TEAM_MODE_RELAX_LABELS[level]: count for level, count in relaxed.items()},
+        "name_retries": name_retries,
         "elapsed_seconds": round(time.perf_counter() - started, 3),
         "players": players,
     }
