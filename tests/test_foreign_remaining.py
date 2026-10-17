@@ -104,6 +104,8 @@ def fingerprint(player: dict) -> str:
 # （改修前の app.py・names.json で元の指紋を再現でき、名前と肌の色を除いた指紋は改修前と一致することを確かめた）。
 # 投手の球速の形_改修指示.md（22歳以上の球速を分位の対応表で実在の分布へ写した）で、架空球団用の日本人の投手の球速と、球速から決まる項目（肩力・変化球・特能・ランク特能。共通の乱数を引く回数が変わるので身長・体重も一部）だけ変わった分（10人）も更新した
 # （app.FICTIONAL_PITCHER_SPEED_SHAPE_OVERRIDE = {} で表を空にすると元の指紋を再現できることを確かめた）。
+# 投手の特能と球速_改修指示.md（日本人の投手の6特能の付け替えの重みに球速を足した）で、架空球団用の日本人の投手の特能だけ変わった分（5人）も更新した
+# （app.FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE に改修前の表を入れると元の指紋を再現できることを確かめた）。
 UNCHANGED_PATH = Path(__file__).resolve().parent / "fixtures" / "foreign_remaining_unchanged.json"
 
 

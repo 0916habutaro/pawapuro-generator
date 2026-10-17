@@ -130,11 +130,16 @@ def test_players_matching_the_abilities_hold_the_specials():
 
 def test_table_covers_the_common_draft_specials():
     # 対象は保有率3%以上の特能（投手12・野手9）。重みは日本人の表と同じ。矛盾の付け替えは使わない
+    # （投手の特能と球速_改修指示.md で日本人の投手の6特能の重みに球速を足したが、ドラフト候補用は変えていない。
+    # その6特能のうちドラフト候補用にあるキレ○・逃げ球・負け運は改修前の日本人の重みのまま）
     t, jp = table(), app.load_fictional_ability_special_link()[app.FICTIONAL_ABILITY_SPECIAL_LINK_PART]
     assert len(t["特能"]["投手"]) == 12 and len(t["特能"]["野手"]) == 9
+    kept = {"キレ○": {"コントロール": 0.46, "スタミナ": 0.64, "総変化量": 1.19}, "逃げ球": {"コントロール": 0.52, "スタミナ": 0.59, "総変化量": 0.82},
+            "負け運": {"コントロール": 0.97, "スタミナ": 0.85, "総変化量": 0.77}}
     for role in ("投手", "野手"):
         for name, entry in t["特能"][role].items():
-            assert entry["w"] == jp["特能"][role][name]["w"], (role, name)
+            expected = kept[name] if role == "投手" and name in kept else jp["特能"][role][name]["w"]
+            assert entry["w"] == expected, (role, name)
     assert t["除く割合"] == jp["除く割合"] and t["矛盾の付け替え"] is False
     strikeout = t["特能"]["投手"]["奪三振"]
     assert strikeout["w"] == {"総変化量": 1.0} and all(seg["rho"] == 0.0 for seg in strikeout["区分"].values())
