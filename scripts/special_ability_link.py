@@ -16,6 +16,9 @@
   差は √(SD持つ²/人数持つ + SD持たない²/人数持たない)、保有率は √(p(1−p)/人数)、相関は (1−r²)/√(人数−1)。
 - 日本人の奪三振は、重みを総変化量だけにした（球速は帯の保有率で結びつけている。`能力との結びつき_外国人_改修指示.md` 1-5）。
   差の範囲は実在±0.2（TOL_DIFF_BY_NAME）。
+- 日本人投手の6特能（SPEED_DIFF_SPECIALS。`投手の特能と球速_改修指示.md` 3-2）は、球速の差（標準化した球速の持つ−持たない。
+  実在のSD単位）も実在±0.4で判定する（合成値の重みに球速を足した特能。改修前は全体の強さを除いた分だけ遅い投手が持っていた）。
+  実在の能力ごとの差は special_ability_link_real.json の「能力の差」。
 - 助っ人外国人用（`能力との結びつき_外国人_改修指示.md` 2-1）: 表の区分「助っ人外国人用」の25特能について、差（目標±0.4）と
   役割全体の保有率（改修前±2ポイント）を、球団生成の外国人で判定する（check_foreign_balance.py が foreign_checks を呼ぶ）。
   能力は外国人の実在の平均・SD（投手は先発・救援ごと、野手は全ポジション同じ外国人の野手全体の値）で標準化する。
@@ -63,7 +66,10 @@ TOL_DIFF, TOL_RATE_BEFORE, TOL_RATE_REAL, TOL_CORR = 0.4, 1.0, 3.0, 0.08
 TOL_DIFF_BY_NAME = {("投手", "奪三振"): 0.2}
 # 外国人の合格の範囲（外国人の指示書2-1）と、目標に外国人の実在を使う最少の人数（持つ選手の異なる選手の数）
 FOREIGN_TOL_DIFF, FOREIGN_TOL_RATE_BEFORE, FOREIGN_MIN_HOLDERS = 0.4, 2.0, 8
+# 球速の差を判定する日本人投手の特能と範囲（`投手の特能と球速_改修指示.md` 3-2）
+SPEED_DIFF_SPECIALS, TOL_SPEED_DIFF = ("キレ○", "逃げ球", "負け運", "力配分", "要所○", "ポーカーフェイス"), 0.4
 SECTIONS = {
+    "speed_diff": "能力と特能の結びつき: 投手の6特能の、球速で見た持つ選手と持たない選手の差（実在のSD単位。実在±0.4）",
     "diff": "能力と特能の結びつき: 能力の合成値 z で見た、持つ選手と持たない選手の差（実在±0.4。実在は2024〜2026年版の日本人）",
     "rate": "能力と特能の結びつき: 対象の特能の保有率（役割全体、%。改修前±1.0ポイント かつ 実在±3ポイント）",
     "corr": "能力と特能の結びつき: 能力の総合と特能の数の相関（実在±0.08）",
@@ -71,6 +77,7 @@ SECTIONS = {
 # 改修前（球団生成 seed 1〜300、PYTHONHASHSEED=0、main 88dfc00。PC で測った）の値。
 # 保有率（%）は判定の範囲（改修前±1.0ポイント）に使う。差・相関は表示用。
 # 奪三振の差は、重みを総変化量だけにしたので、PR #130 の後（main 014b31a）の生成を新しい重みで測った値（表示用）。
+# 球速の差は、投手の6特能の重みに球速を足す前（main f22e2fc、球団生成 seed 1〜300、PYTHONHASHSEED=0。PC）の値（表示用。`投手の特能と球速_改修指示.md`）。
 BEFORE: dict[str, Any] = {
     "差": {
         "投手": {"キレ○": 0.42, "ゴロピッチャー": 0.18, "テンポ○": 0.24, "ポーカーフェイス": 0.27, "乱調": 0.23, "力配分": 0.23, "変化球中心": 0.22, "奪三振": 0.12, "寸前": 0.34, "打球反応○": 0.28, "緊急登板○": 0.09, "緩急○": 0.45, "要所○": 0.62, "負け運": 0.22, "逃げ球": 0.88, "速球中心": -0.03},
@@ -80,6 +87,7 @@ BEFORE: dict[str, Any] = {
         "投手": {"キレ○": 14.1, "ゴロピッチャー": 5.7, "テンポ○": 7.3, "ポーカーフェイス": 5.6, "乱調": 3.6, "力配分": 4.4, "変化球中心": 13.6, "奪三振": 25.7, "寸前": 4.0, "打球反応○": 6.7, "緊急登板○": 8.1, "緩急○": 17.0, "要所○": 3.8, "負け運": 5.2, "逃げ球": 22.0, "速球中心": 12.1},
         "野手": {"お祭り男": 4.0, "カット打ち": 7.9, "チームプレイ○": 8.2, "ハイボールヒッター": 4.0, "プルヒッター": 6.6, "ホーム死守": 2.6, "ホーム突入": 3.8, "マルチ弾": 4.6, "ミート多用": 9.0, "レーザービーム": 1.5, "三振": 32.1, "併殺": 14.9, "内野安打○": 18.9, "守備職人": 2.3, "対ストレート○": 6.5, "広角打法": 4.8, "強振多用": 9.3, "悪球打ち": 4.3, "意外性": 4.0, "決勝打": 10.3, "積極守備": 16.2, "積極盗塁": 12.0, "積極走塁": 16.7, "逆境○": 5.9},
     },
+    "球速の差": {"キレ○": -0.7, "逃げ球": -0.37, "負け運": -1.08, "力配分": -0.61, "要所○": -0.36, "ポーカーフェイス": -0.9},
     "相関": {
         "投手": {"n_blue": 0.45, "n_red": -0.1, "n_green": 0.09},
         "野手": {"n_blue": 0.5, "n_red": -0.03, "n_green": 0.23},
@@ -155,6 +163,16 @@ def correlation(x: pd.Series, y: pd.Series) -> float:
     return float(np.corrcoef(x, y)[0, 1])
 
 
+def ability_difference(values: pd.Series, held: pd.Series) -> dict[str, float]:
+    """標準化した能力1つの、持つ選手と持たない選手の差（実在のSD単位）と、それぞれのSD。"""
+    ok = values.notna()
+    v1, v0 = values[ok & held], values[ok & ~held]
+    return {
+        "差": round(float(v1.mean() - v0.mean()), 4) if len(v1) and len(v0) else math.nan,
+        "SD持つ": round(float(v1.std()), 4) if len(v1) > 1 else math.nan, "SD持たない": round(float(v0.std()), 4) if len(v0) > 1 else math.nan,
+    }
+
+
 def role_statistics(frame: pd.DataFrame, role: str, stats: dict[str, dict[str, list[float]]], table: dict[str, Any],
                     names: pd.Series | None = None) -> dict[str, Any]:
     """役割の、特能ごとの差・保有率と、能力の総合と特能の数の相関。names（選手の名前）を渡すと異なる選手の数も数える。"""
@@ -171,6 +189,7 @@ def role_statistics(frame: pd.DataFrame, role: str, stats: dict[str, dict[str, l
             "保有率": round(float(held.mean() * 100), 3), "人数": int(len(rows)),
             "SD持つ": round(float(z1.std()), 4) if len(z1) > 1 else math.nan, "SD持たない": round(float(z0.std()), 4) if len(z0) > 1 else math.nan,
         }
+        item["能力の差"] = {key: ability_difference(std[key], held) for key in ABILITIES[role]}
         if names is not None:
             item.update({"異なる選手の数": int(names[rows.index].nunique()),
                          "持つ（異なる選手の数）": int(names[z1.index].nunique()), "持たない（異なる選手の数）": int(names[z0.index].nunique())})
@@ -325,6 +344,11 @@ def ability_checks(checks: Checks, frame: pd.DataFrame, prefix: str, kind: str) 
             checks.add(f"{prefix}.ability_link.{role}_{name}_diff", kind, f"{role} {name} 持つ−持たない（z）", value, rv - tol, rv + tol,
                        section=SECTIONS["diff"], shown="nan" if math.isnan(value) else f"{value:+.2f}",
                        target=f"{rv - tol:+.2f}〜{rv + tol:+.2f}", real=f"{rv:+.2f}", direction="")
+        for name in SPEED_DIFF_SPECIALS if role == "投手" else ():
+            value, rv = now[role]["特能"][name]["能力の差"]["球速"]["差"], real[role]["特能"][name]["能力の差"]["球速"]["差"]
+            checks.add(f"{prefix}.ability_link.{role}_{name}_球速_diff", kind, f"{role} {name} 球速 持つ−持たない", value, rv - TOL_SPEED_DIFF, rv + TOL_SPEED_DIFF,
+                       section=SECTIONS["speed_diff"], shown="nan" if math.isnan(value) else f"{value:+.2f}",
+                       target=f"{rv - TOL_SPEED_DIFF:+.2f}〜{rv + TOL_SPEED_DIFF:+.2f}", real=f"{rv:+.2f}", direction="")
         for name, item in now[role]["特能"].items():
             r = real[role]["特能"][name]
             value, rv = item["保有率"], r["保有率"]
@@ -359,6 +383,10 @@ def real_errors(prefix: str) -> dict[str, float]:
             se[f"{prefix}.ability_link.{role}_{name}_diff"] = (math.sqrt(r["SD持つ"] ** 2 / n1 + r["SD持たない"] ** 2 / n0)
                                                                if n1 > 1 and n0 > 1 else math.nan)
             se[f"{prefix}.ability_link.{role}_{name}_rate"] = share_se(r["保有率"], r["異なる選手の数"])
+            if role == "投手" and name in SPEED_DIFF_SPECIALS:
+                a = r["能力の差"]["球速"]
+                se[f"{prefix}.ability_link.{role}_{name}_球速_diff"] = (math.sqrt(a["SD持つ"] ** 2 / n1 + a["SD持たない"] ** 2 / n0)
+                                                                     if n1 > 1 and n0 > 1 else math.nan)
         for column, _label in COLORS:
             r = real[role]["相関"][column]
             se[f"{prefix}.ability_link.corr_{role}_{column}"] = (1 - r["相関"] ** 2) / math.sqrt(r["異なる選手の数"] - 1)
@@ -379,6 +407,10 @@ def print_reference(frame: pd.DataFrame, before: bool = True) -> None:
             if before and BEFORE:
                 row["保有率 改修前"] = BEFORE.get("保有率", {}).get(role, {}).get(name)
             row.update({"保有率 今回": round(item["保有率"], 1), "保有率 実在": round(r["保有率"], 1)})
+            if role == "投手" and "能力の差" in r:
+                if before and BEFORE:
+                    row["球速の差 改修前"] = BEFORE.get("球速の差", {}).get(name)
+                row.update({"球速の差 今回": round(item["能力の差"]["球速"]["差"], 2), "球速の差 実在": round(r["能力の差"]["球速"]["差"], 2)})
             rows.append(row)
         print(f"\n[能力と特能の結びつき {role}（差は能力の合成値 z の持つ−持たない、保有率は%。参考）]")
         print(pd.DataFrame(rows).to_string(index=False))

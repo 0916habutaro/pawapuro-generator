@@ -35,6 +35,8 @@ def fingerprint(value):
 # 投手の球速の形_改修指示.md（22歳以上の球速を分位の対応表で実在の分布へ写した）で、架空球団用の投手13人と team_roster 2件（中の日本人投手）の
 # 球速と、球速から決まる項目（肩力・変化球・特能・ランク特能。共通の乱数を引く回数が変わるので身長・体重も一部）が変わった分を更新した
 # （app.FICTIONAL_PITCHER_SPEED_SHAPE_OVERRIDE = {} で表を空にすると元の指紋を再現できることを確かめた）。
+# 投手の特能と球速_改修指示.md（日本人の投手の6特能の付け替えの重みに球速を足した）で、架空球団用の投手3人と team_roster 2件（中の日本人投手）の
+# 特能が変わった分を更新した（app.FICTIONAL_ABILITY_SPECIAL_LINK_OVERRIDE に改修前の表を入れると元の指紋を再現できることを確かめた）。
 # 改修前の app.py で作った指紋と比べるスクリプト。PYTHONHASHSEED を固定した別プロセスで比べる
 # （ハッシュによらないことは test_hash_independence.py で確かめている。念のための固定）。
 BASELINE_SCRIPT = r"""
