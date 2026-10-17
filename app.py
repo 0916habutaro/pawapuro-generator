@@ -1,3 +1,4 @@
+import bisect
 import csv
 import copy
 import hashlib
@@ -6909,6 +6910,17 @@ FICTIONAL_PITCHER_HAND_SPEED_TAILS = {
     ("救援", "右"): ((149.0, 0.5, False),),
     ("救援", "左"): ((151.0, 0.55, True),),
 }
+# 球速の分布の形（`投手の球速の形_改修指示.md` 1-1）。22歳以上だけ、投げ手ごとの裾をかけたあと（四捨五入の前）に、
+# 役割×投げ手ごとに順位を保ったまま実在の分布へ写す（分位の対応表。範囲の外は傾き1で延ばす）。
+# 写す前に −0.5〜0.5 の一様乱数を足して、整数に固まった値をならす（専用の副乱数から1回引く）。
+# 表は data/config/fictional_pitcher_speed_shape.json（scripts/pitcher_speed_shape.py --build で作る）。
+# from は生成から作るので、球速より前の処理を変えたら作り直す。
+FICTIONAL_PITCHER_SPEED_SHAPE_NAMESPACE = "fictional_pitcher_speed_shape_v1"
+FICTIONAL_PITCHER_SPEED_SHAPE_PATH = DATA_DIR / "config" / "fictional_pitcher_speed_shape.json"
+# 表を作るスクリプトが表を差し替えるための変数（None なら data/config の表を使う。{} なら写さない）。
+FICTIONAL_PITCHER_SPEED_SHAPE_OVERRIDE: dict[str, Any] | None = None
+# 表を作るスクリプトが、写す前の値（役割|投げ手, 値）を集めるためのリスト（None なら集めない）。
+FICTIONAL_PITCHER_SPEED_SHAPE_TRACE: list[tuple[str, float]] | None = None
 # 救援（中継ぎ・抑え）のコントロールの幅を縮める。control = 中心 + 倍率 × (control − 中心)。
 # 倍率は投げ手ごとに（中心より下, 中心より上）。既存処理は救援の幅が実在（標準偏差 右10.0・左11.4）より広く、
 # 60以上が実在の約1.6倍いる。実在の救援は上側に裾が長い（70以上も2.5%いる）形なので、下側を強めに縮める。
@@ -8460,6 +8472,37 @@ def fictional_adjust_physique(rng: random.Random, player: dict[str, Any], role: 
     player.update({"height": height, "weight": weight, "height_cm": height, "weight_kg": weight})
 
 
+@lru_cache(maxsize=1)
+def load_fictional_pitcher_speed_shape() -> dict[str, Any]:
+    """球速の分布の形を写す表。ファイルがなければ空（写さない）。"""
+    if not FICTIONAL_PITCHER_SPEED_SHAPE_PATH.exists():
+        return {}
+    return json.loads(FICTIONAL_PITCHER_SPEED_SHAPE_PATH.read_text(encoding="utf-8"))
+
+
+def map_speed_by_quantiles(x: float, source: list[float], target: list[float]) -> float:
+    """source の分位を target の分位へ写す折れ線（順位を保つ）。範囲の外は傾き1で延ばす。"""
+    if x <= source[0]:
+        return target[0] + (x - source[0])
+    if x >= source[-1]:
+        return target[-1] + (x - source[-1])
+    index = bisect.bisect_right(source, x)
+    x0, x1, y0, y1 = source[index - 1], source[index], target[index - 1], target[index]
+    return y0 if x1 <= x0 else y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+
+
+def fictional_pitcher_speed_shape(speed: float, hand_key: tuple[str, str], seed: int) -> float:
+    """22歳以上の球速（四捨五入の前）を、役割×投げ手ごとの分位の対応表で実在の分布へ写す（`投手の球速の形_改修指示.md` 1-1）。"""
+    key = f"{hand_key[0]}|{hand_key[1]}"
+    x = speed + make_sub_rng(seed, FICTIONAL_PITCHER_SPEED_SHAPE_NAMESPACE).random() - 0.5
+    if FICTIONAL_PITCHER_SPEED_SHAPE_TRACE is not None:
+        FICTIONAL_PITCHER_SPEED_SHAPE_TRACE.append((key, x))
+    table = FICTIONAL_PITCHER_SPEED_SHAPE_OVERRIDE if FICTIONAL_PITCHER_SPEED_SHAPE_OVERRIDE is not None else load_fictional_pitcher_speed_shape()
+    if key not in table:
+        return speed
+    return map_speed_by_quantiles(x, table[key]["from"], table[key]["to"])
+
+
 def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: MasterData) -> dict[str, Any]:
     """架空球団の日本人投手を、実在12球団の日本人投手の傾向に合わせて部分的に直す。"""
     rng = make_sub_rng(seed, FICTIONAL_PITCHER_BALANCE_NAMESPACE)
@@ -8483,6 +8526,9 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     speed = shape_speed(speed + hand_shift)
     for pivot, factor, upper in FICTIONAL_PITCHER_HAND_SPEED_TAILS[hand_key]:
         speed = compress_tail(speed, pivot, factor, upper)
+    age = int(player.get("age") or 0)
+    if age > FICTIONAL_YOUNG_MAX_AGE:
+        speed = fictional_pitcher_speed_shape(speed, hand_key, seed)
     speed = round(speed)
     control = float(ability_numeric_value(abilities, "コントロール") or 50) + control_shift
     control += FICTIONAL_CONTROL_PER_SPEED * (linked_speed - FICTIONAL_PITCHER_SPEED_CENTER)
@@ -8498,7 +8544,6 @@ def apply_fictional_pitcher_balance(player: dict[str, Any], seed: int, master: M
     stamina += FICTIONAL_STAMINA_PER_CONTROL * (linked_control - FICTIONAL_PITCHER_CONTROL_CENTER)
     stamina += FICTIONAL_STAMINA_PER_SPEED * (linked_speed - FICTIONAL_PITCHER_SPEED_CENTER)
     stamina = clamp(round(stamina), 15, 100)
-    age = int(player.get("age") or 0)
     if hand_key[0] == "救援" and age > FICTIONAL_YOUNG_MAX_AGE:
         t = FICTIONAL_RELIEVER_STAMINA_TRANSFORM
         stamina = t["S0"] + t["A"] * (stamina - t["S0"]) - t["B"] * (control - t["C0"]) + t["D"]
