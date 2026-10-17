@@ -321,6 +321,9 @@ def _spread_record(team: dict[str, Any]) -> dict[str, Any]:
         "class_counts": {f"{role}|{label}": counts.get((role, label), 0) for role, label in SPREAD_CLASS_ROWS},
         "archetype_counts": {f"{role}|{label}": count for (role, label), count in archetypes.items()},
         "style_counts": {f"{role}|{label}": count for (role, label), count in styles.items()},
+        # 日本人の名前（日本人の名前_改修指示.md 2-1）: 日本人の名（下の名前）と、同じ名前による作り直しの回数
+        "japanese_given_names": [str(p.get("name", "")).split(" ", 1)[-1] for p in domestic if p.get("nationality") == "日本"],
+        "name_retries": int(team.get("name_retries", 0)),
     }
 
 
@@ -801,6 +804,54 @@ def uniform_detail_tables(records: list[dict[str, Any]]) -> tuple[dict[str, pd.D
     return {"foreign_rate": foreign_rate, "foreign_range": foreign_range, "age": age_table, "high": high}, C
 
 
+# ---------------------------------------------------------------------------
+# 日本人の名前（日本人の名前_改修指示.md 2-1）。散らばりの節と同じ球団生成300球団の日本人で判定する
+# ---------------------------------------------------------------------------
+JAPANESE_NAME_TIER_MARGIN = 2.0  # 段ごとの割合: 名の数と重みから出した割合±2ポイント
+JAPANESE_NAME_TOP_SHARE_MAX = 0.8  # 同じ名がいちばん多い数: 全体の0.8%以下
+JAPANESE_NAME_RETRIES_MAX = 0.05  # 同じ名前（姓名とも同じ）による作り直し: 1球団あたり0.05回以下
+JAPANESE_NAME_RETRIES_BEFORE = 0.057  # 改修前（名53個を同じ確率で選んでいたとき）の値。seed 1〜300 で 17回
+JAPANESE_NAME_EXCLUDED = ("潮吹",)  # 一覧から外した名前
+
+
+def japanese_name_tables(records: list[dict[str, Any]]) -> tuple[pd.DataFrame, Checks]:
+    import app
+
+    C = Checks(SCRIPT)
+    sec = "日本人の名前"
+    key = f"{SCRIPT}.japanese_names"
+    given_list = app.load_master_data().names["日本"]["名"]
+    tier_of = dict(zip(given_list, app.japanese_given_name_tiers(given_list)))
+    weights = app.load_japanese_given_name_weight_config()["重み"]
+    tier_counts = Counter(tier_of.values())
+    weight_total = sum(tier_counts[tier] * float(weights[tier]) for tier in app.JAPANESE_GIVEN_NAME_TIERS)
+    names = [name for record in records for name in record["japanese_given_names"]]
+    total = len(names)
+    generated = Counter(tier_of.get(name, "") for name in names)
+    rows = []
+    for tier in app.JAPANESE_GIVEN_NAME_TIERS:
+        expected = 100 * tier_counts[tier] * float(weights[tier]) / weight_total
+        share = 100 * generated[tier] / total if total else math.nan
+        low, high = expected - JAPANESE_NAME_TIER_MARGIN, expected + JAPANESE_NAME_TIER_MARGIN
+        C.add(f"{key}.tier.{tier}", "設計", f"日本人の名: {tier}の段の割合 {expected:.1f}%±{JAPANESE_NAME_TIER_MARGIN:g}ポイント", share, low, high,
+              section=sec, shown=f"{share:.1f}%", target=f"{low:.1f}〜{high:.1f}%")
+        rows.append({"段": tier, "名の数": tier_counts[tier], "重み": weights[tier], "選ばれる割合（名の数と重みから）": f"{expected:.1f}%",
+                     "生成の人数": generated[tier], "生成の割合": f"{share:.1f}%"})
+    top_name, top_count = Counter(names).most_common(1)[0] if names else ("", 0)
+    top_share = 100 * top_count / total if total else math.nan
+    C.add(f"{key}.top_given_share", "設計", f"日本人の名: 同じ名がいちばん多い数が全体の{JAPANESE_NAME_TOP_SHARE_MAX:g}%以下", top_share, None, JAPANESE_NAME_TOP_SHARE_MAX,
+          section=sec, shown=f"{top_name} {top_count}人（{top_share:.2f}%）")
+    retries = sum(record["name_retries"] for record in records) / len(records) if records else math.nan
+    C.add(f"{key}.retries_per_team", "設計", f"同じ名前（姓名とも同じ）による作り直しが1球団あたり{JAPANESE_NAME_RETRIES_MAX:g}回以下", retries, None, JAPANESE_NAME_RETRIES_MAX,
+          section=sec, shown=f"{retries:.3f}回（改修前 {JAPANESE_NAME_RETRIES_BEFORE:g}回）")
+    known = app.name_list_set(given_list)
+    bad = sum(1 for name in names if name not in known or name in JAPANESE_NAME_EXCLUDED)
+    C.add(f"{key}.unknown_given", "設計", "日本人の名: 一覧にない名・「潮吹」が0件", bad, None, 0, section=sec, shown=f"{bad}件")
+    rows.append({"段": "（全体）", "名の数": len(given_list), "重み": "", "選ばれる割合（名の数と重みから）": "100%", "生成の人数": total,
+                 "生成の割合": f"いちばん多い名 {top_name} {top_count}人、作り直し {retries:.3f}回／球団（改修前 {JAPANESE_NAME_RETRIES_BEFORE:g}回）"})
+    return pd.DataFrame(rows), C
+
+
 def spread_section(records: list[dict[str, Any]], output: Path, real_values: dict[str, list[float]]) -> tuple[list[str], Checks]:
     table, class_table, C = spread_tables(records, real_values)
     table.to_csv(output / "spread_metrics.csv", index=False, encoding="utf-8-sig")
@@ -821,6 +872,10 @@ def spread_section(records: list[dict[str, Any]], output: Path, real_values: dic
         "### 選手格の人数（国内選手、1球団あたり）", "",
         to_markdown(class_table), "",
     ]
+    if records and "japanese_given_names" in records[0]:
+        name_table, _name_checks = japanese_name_tables(records)
+        name_table.to_csv(output / "japanese_names.csv", index=False, encoding="utf-8-sig")
+        lines += ["### 日本人の名前（日本人の名前_改修指示.md 2-1）", "", to_markdown(name_table), ""]
     return lines, C
 
 
@@ -906,6 +961,7 @@ def build(data: dict[str, list[dict[str, Any]]], real: dict[str, Any]) -> tuple[
         spread_table, class_table, spread = spread_tables(data["spread"], real["spread_values"])
         tables["spread"], tables["spread_class"] = spread_table, class_table
         C.extend(spread)
+        C.extend(japanese_name_tables(data["spread"])[1])
     return C, tables
 
 
@@ -1134,8 +1190,8 @@ def grade_spread_only(spread_records: list[dict[str, Any]], boot: int, quick: bo
     """球団ごとの散らばりだけの判定（--spread-only）。"""
     data = {"main": [], "spread": slim(spread_records)}
     real = real_context()
-    checks = spread_tables(data["spread"], real["spread_values"])[2]
-    evaluate = lambda d: spread_tables(d, real["spread_values"])[2]  # noqa: E731
+    checks = [*spread_tables(data["spread"], real["spread_values"])[2], *japanese_name_tables(data["spread"])[1]]
+    evaluate = lambda d: [*spread_tables(d, real["spread_values"])[2], *japanese_name_tables(d)[1]]  # noqa: E731
     se_gen = checklib.bootstrap_se(evaluate, data["spread"], checklib.resample_list, n=boot) if boot else {}
     se_real = real_se_map({"spread": data["spread"]}, boot)
     se_real = {key: value for key, value in se_real.items() if key.startswith(f"{SCRIPT}.spread.")}
