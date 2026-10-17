@@ -12,6 +12,8 @@
   救援で60以上・70以上の割合、日本人全体の平均、先発のスタミナ・総変化量（`投手の仕上げ_改修指示.md` 2-1）。
 - 救援のスタミナ（`救援スタミナ相関_改修指示.md` 3-1）: コントロール×スタミナの相関（救援・右・左・全体）、
   救援のスタミナの平均（全体・右・左）・標準偏差・10%・中央・90%、スタミナ×査定の相関（救援）。
+- 球速の形（`投手の球速の形_改修指示.md` 2-1）: 役割×投げ手の4区分ごとの3km刻みの割合・1km刻みの全変動距離、先発右の148kmの割合。
+  実在の値は data/config/pitcher_speed_shape_real.json（scripts/pitcher_speed_shape.py --build-real）。判定は pitcher_speed_shape.shape_checks。
 - 参考表示（判定しない）: 球団ごとの平均（救援・先発、外国人を含む。球団分析と同じ集計）の分布、
   年齢帯×役割のコントロール（実在は2026年版の12球団だけ）。
   球団ごとの散らばりは戦力レベルによる選手格の構成で決まるため、今回の調整の対象外（指示書 0-4）。
@@ -37,6 +39,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import checklib  # noqa: E402
+import pitcher_speed_shape  # noqa: E402
 from check_fictional_balance import (  # noqa: E402
     Result, control_hand_rows, movement_rows, num, ok_range, reliever_stamina_rows, starter_stamina_rows,
 )
@@ -122,6 +125,7 @@ def evaluate(frame: pd.DataFrame) -> Result:
     movement_rows(R, s, group, japanese["コントロール"], japanese["スタミナ"], japanese["総変化量"], japanese["rating"], japanese["team_key"], formal=True)
     s = "救援のスタミナ（実在は2024〜2026年版の日本人。救援スタミナ相関_改修指示.md）"
     reliever_stamina_rows(R, s, group, hand, japanese["コントロール"], japanese["スタミナ"], japanese["rating"], formal=True)
+    pitcher_speed_shape.shape_checks(R.checks, group, hand, japanese["球速"], SCRIPT)
     s = "相関（参考。判定は check_fictional_balance.py の個別生成5000人）"
     ct = japanese["コントロール"]
     R.add(s, "球速×コントロール相関", num(japanese["球速"].corr(ct), 3), ok_range(japanese["球速"].corr(ct)), "−0.40〜−0.15", "−0.274", info=True)
@@ -152,6 +156,11 @@ def grade_all(frame: pd.DataFrame, boot: int, quick: bool = False) -> list[check
     se_gen = checklib.bootstrap_se(evaluate_checks, frame, lambda f, rng: checklib.resample_frame(f, rng, "team_key"), n=boot) if boot else {}
     real = real_japanese_pitchers() if boot else None
     se_real = checklib.bootstrap_se(evaluate_checks, real, checklib.resample_frame, n=boot) if real is not None else {}
+    # 球速の形は、実在側の誤差を異なる選手の数で出す（全変動距離・148kmの割合は範囲に実在の揺れを入れたので、生成側の誤差だけ）
+    if boot:
+        for key in pitcher_speed_shape.shape_ids(SCRIPT):
+            se_real.pop(key, None)
+        se_real.update(pitcher_speed_shape.shape_real_errors(SCRIPT))
     return checklib.grade(checks, se_gen=se_gen, se_real=se_real, all_info=quick)
 
 
